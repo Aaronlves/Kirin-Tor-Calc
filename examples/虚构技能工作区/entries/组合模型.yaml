@@ -1,0 +1,20 @@
+schema_version: 1
+id: combo
+name: 双技能组合（虚构）
+type: entry
+template: model
+description: 完全虚构的组合验收模型。
+game_version: fictional
+validation_status: example_only
+inputs:
+  crit:
+    domain: probability
+    default: "0.10"
+    min: "0"
+    max: "1"
+fields: {}
+functions: {}
+outputs:
+  total:
+    expression: skill_a.expected(crit) + 2 * skill_b.expected(crit)
+    unit: damage

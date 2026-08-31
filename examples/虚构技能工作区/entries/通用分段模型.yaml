@@ -1,0 +1,56 @@
+schema_version: 1
+id: aoe_pattern
+name: 通用分段与布尔表达式示例（虚构）
+type: entry
+template: data
+description: 从附件中的通用公式形状抽象出的能力测试，不代表任何实际技能公式。
+validation_status: expression_capability_example
+inputs:
+  targets:
+    domain: positive_integer
+    default: "6"
+    min: "1"
+    max: "20"
+  talent_enabled:
+    value_type: boolean
+    unit: dimensionless
+    default: true
+  bonus:
+    domain: probability
+    default: "0.30"
+constraints:
+  - targets >= 1 and targets <= 20
+fields:
+  base_damage:
+    kind: value
+    value: "100"
+    unit: damage
+  talent_multiplier:
+    kind: expression
+    expression: |
+      if_else(
+        talent_enabled and targets >= 3,
+        1 + bonus,
+        1
+      )
+    unit: dimensionless
+functions:
+  scaled:
+    parameters:
+      n:
+        domain: positive_integer
+        min: "1"
+        max: "20"
+    expression: |
+      if_else(
+        n > 5,
+        sqrt(n * 5) * base_damage,
+        n * base_damage
+      )
+    unit: damage
+outputs:
+  total:
+    expression: |
+      scaled(targets) *
+      talent_multiplier
+    unit: damage

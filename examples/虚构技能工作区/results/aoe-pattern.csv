@@ -1,0 +1,11 @@
+x,x_approximate,x_unit,parameters_json,dependency_ids_json,precision,display_digits,aoe_pattern.total,aoe_pattern.total__approximate,aoe_pattern.total__error,aoe_pattern.total__unit
+1,1.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,100,100.000000000,,damage
+2,2.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,200,200.000000000,,damage
+3,3.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,390,390.000000000,,damage
+4,4.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,520,520.000000000,,damage
+5,5.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,650,650.000000000,,damage
+6,6.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,130*sqrt(30),712.039324757,,damage
+7,7.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,130*sqrt(35),769.090371803,,damage
+8,8.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,260*sqrt(10),822.192191644,,damage
+9,9.00000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,390*sqrt(5),872.066511225,,damage
+10,10.0000000000,dimensionless,"{""aoe_pattern.bonus"": ""3/10"", ""aoe_pattern.talent_enabled"": ""True""}","[""aoe_pattern""]",30,12,650*sqrt(2),919.238815543,,damage

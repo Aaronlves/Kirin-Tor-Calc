@@ -1,0 +1,248 @@
+{
+  "run_format_version": 2,
+  "run_id": "baseline_2750",
+  "created_at": "2026-08-31T17:50:11.392717+00:00",
+  "operation": "eval",
+  "request": {
+    "target": "combo.total",
+    "scenario": "baseline",
+    "overrides": {},
+    "precision": 30,
+    "display_digits": 12,
+    "timeout_seconds": 10.0,
+    "effective_parameters": {
+      "combo.crit": "1/4"
+    }
+  },
+  "definitions": [
+    {
+      "id": "baseline",
+      "source_sha256": "916132c77b277fa84c35549e28656ddbe7b01d24c0bc407e06e17ff9d4c49b04",
+      "content_sha256": "ea10be9a9f024afad0575182ea71647f94c712bfbb16de63ff49eb4d465ea456",
+      "source_text": "schema_version: 1\nid: baseline\nname: 基线参数（虚构）\ntype: scenario\nvalues:\n  combo.crit: \"0.25\"\n",
+      "content": {
+        "schema_version": 1,
+        "id": "baseline",
+        "name": "基线参数（虚构）",
+        "type": "scenario",
+        "values": {
+          "combo.crit": "0.25"
+        }
+      }
+    },
+    {
+      "id": "combo",
+      "source_sha256": "75b5c2da83686ea9324ef726f9dfe300fcc6d144a795365f28c1a4996722322e",
+      "content_sha256": "e9a787f013554fd97195972235b95b501852644e3a501c083269cc58cd82e371",
+      "source_text": "schema_version: 1\nid: combo\nname: 双技能组合（虚构）\ntype: entry\ntemplate: model\ndescription: 完全虚构的组合验收模型。\ngame_version: fictional\nvalidation_status: example_only\ninputs:\n  crit:\n    domain: probability\n    default: \"0.10\"\n    min: \"0\"\n    max: \"1\"\nfields: {}\nfunctions: {}\noutputs:\n  total:\n    expression: skill_a.expected(crit) + 2 * skill_b.expected(crit)\n    unit: damage\n",
+      "content": {
+        "schema_version": 1,
+        "id": "combo",
+        "name": "双技能组合（虚构）",
+        "type": "entry",
+        "template": "model",
+        "description": "完全虚构的组合验收模型。",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "inputs": {
+          "crit": {
+            "domain": "probability",
+            "default": "0.10",
+            "min": "0",
+            "max": "1"
+          }
+        },
+        "fields": {},
+        "functions": {},
+        "outputs": {
+          "total": {
+            "expression": "skill_a.expected(crit) + 2 * skill_b.expected(crit)",
+            "unit": "damage"
+          }
+        }
+      }
+    },
+    {
+      "id": "example_semantics",
+      "source_sha256": "2b8fbd884e3f45dbe984f9ab593eaf6e3d3a116fb34d3e64eac94b958e53789a",
+      "content_sha256": "fee83f123652dec4fb304c5260fcaa6973c2cf5769225937c1d6798e76d9eb4a",
+      "source_text": "schema_version: 1\nid: example_semantics\nname: 验收示例基础数学语义\ntype: entry\ntemplate: semantics\ndescription: 完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。\nvalidation_status: example_only\nsemantics:\n  dimensions:\n    damage:\n      name: 伤害\n    time:\n      name: 时间\n  units:\n    damage:\n      dimensions: {damage: 1}\n    time:\n      dimensions: {time: 1}\n    damage_per_time:\n      dimensions: {damage: 1, time: -1}\n  domains:\n    probability:\n      value_type: number\n      unit: dimensionless\n      min: \"0\"\n      max: \"1\"\n    positive_integer:\n      value_type: number\n      unit: dimensionless\n      min: \"1\"\n      integer: true\ninputs: {}\nconstraints: []\nfields: {}\nfunctions: {}\noutputs: {}\n",
+      "content": {
+        "schema_version": 1,
+        "id": "example_semantics",
+        "name": "验收示例基础数学语义",
+        "type": "entry",
+        "template": "semantics",
+        "description": "完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。",
+        "validation_status": "example_only",
+        "semantics": {
+          "dimensions": {
+            "damage": {
+              "name": "伤害"
+            },
+            "time": {
+              "name": "时间"
+            }
+          },
+          "units": {
+            "damage": {
+              "dimensions": {
+                "damage": 1
+              }
+            },
+            "time": {
+              "dimensions": {
+                "time": 1
+              }
+            },
+            "damage_per_time": {
+              "dimensions": {
+                "damage": 1,
+                "time": -1
+              }
+            }
+          },
+          "domains": {
+            "probability": {
+              "value_type": "number",
+              "unit": "dimensionless",
+              "min": "0",
+              "max": "1"
+            },
+            "positive_integer": {
+              "value_type": "number",
+              "unit": "dimensionless",
+              "min": "1",
+              "integer": true
+            }
+          }
+        },
+        "inputs": {},
+        "constraints": [],
+        "fields": {},
+        "functions": {},
+        "outputs": {}
+      }
+    },
+    {
+      "id": "skill_a",
+      "source_sha256": "203b16a1a343da222e663b0c18cea04fddb8469428bfd5fef5b6e9a0e434e6b4",
+      "content_sha256": "7a7b66a93f2bc9a8bee7ea10a0c0e7fb36d4b711573c515e9c7ca98feaf88c49",
+      "source_text": "schema_version: 1\nid: skill_a\nname: 技能 A（虚构）\ntype: entry\ntemplate: skill\ndescription: 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\ngame_version: fictional\nvalidation_status: example_only\nsources:\n  - kind: note\n    citation: 本地验收示例，无游戏数据来源\ninputs: {}\nfields:\n  base_damage:\n    kind: value\n    value: \"1000\"\n    unit: damage\n  note:\n    kind: info\n    value: 该字段只作说明，不参与数学计算。\nfunctions:\n  expected:\n    parameters:\n      c:\n        domain: probability\n    expression: base_damage * (1 + c)\n    unit: damage\noutputs: {}\n",
+      "content": {
+        "schema_version": 1,
+        "id": "skill_a",
+        "name": "技能 A（虚构）",
+        "type": "entry",
+        "template": "skill",
+        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "sources": [
+          {
+            "kind": "note",
+            "citation": "本地验收示例，无游戏数据来源"
+          }
+        ],
+        "inputs": {},
+        "fields": {
+          "base_damage": {
+            "kind": "value",
+            "value": "1000",
+            "unit": "damage"
+          },
+          "note": {
+            "kind": "info",
+            "value": "该字段只作说明，不参与数学计算。"
+          }
+        },
+        "functions": {
+          "expected": {
+            "parameters": {
+              "c": {
+                "domain": "probability"
+              }
+            },
+            "expression": "base_damage * (1 + c)",
+            "unit": "damage"
+          }
+        },
+        "outputs": {}
+      }
+    },
+    {
+      "id": "skill_b",
+      "source_sha256": "c065cb011f6c762fa1d79ccf9a142541635a9673e0383ab3de2fcb7a690d04c0",
+      "content_sha256": "cb9451515baad85076a2ac52bb8eaded6e03272e8938e52099284f32131a5feb",
+      "source_text": "schema_version: 1\nid: skill_b\nname: 技能 B（虚构）\ntype: entry\ntemplate: skill\ndescription: 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\ngame_version: fictional\nvalidation_status: example_only\ninputs: {}\nfields:\n  base_damage:\n    kind: value\n    value: \"600\"\n    unit: damage\nfunctions:\n  expected:\n    parameters:\n      c:\n        domain: probability\n    expression: base_damage * (1 + c)\n    unit: damage\noutputs: {}\n",
+      "content": {
+        "schema_version": 1,
+        "id": "skill_b",
+        "name": "技能 B（虚构）",
+        "type": "entry",
+        "template": "skill",
+        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "inputs": {},
+        "fields": {
+          "base_damage": {
+            "kind": "value",
+            "value": "600",
+            "unit": "damage"
+          }
+        },
+        "functions": {
+          "expected": {
+            "parameters": {
+              "c": {
+                "domain": "probability"
+              }
+            },
+            "expression": "base_damage * (1 + c)",
+            "unit": "damage"
+          }
+        },
+        "outputs": {}
+      }
+    }
+  ],
+  "software": {
+    "kirin_tor_cli": "0.2.0",
+    "kirin_tor_implementation_sha256": "8f9c344c224a1a4b34b1a0f35e8da4336b6abcf6903a1e8f4106d438151a6b52",
+    "python": "3.9.6",
+    "platform": "darwin",
+    "sympy": "1.14.0",
+    "typer": "0.23.2",
+    "PyYAML": "6.0.3",
+    "matplotlib": "3.9.4"
+  },
+  "domain": [],
+  "assumptions": {
+    "symbols": "real unless declared boolean",
+    "input_constraints": "embedded in schema-v1 definition snapshots"
+  },
+  "units": "damage",
+  "precision": 30,
+  "artifacts": {},
+  "result": {
+    "status": "ok",
+    "operation": "eval",
+    "target": "combo.total",
+    "exact": "2750",
+    "approximate": "2750.00000000",
+    "precision": 30,
+    "display_digits": 12,
+    "unit": "damage",
+    "conditions": [],
+    "parameters": {
+      "combo.crit": "1/4"
+    },
+    "dependency_ids": [
+      "combo",
+      "skill_a",
+      "skill_b"
+    ]
+  },
+  "status": "ok"
+}

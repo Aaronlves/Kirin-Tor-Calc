@@ -1,0 +1,7 @@
+schema_version: 1
+id: no_talent
+name: 关闭布尔开关（虚构）
+type: scenario
+values:
+  aoe_pattern.targets: "4"
+  aoe_pattern.talent_enabled: false

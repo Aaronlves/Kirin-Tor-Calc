@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import os
+import sys
+import time
+from pathlib import Path
+
+import pytest
+import sympy as sp
+
+from kirin_tor.engine import Engine
+from kirin_tor.errors import (
+    DependencyCycleError,
+    DomainError,
+    ExpressionError,
+    MathTimeoutError,
+    ParameterError,
+    ReferenceError,
+    SchemaError,
+    UnitError,
+)
+from kirin_tor.operations import evaluate, scan_values, solve_equation, transform
+from kirin_tor.timeout import run_with_timeout
+from kirin_tor.workspace import Workspace
+
+from conftest import load_yaml, minimal_entry, write_yaml
+
+
+def test_missing_parameter_and_undeclared_variable(example_workspace: Path) -> None:
+    combo_path = example_workspace / "entries" / "组合模型.yaml"
+    combo = load_yaml(combo_path)
+    del combo["inputs"]["crit"]["default"]
+    write_yaml(combo_path, combo)
+    engine = Engine(Workspace.load(example_workspace))
+    with pytest.raises(ParameterError, match="missing parameter"):
+        evaluate(engine, "combo.total")
+
+    combo["outputs"]["total"]["expression"] = "skill_a.expected(crti)"
+    write_yaml(combo_path, combo)
+    with pytest.raises(ExpressionError, match="undeclared variable 'crti'"):
+        Engine(Workspace.load(example_workspace)).validate_all()
+
+
+def test_duplicate_id_and_missing_reference(example_workspace: Path) -> None:
+    duplicate = load_yaml(example_workspace / "entries" / "技能甲.yaml")
+    write_yaml(example_workspace / "entries" / "重复.yaml", duplicate)
+    with pytest.raises(SchemaError, match="duplicate id 'skill_a'"):
+        Workspace.load(example_workspace)
+    (example_workspace / "entries" / "重复.yaml").unlink()
+
+    combo_path = example_workspace / "entries" / "组合模型.yaml"
+    combo = load_yaml(combo_path)
+    combo["outputs"]["total"]["expression"] = "missing_skill.expected(crit)"
+    write_yaml(combo_path, combo)
+    with pytest.raises(ReferenceError, match="missing reference"):
+        Engine(Workspace.load(example_workspace)).validate_all()
+
+
+def test_dependency_cycle_reports_path(example_workspace: Path) -> None:
+    write_yaml(example_workspace / "entries" / "a.yaml", minimal_entry("a", "b.result"))
+    write_yaml(example_workspace / "entries" / "b.yaml", minimal_entry("b", "a.result"))
+    with pytest.raises(DependencyCycleError, match=r"a\.result -> b\.result -> a\.result"):
+        Engine(Workspace.load(example_workspace)).resolve_target("a.result")
+
+
+def test_probability_bounds_division_domain_and_unit_errors(example_workspace: Path) -> None:
+    workspace = Workspace.load(example_workspace)
+    with pytest.raises(ParameterError, match="above maximum"):
+        evaluate(Engine(workspace), "combo.total", overrides={"crit": "1.01"})
+    with pytest.raises(UnitError, match="incompatible units"):
+        solve_equation(Engine(workspace), "combo.total", "crit", "3000 time", "0:1")
+    with pytest.raises(DomainError, match="domain condition failed"):
+        evaluate(Engine(workspace), "skill_a.expected(2)")
+
+    ratio = minimal_entry(
+        "ratio",
+        "x / x",
+        inputs={"x": {"unit": "dimensionless"}},
+    )
+    write_yaml(example_workspace / "entries" / "ratio.yaml", ratio)
+    engine = Engine(Workspace.load(example_workspace))
+    symbolic = transform(engine, "simplify", "ratio.result", keep={"x"})
+    assert symbolic["expression"] == "1"
+    assert any("Ne(ratio.x, 0)" == condition for condition in symbolic["conditions"])
+    with pytest.raises(DomainError, match="domain condition failed"):
+        evaluate(Engine(Workspace.load(example_workspace)), "ratio.result", overrides={"x": "0"})
+
+    conditional = minimal_entry(
+        "conditional_domain",
+        "if_else(x > 0, sqrt(x), sqrt(-x))",
+        inputs={"x": {"unit": "dimensionless"}},
+    )
+    write_yaml(example_workspace / "entries" / "conditional.yaml", conditional)
+    assert evaluate(
+        Engine(Workspace.load(example_workspace)),
+        "conditional_domain.result",
+        overrides={"x": "1"},
+    )["exact"] == "1"
+    assert evaluate(
+        Engine(Workspace.load(example_workspace)),
+        "conditional_domain.result",
+        overrides={"x": "-1"},
+    )["exact"] == "1"
+
+    combo_path = example_workspace / "entries" / "组合模型.yaml"
+    combo = load_yaml(combo_path)
+    combo["outputs"]["total"]["expression"] = "skill_a.base_damage + crit"
+    write_yaml(combo_path, combo)
+    with pytest.raises(UnitError, match="incompatible units"):
+        Engine(Workspace.load(example_workspace)).validate_all()
+
+
+def test_restricted_parser_blocks_code_and_complexity(example_workspace: Path) -> None:
+    engine = Engine(Workspace.load(example_workspace))
+    with pytest.raises(ExpressionError, match="not allowed or declared"):
+        engine.resolve_target("__import__(1)")
+    with pytest.raises(ExpressionError, match="nested attribute access|not allowed"):
+        engine.resolve_target("skill_a.base_damage.real")
+    with pytest.raises(ExpressionError, match="AST nodes|AST depth"):
+        engine.resolve_target(" + ".join(["1"] * 110))
+    with pytest.raises(ExpressionError, match="exponent"):
+        engine.resolve_target("2 ** 101")
+    assert evaluate(engine, "sum(i, i, 1, 3)")["exact"] == "6"
+
+
+def test_yaml_float_is_rejected_to_preserve_text(example_workspace: Path) -> None:
+    scenario_path = example_workspace / "scenarios" / "基线.yaml"
+    scenario_path.write_text(
+        "schema_version: 1\nid: bad_float\nname: 坏浮点\ntype: scenario\nvalues:\n  crit: 0.2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="quoted decimal string"):
+        Workspace.load(example_workspace)
+
+
+def test_duplicate_yaml_mapping_keys_are_rejected(example_workspace: Path) -> None:
+    path = example_workspace / "entries" / "duplicate_key.yaml"
+    path.write_text(
+        "schema_version: 1\nid: first\nid: second\nname: duplicate\ntype: entry\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="duplicate mapping key 'id'") as caught:
+        Workspace.load(example_workspace)
+    assert caught.value.location.line == 3
+
+
+def test_legacy_business_entry_types_are_not_core_schema_types(example_workspace: Path) -> None:
+    path = example_workspace / "entries" / "legacy.yaml"
+    legacy = minimal_entry("legacy", "1")
+    legacy["type"] = "skill"
+    write_yaml(path, legacy)
+    with pytest.raises(SchemaError, match="type must be one of"):
+        Workspace.load(example_workspace)
+
+
+def test_invalid_scan_point_records_reason_instead_of_zero(example_workspace: Path) -> None:
+    entry = minimal_entry(
+        "root_model",
+        "sqrt(x - 1/2)",
+        inputs={"x": {"unit": "probability"}},
+    )
+    write_yaml(example_workspace / "entries" / "root.yaml", entry)
+    scan = scan_values(Engine(Workspace.load(example_workspace)), "x", "0:1", 3, ["root_model.result"])
+    first = scan["rows"][0]["values"]["root_model.result"]
+    assert first["exact"] is None
+    assert first["error"]
+    assert scan["rows"][1]["values"]["root_model.result"]["exact"] == "0"
+
+
+def _write_pid_and_sleep(path: str) -> None:
+    Path(path).write_text(str(os.getpid()), encoding="ascii")
+    time.sleep(30)
+
+
+def test_timeout_terminates_worker_process(tmp_path: Path) -> None:
+    pid_path = tmp_path / "worker.pid"
+    with pytest.raises(MathTimeoutError, match="terminated"):
+        run_with_timeout(_write_pid_and_sleep, (str(pid_path),), timeout_seconds=0.2)
+    child_pid = int(pid_path.read_text(encoding="ascii"))
+    if sys.platform != "win32":
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)

@@ -1,0 +1,22 @@
+schema_version: 1
+id: skill_b
+name: 技能 B（虚构）
+type: entry
+template: skill
+description: 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。
+game_version: fictional
+validation_status: example_only
+inputs: {}
+fields:
+  base_damage:
+    kind: value
+    value: "600"
+    unit: damage
+functions:
+  expected:
+    parameters:
+      c:
+        domain: probability
+    expression: base_damage * (1 + c)
+    unit: damage
+outputs: {}
