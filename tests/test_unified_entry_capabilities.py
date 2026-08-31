@@ -3,17 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from kirin_tor.cli import app
 from kirin_tor.engine import Engine
 from kirin_tor.operations import evaluate, scan_values
 from kirin_tor.workspace import Workspace, initialize
 
-from conftest import write_yaml
+from conftest import make_cli_runner, write_yaml
 
 
-runner = CliRunner(mix_stderr=False)
+runner = make_cli_runner()
 
 
 def _entry(entry_id: str, **sections) -> dict:

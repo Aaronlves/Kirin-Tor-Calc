@@ -174,8 +174,13 @@ def _write_pid_and_sleep(path: str) -> None:
 
 def test_timeout_terminates_worker_process(tmp_path: Path) -> None:
     pid_path = tmp_path / "worker.pid"
+    timeout_seconds = 5.0 if sys.platform == "win32" else 0.2
     with pytest.raises(MathTimeoutError, match="terminated"):
-        run_with_timeout(_write_pid_and_sleep, (str(pid_path),), timeout_seconds=0.2)
+        run_with_timeout(
+            _write_pid_and_sleep,
+            (str(pid_path),),
+            timeout_seconds=timeout_seconds,
+        )
     child_pid = int(pid_path.read_text(encoding="ascii"))
     if sys.platform != "win32":
         with pytest.raises(ProcessLookupError):

@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
-from typer.testing import CliRunner
 
 from kirin_tor.cli import app
 
-from conftest import minimal_entry, write_yaml
+from conftest import make_cli_runner, minimal_entry, write_yaml
 
 
-runner = CliRunner(mix_stderr=False)
+runner = make_cli_runner()
 
 
 def test_cli_json_stdout_exit_codes_and_stderr(example_workspace: Path, monkeypatch) -> None:
@@ -66,9 +66,17 @@ def test_cli_help_new_check_and_chinese_paths(tmp_path: Path, monkeypatch) -> No
 
 
 def test_installed_entry_point_runs_outside_source_tree(tmp_path: Path) -> None:
-    executable = Path(sys.executable).parent / ("kt.exe" if sys.platform == "win32" else "kt")
+    executable = shutil.which("kt")
+    if executable is None:
+        if sys.platform == "win32":
+            candidate = Path(sys.executable).parent / "Scripts" / "kt.exe"
+        else:
+            candidate = Path(sys.executable).parent / "kt"
+        if candidate.is_file():
+            executable = str(candidate)
+    assert executable is not None
     completed = subprocess.run(
-        [str(executable), "version"],
+        [executable, "version"],
         cwd=tmp_path,
         check=False,
         capture_output=True,

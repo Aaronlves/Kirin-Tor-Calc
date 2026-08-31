@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from kirin_tor.cli import app
 
+from conftest import make_cli_runner
 
-runner = CliRunner(mix_stderr=False)
+
+runner = make_cli_runner()
 
 
 def test_replay_reports_version_drift_without_using_current_entries(

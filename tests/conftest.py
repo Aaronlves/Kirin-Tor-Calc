@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import shutil
+from inspect import signature
 from pathlib import Path
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_ROOT = PROJECT_ROOT / "examples" / "虚构技能工作区"
+
+
+def make_cli_runner() -> CliRunner:
+    """Create a runner across Click versions with separate stderr capture."""
+    options = {}
+    if "mix_stderr" in signature(CliRunner).parameters:
+        options["mix_stderr"] = False
+    return CliRunner(**options)
 
 
 @pytest.fixture
