@@ -1,0 +1,1114 @@
+"""Parser for the author-facing Kirin source format.
+
+The parser is intentionally an adapter: it produces the same raw document
+shape consumed by :func:`kirin_tor.schema.parse_document`.  Mathematical
+meaning and safety checks therefore remain in the existing schema and engine.
+"""
+
+from __future__ import annotations
+
+import ast
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from .errors import SchemaError, SourceLocation
+from .limits import MAX_SOURCE_BYTES
+
+
+IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+QUOTED_STRING = r'"(?:[^"\\]|\\.)*"'
+_HEADER_RE = re.compile(r"^@(entry|scenario|plot)\s+(" + IDENTIFIER + r")$")
+_SECTION_RE = re.compile(r"^(" + IDENTIFIER + r"):$$")
+_KEY_VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
+_FENCE_RE = re.compile(r"^-{3,}$")
+_TYPE = rf"(?:boolean|number\[{IDENTIFIER}\]|{IDENTIFIER})"
+_INPUT_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*(?P<type>{_TYPE})"
+    r"(?:\s*=\s*(?P<default>\S+))?"
+    r"(?:\s+in\s+(?P<range>\S+\.\.\S+))?"
+    r"(?:\s+(?P<integer>integer))?"
+    r"(?:\s+one-of\s+\[(?P<allowed>[^\]]*)\])?$"
+)
+_FIELD_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
+    rf"(?P<type>{_TYPE})\s*(?P<op>:=|=)\s*(?P<value>.*)$"
+)
+_FUNCTION_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?"
+    rf"\((?P<parameters>.*)\)\s*->\s*"
+    rf"(?P<unit>{_TYPE})\s*=\s*(?P<expression>.*)$"
+)
+_OUTPUT_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
+    rf"(?P<unit>{_TYPE})\s*=\s*(?P<expression>.*)$"
+)
+_INFO_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*=\s*(?P<value>.+)$"
+)
+_ALIAS_RE = re.compile(rf"^(?P<alias>[^\s=]+)\s*=\s*(?P<target>{IDENTIFIER}\.{IDENTIFIER})$")
+
+
+@dataclass(frozen=True)
+class _Line:
+    number: int
+    raw: str
+
+    @property
+    def indent(self) -> int:
+        return len(self.raw) - len(self.raw.lstrip(" "))
+
+    @property
+    def text(self) -> str:
+        return self.raw.lstrip(" ")
+
+    @property
+    def blank(self) -> bool:
+        return not self.text
+
+    @property
+    def comment(self) -> bool:
+        return self.text.startswith("//")
+
+
+@dataclass(frozen=True)
+class _Statement:
+    head: _Line
+    continuation: Tuple[_Line, ...]
+
+    def expression(self, initial: str) -> str:
+        parts = [initial.strip()]
+        parts.extend(line.text.strip() for line in self.continuation if not line.blank and not line.comment)
+        return " ".join(part for part in parts if part)
+
+
+def _location(path: Path, line: Optional[_Line] = None, field: Optional[str] = None) -> SourceLocation:
+    return SourceLocation(
+        path=str(path),
+        field=field,
+        line=line.number if line else None,
+        column=(line.indent + 1) if line else None,
+    )
+
+
+def _fail(path: Path, message: str, line: Optional[_Line] = None, field: Optional[str] = None) -> None:
+    raise SchemaError(message, _location(path, line, field))
+
+
+def _decode_string(value: str, path: Path, line: _Line) -> str:
+    value = value.strip()
+    if not value:
+        _fail(path, "text value may not be empty", line)
+    if value.startswith('"'):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError as exc:
+            _fail(path, f"invalid quoted text: {exc.msg}", line)
+        if not isinstance(decoded, str):
+            _fail(path, "quoted text must be a string", line)
+        return decoded
+    return value
+
+
+def _atom(value: str, path: Path, line: _Line) -> Any:
+    value = value.strip()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    if value.startswith('"'):
+        return _decode_string(value, path, line)
+    if not value:
+        _fail(path, "value may not be empty", line)
+    return value
+
+
+def _info_atom(value: str, path: Path, line: _Line) -> Any:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return _decode_string(value, path, line)
+
+    def check(item: Any) -> None:
+        if item is None or isinstance(item, (str, int, bool)):
+            return
+        if isinstance(item, float):
+            _fail(path, "info values may not contain floating-point JSON numbers; quote exact decimals", line)
+        if isinstance(item, list):
+            for child in item:
+                check(child)
+            return
+        if isinstance(item, dict) and all(isinstance(key, str) for key in item):
+            for child in item.values():
+                check(child)
+            return
+        _fail(path, "info value must contain only JSON text, integers, booleans, null, lists, or objects", line)
+
+    check(decoded)
+    return decoded
+
+
+def _type_spec(type_text: str, path: Path, line: _Line) -> Dict[str, Any]:
+    if type_text == "boolean":
+        return {"value_type": "boolean"}
+    if type_text.startswith("number["):
+        return {"value_type": "number", "unit": type_text[7:-1]}
+    # The schema resolves this compatibility spelling as a domain when the
+    # identifier names a domain, otherwise as a unit.
+    return {"unit": type_text}
+
+
+def _split_range(
+    value: str, path: Path, line: _Line, *, allow_open: bool = False
+) -> Tuple[Optional[str], Optional[str]]:
+    if value.count("..") != 1:
+        _fail(path, "range must use START..END", line)
+    start, end = value.split("..", 1)
+    if not start or not end:
+        _fail(path, "range must include both START and END", line)
+    if allow_open:
+        minimum = None if start == "*" else start
+        maximum = None if end == "*" else end
+        if minimum is None and maximum is None:
+            _fail(path, "range may not be open at both ends", line)
+        return minimum, maximum
+    if start == "*" or end == "*":
+        _fail(path, "this range requires both finite endpoints", line)
+    return start, end
+
+
+def _allowed_values(value: str, path: Path, line: _Line) -> List[Any]:
+    if not value.strip():
+        return []
+    result = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            _fail(path, "one-of may not contain an empty value", line)
+        result.append(_atom(item, path, line))
+    return result
+
+
+def _parameter_items(value: str, path: Path, line: _Line) -> List[str]:
+    """Split function parameters without splitting commas inside one-of lists."""
+    items: List[str] = []
+    start = 0
+    square_depth = 0
+    for index, character in enumerate(value):
+        if character == "[":
+            square_depth += 1
+        elif character == "]":
+            square_depth -= 1
+            if square_depth < 0:
+                _fail(path, "function parameter list has an unmatched ']'", line, "functions")
+        elif character == "," and square_depth == 0:
+            item = value[start:index].strip()
+            if not item:
+                _fail(path, "function parameter list contains an empty parameter", line, "functions")
+            items.append(item)
+            start = index + 1
+    if square_depth:
+        _fail(path, "function parameter list has an unmatched '['", line, "functions")
+    final = value[start:].strip()
+    if not final:
+        _fail(path, "function parameter list contains an empty parameter", line, "functions")
+    items.append(final)
+    return items
+
+
+def _parse_input_statement(
+    text: str,
+    path: Path,
+    line: _Line,
+    *,
+    allow_default: bool = True,
+    allow_label: bool = True,
+) -> Tuple[str, Dict[str, Any]]:
+    match = _INPUT_RE.fullmatch(text)
+    if not match:
+        _fail(
+            path,
+            "input must use NAME: TYPE [= DEFAULT] [in MIN..MAX] [integer] [one-of [...]]",
+            line,
+        )
+    assert match is not None
+    data = _type_spec(match.group("type"), path, line)
+    label = match.group("label")
+    if label is not None:
+        if not allow_label:
+            _fail(path, "display labels are not allowed in this declaration", line)
+        data["label"] = _decode_string(label, path, line)
+    default = match.group("default")
+    if default is not None:
+        if not allow_default:
+            _fail(path, "function parameters may not define defaults", line)
+        data["default"] = _atom(default, path, line)
+    range_text = match.group("range")
+    if range_text:
+        minimum, maximum = _split_range(range_text, path, line, allow_open=True)
+        if minimum is not None:
+            data["min"] = minimum
+        if maximum is not None:
+            data["max"] = maximum
+    if match.group("integer"):
+        data["integer"] = True
+    allowed = match.group("allowed")
+    if allowed is not None:
+        data["allowed_values"] = _allowed_values(allowed, path, line)
+    return match.group("name"), data
+
+
+def _dimension_exponent(node: ast.AST, path: Path, line: _Line) -> Fraction:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return Fraction(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _dimension_exponent(node.operand, path, line)
+        return -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        numerator = _dimension_exponent(node.left, path, line)
+        denominator = _dimension_exponent(node.right, path, line)
+        if denominator == 0:
+            _fail(path, "dimension exponent denominator may not be zero", line, "units")
+        return numerator / denominator
+    _fail(path, "dimension exponents must be exact integers or rational numbers", line, "units")
+    raise AssertionError("unreachable")
+
+
+def _parse_dimension_expression(expression: str, path: Path, line: _Line) -> Dict[str, str]:
+    try:
+        root = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        _fail(path, f"invalid dimension expression: {exc.msg}", line, "units")
+
+    def combine(left: Dict[str, Fraction], right: Dict[str, Fraction], sign: int) -> Dict[str, Fraction]:
+        result = dict(left)
+        for name, power in right.items():
+            result[name] = result.get(name, Fraction(0)) + sign * power
+            if result[name] == 0:
+                del result[name]
+        return result
+
+    def visit(node: ast.AST) -> Dict[str, Fraction]:
+        if isinstance(node, ast.Name):
+            return {node.id: Fraction(1)}
+        if isinstance(node, ast.Constant) and node.value == 1:
+            return {}
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            return combine(visit(node.left), visit(node.right), 1)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            return combine(visit(node.left), visit(node.right), -1)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            base = visit(node.left)
+            exponent = _dimension_exponent(node.right, path, line)
+            return {name: power * exponent for name, power in base.items() if power * exponent}
+        _fail(
+            path,
+            "dimension expression allows only names, 1, multiplication, division, and exact powers",
+            line,
+            "units",
+        )
+        raise AssertionError("unreachable")
+
+    powers = visit(root.body)
+    return {name: str(power) for name, power in sorted(powers.items())}
+
+
+def _statements(lines: Iterable[_Line], path: Path, section: str) -> List[_Statement]:
+    significant = [line for line in lines if not line.blank and not line.comment]
+    if not significant:
+        return []
+    for line in significant:
+        if "\t" in line.raw:
+            _fail(path, "tabs are not allowed; use spaces for indentation", line, section)
+    base_indent = significant[0].indent
+    if base_indent < 2:
+        _fail(path, f"{section} entries must be indented by at least two spaces", significant[0], section)
+    result: List[_Statement] = []
+    head: Optional[_Line] = None
+    continuation: List[_Line] = []
+    for line in significant:
+        if line.indent < base_indent:
+            _fail(path, f"inconsistent indentation in {section}", line, section)
+        if line.indent == base_indent:
+            if head is not None:
+                result.append(_Statement(head, tuple(continuation)))
+            head = line
+            continuation = []
+        else:
+            if head is None:
+                _fail(path, f"unexpected continuation in {section}", line, section)
+            continuation.append(line)
+    if head is not None:
+        result.append(_Statement(head, tuple(continuation)))
+    return result
+
+
+def _parse_document_structure(
+    text: str, path: Path
+) -> Tuple[str, str, Optional[str], Dict[str, Tuple[_Line, ...]], Dict[str, Tuple[str, _Line]], Dict[str, Tuple[int, int]]]:
+    lines = [_Line(index, raw.rstrip("\r")) for index, raw in enumerate(text.splitlines(), 1)]
+    code_lines = [line for line in lines if not line.blank and not line.comment]
+    if not code_lines:
+        _fail(path, "Kirin document is empty")
+    if code_lines[0].text != "@kirin 1":
+        _fail(path, "first declaration must be '@kirin 1'", code_lines[0])
+    if len(code_lines) < 2:
+        _fail(path, "document type declaration is missing", code_lines[0])
+    header = _HEADER_RE.fullmatch(code_lines[1].text)
+    if not header:
+        _fail(path, "second declaration must be '@entry ID', '@scenario ID', or '@plot ID'", code_lines[1])
+    if "\t" in code_lines[0].raw or "\t" in code_lines[1].raw:
+        _fail(path, "tabs are not allowed; use spaces for indentation", code_lines[1])
+    assert header is not None
+    doc_type, doc_id = header.groups()
+
+    first_header_index = lines.index(code_lines[0])
+    second_header_index = lines.index(code_lines[1])
+    consumed = {first_header_index, second_header_index}
+    sections: Dict[str, Tuple[_Line, ...]] = {}
+    top_values: Dict[str, Tuple[str, _Line]] = {}
+    positions: Dict[str, Tuple[int, int]] = {
+        "schema_version": (code_lines[0].number, code_lines[0].indent + 1),
+        "type": (code_lines[1].number, code_lines[1].indent + 1),
+        "id": (code_lines[1].number, code_lines[1].indent + 1),
+        "name": (code_lines[1].number, code_lines[1].indent + 1),
+    }
+    description: Optional[str] = None
+
+    index = 0
+    while index < len(lines):
+        if index in consumed:
+            index += 1
+            continue
+        line = lines[index]
+        if line.blank or line.comment:
+            index += 1
+            continue
+        if "\t" in line.raw:
+            _fail(path, "tabs are not allowed; use spaces for indentation", line)
+        if line.indent:
+            _fail(path, "content outside a section may not be indented", line)
+        if _FENCE_RE.fullmatch(line.text):
+            if description is not None:
+                _fail(path, "only one document description block is allowed in v1", line, "description")
+            fence = line.text
+            body: List[str] = []
+            opening = line
+            index += 1
+            while index < len(lines) and not (lines[index].indent == 0 and lines[index].text == fence):
+                body.append(lines[index].raw)
+                index += 1
+            if index >= len(lines):
+                _fail(path, f"description block is missing closing {fence}", opening, "description")
+            description = "\n".join(body).strip("\n")
+            positions["description"] = (opening.number, 1)
+            index += 1
+            continue
+        if line.text.startswith("@"):
+            pieces = line.text.split(maxsplit=1)
+            if len(pieces) != 2:
+                _fail(path, "metadata directive requires a value", line)
+            directive = pieces[0][1:]
+            key_map = {"template": "template", "game-version": "game_version", "status": "validation_status"}
+            if directive not in key_map:
+                _fail(path, f"unknown directive @{directive}", line)
+            key = key_map[directive]
+            if key in top_values:
+                _fail(path, f"duplicate directive @{directive}", line, key)
+            top_values[key] = (_decode_string(pieces[1], path, line), line)
+            positions[key] = (line.number, line.indent + 1)
+            index += 1
+            continue
+        section = _SECTION_RE.fullmatch(line.text)
+        if section:
+            name = section.group(1)
+            if name in sections or name in top_values:
+                _fail(path, f"duplicate section {name!r}", line, name)
+            positions[name] = (line.number, 1)
+            body = []
+            index += 1
+            while index < len(lines):
+                candidate = lines[index]
+                if not candidate.blank and not candidate.comment and candidate.indent == 0:
+                    break
+                body.append(candidate)
+                index += 1
+            sections[name] = tuple(body)
+            continue
+        key_value = _KEY_VALUE_RE.fullmatch(line.text)
+        if key_value:
+            key, value = key_value.groups()
+            if not value:
+                _fail(path, f"section {key!r} requires indented content", line, key)
+            if key in top_values or key in sections:
+                _fail(path, f"duplicate key {key!r}", line, key)
+            top_values[key] = (value, line)
+            positions[key.replace("-", "_")] = (line.number, 1)
+            index += 1
+            continue
+        _fail(path, "expected a directive, description block, section, or KEY: VALUE", line)
+
+    return doc_type, doc_id, description, sections, top_values, positions
+
+
+def _set_position(positions: Dict[str, Tuple[int, int]], key: str, line: _Line) -> None:
+    positions[key] = (line.number, line.indent + 1)
+
+
+def _parse_entry(
+    doc_id: str,
+    description: Optional[str],
+    sections: Dict[str, Tuple[_Line, ...]],
+    top_values: Dict[str, Tuple[str, _Line]],
+    positions: Dict[str, Tuple[int, int]],
+    path: Path,
+) -> Dict[str, Any]:
+    allowed_sections = {
+        "dimensions", "units", "domains", "inputs", "constraints", "fields",
+        "info", "functions", "outputs", "sources", "aliases",
+    }
+    unknown = sorted(set(sections) - allowed_sections)
+    if unknown:
+        line = sections[unknown[0]][0] if sections[unknown[0]] else None
+        _fail(path, "unknown entry section(s): " + ", ".join(unknown), line, unknown[0])
+    allowed_top = {"template", "game_version", "validation_status"}
+    unknown_top = sorted(set(top_values) - allowed_top)
+    if unknown_top:
+        value, line = top_values[unknown_top[0]]
+        _fail(path, f"unknown entry key {unknown_top[0]!r}", line, unknown_top[0])
+
+    raw: Dict[str, Any] = {
+        "schema_version": 1,
+        "id": doc_id,
+        "name": doc_id,
+        "type": "entry",
+        "inputs": {},
+        "constraints": [],
+        "fields": {},
+        "functions": {},
+        "outputs": {},
+    }
+    if description is not None:
+        raw["description"] = description
+    for key, (value, _line) in top_values.items():
+        raw[key] = value
+
+    for statement in _statements(sections.get("sources", ()), path, "sources"):
+        if statement.continuation:
+            _fail(path, "source entries must fit on one line", statement.head, "sources")
+        raw.setdefault("sources", []).append(_info_atom(statement.head.text, path, statement.head))
+
+    semantics: Dict[str, Any] = {}
+    dimensions: Dict[str, Any] = {}
+    for statement in _statements(sections.get("dimensions", ()), path, "dimensions"):
+        if statement.continuation:
+            _fail(path, "dimension declarations must fit on one line", statement.head, "dimensions")
+        match = re.fullmatch(rf'(?P<name>{IDENTIFIER})(?:\s+(?P<label>"(?:[^"\\]|\\.)*"))?', statement.head.text)
+        if not match:
+            _fail(path, 'dimension must use NAME or NAME "DISPLAY NAME"', statement.head, "dimensions")
+        assert match is not None
+        name = match.group("name")
+        label = match.group("label")
+        if name in dimensions:
+            _fail(path, f"duplicate dimension {name!r}", statement.head, f"dimensions.{name}")
+        dimensions[name] = {"name": _decode_string(label, path, statement.head)} if label else {}
+        _set_position(positions, f"semantics.dimensions.{name}", statement.head)
+    if dimensions:
+        semantics["dimensions"] = dimensions
+
+    units: Dict[str, Any] = {}
+    for statement in _statements(sections.get("units", ()), path, "units"):
+        if statement.continuation or statement.head.text.count("=") != 1:
+            _fail(path, "unit must use NAME = DIMENSION_EXPRESSION", statement.head, "units")
+        name, expression = (part.strip() for part in statement.head.text.split("=", 1))
+        if not re.fullmatch(IDENTIFIER, name) or not expression:
+            _fail(path, "unit must use NAME = DIMENSION_EXPRESSION", statement.head, "units")
+        if name in units:
+            _fail(path, f"duplicate unit {name!r}", statement.head, f"units.{name}")
+        units[name] = {"dimensions": _parse_dimension_expression(expression, path, statement.head)}
+        _set_position(positions, f"semantics.units.{name}", statement.head)
+    if units:
+        semantics["units"] = units
+
+    domains: Dict[str, Any] = {}
+    for statement in _statements(sections.get("domains", ()), path, "domains"):
+        if statement.continuation:
+            _fail(path, "domain declarations must fit on one line", statement.head, "domains")
+        name, data = _parse_input_statement(
+            statement.head.text, path, statement.head, allow_default=False, allow_label=False
+        )
+        type_text = statement.head.text.split(":", 1)[1].strip().split()[0]
+        if type_text not in {"boolean"} and not type_text.startswith("number["):
+            _fail(path, "domain type must be boolean or number[UNIT]", statement.head, f"domains.{name}")
+        if name in domains:
+            _fail(path, f"duplicate domain {name!r}", statement.head, f"domains.{name}")
+        domains[name] = data
+        _set_position(positions, f"semantics.domains.{name}", statement.head)
+    if domains:
+        semantics["domains"] = domains
+    if semantics:
+        raw["semantics"] = semantics
+
+    for statement in _statements(sections.get("aliases", ()), path, "aliases"):
+        if statement.continuation:
+            _fail(path, "alias declarations must fit on one line", statement.head, "aliases")
+        match = _ALIAS_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, "alias must use NAME = ENTRY_ID.MEMBER", statement.head, "aliases")
+        assert match is not None
+        alias = match.group("alias")
+        if not alias.isidentifier() or alias.startswith("__"):
+            _fail(path, "alias must be one Unicode identifier", statement.head, "aliases")
+        aliases = raw.setdefault("aliases", {})
+        if alias in aliases:
+            _fail(path, f"duplicate alias {alias!r}", statement.head, f"aliases.{alias}")
+        aliases[alias] = match.group("target")
+        _set_position(positions, f"aliases.{alias}", statement.head)
+
+    for statement in _statements(sections.get("inputs", ()), path, "inputs"):
+        if statement.continuation:
+            _fail(path, "input declarations must fit on one line", statement.head, "inputs")
+        name, data = _parse_input_statement(statement.head.text, path, statement.head)
+        if name in raw["inputs"]:
+            _fail(path, f"duplicate input {name!r}", statement.head, f"inputs.{name}")
+        raw["inputs"][name] = data
+        _set_position(positions, f"inputs.{name}", statement.head)
+
+    for statement in _statements(sections.get("constraints", ()), path, "constraints"):
+        expression = statement.expression(statement.head.text)
+        if not expression:
+            _fail(path, "constraint may not be empty", statement.head, "constraints")
+        index = len(raw["constraints"])
+        raw["constraints"].append(expression)
+        _set_position(positions, f"constraints.{index}", statement.head)
+
+    for statement in _statements(sections.get("fields", ()), path, "fields"):
+        match = _FIELD_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, "field must use NAME: TYPE = VALUE or NAME: TYPE := EXPRESSION", statement.head, "fields")
+        assert match is not None
+        name = match.group("name")
+        if name in raw["fields"]:
+            _fail(path, f"duplicate field {name!r}", statement.head, f"fields.{name}")
+        type_text = match.group("type")
+        type_data = _type_spec(type_text, path, statement.head)
+        unit = type_data.get("unit", "dimensionless")
+        if match.group("op") == "=":
+            if statement.continuation:
+                _fail(path, "fixed field values must fit on one line", statement.head, f"fields.{name}")
+            value = _atom(match.group("value"), path, statement.head)
+            data = {"kind": "value", "value": value, "unit": unit}
+            if type_data.get("value_type") == "boolean":
+                data["value_type"] = "boolean"
+        else:
+            expression = statement.expression(match.group("value"))
+            if not expression:
+                _fail(path, "derived field expression may not be empty", statement.head, f"fields.{name}")
+            data = {"kind": "expression", "expression": expression, "unit": unit}
+        if match.group("label") is not None:
+            data["label"] = _decode_string(match.group("label"), path, statement.head)
+        raw["fields"][name] = data
+        _set_position(positions, f"fields.{name}", statement.head)
+        _set_position(positions, f"fields.{name}.expression", statement.head)
+
+    for statement in _statements(sections.get("info", ()), path, "info"):
+        if statement.continuation:
+            _fail(path, "info values must fit on one line in v1", statement.head, "info")
+        match = _INFO_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, "info field must use NAME = JSON_VALUE", statement.head, "info")
+        assert match is not None
+        name = match.group("name")
+        if name in raw["fields"]:
+            _fail(path, f"duplicate field {name!r}", statement.head, f"fields.{name}")
+        data = {"kind": "info", "value": _info_atom(match.group("value"), path, statement.head)}
+        if match.group("label") is not None:
+            data["label"] = _decode_string(match.group("label"), path, statement.head)
+        raw["fields"][name] = data
+        _set_position(positions, f"fields.{name}", statement.head)
+
+    for statement in _statements(sections.get("functions", ()), path, "functions"):
+        match = _FUNCTION_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, "function must use NAME(PARAMETERS) -> UNIT = EXPRESSION", statement.head, "functions")
+        assert match is not None
+        name = match.group("name")
+        if name in raw["functions"]:
+            _fail(path, f"duplicate function {name!r}", statement.head, f"functions.{name}")
+        parameters: Dict[str, Any] = {}
+        parameter_text = match.group("parameters").strip()
+        if parameter_text:
+            for item in _parameter_items(parameter_text, path, statement.head):
+                parameter_name, data = _parse_input_statement(
+                    item.strip(), path, statement.head, allow_default=False, allow_label=False
+                )
+                if parameter_name in parameters:
+                    _fail(
+                        path,
+                        f"duplicate function parameter {parameter_name!r}",
+                        statement.head,
+                        f"functions.{name}.parameters.{parameter_name}",
+                    )
+                parameters[parameter_name] = data
+                _set_position(positions, f"functions.{name}.parameters.{parameter_name}", statement.head)
+        expression = statement.expression(match.group("expression"))
+        if not expression:
+            _fail(path, "function expression may not be empty", statement.head, f"functions.{name}")
+        type_data = _type_spec(match.group("unit"), path, statement.head)
+        raw["functions"][name] = {
+            "parameters": parameters,
+            "expression": expression,
+            "unit": type_data.get("unit", "dimensionless"),
+        }
+        if match.group("label") is not None:
+            raw["functions"][name]["label"] = _decode_string(
+                match.group("label"), path, statement.head
+            )
+        _set_position(positions, f"functions.{name}", statement.head)
+        _set_position(positions, f"functions.{name}.expression", statement.head)
+
+    for statement in _statements(sections.get("outputs", ()), path, "outputs"):
+        match = _OUTPUT_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, "output must use NAME: UNIT = EXPRESSION", statement.head, "outputs")
+        assert match is not None
+        name = match.group("name")
+        if name in raw["outputs"]:
+            _fail(path, f"duplicate output {name!r}", statement.head, f"outputs.{name}")
+        expression = statement.expression(match.group("expression"))
+        if not expression:
+            _fail(path, "output expression may not be empty", statement.head, f"outputs.{name}")
+        type_data = _type_spec(match.group("unit"), path, statement.head)
+        raw["outputs"][name] = {
+            "expression": expression,
+            "unit": type_data.get("unit", "dimensionless"),
+        }
+        if match.group("label") is not None:
+            raw["outputs"][name]["label"] = _decode_string(
+                match.group("label"), path, statement.head
+            )
+        _set_position(positions, f"outputs.{name}", statement.head)
+        _set_position(positions, f"outputs.{name}.expression", statement.head)
+    return raw
+
+
+def _parse_scenario(
+    doc_id: str,
+    description: Optional[str],
+    sections: Dict[str, Tuple[_Line, ...]],
+    top_values: Dict[str, Tuple[str, _Line]],
+    positions: Dict[str, Tuple[int, int]],
+    path: Path,
+) -> Dict[str, Any]:
+    if set(sections) - {"values"}:
+        unknown = sorted(set(sections) - {"values"})[0]
+        _fail(path, f"unknown scenario section {unknown!r}", field=unknown)
+    if top_values:
+        key = sorted(top_values)[0]
+        _fail(path, f"unknown scenario key {key!r}", top_values[key][1], key)
+    raw: Dict[str, Any] = {
+        "schema_version": 1,
+        "id": doc_id,
+        "name": doc_id,
+        "type": "scenario",
+        "values": {},
+    }
+    if description is not None:
+        raw["description"] = description
+    for statement in _statements(sections.get("values", ()), path, "values"):
+        if statement.continuation or statement.head.text.count("=") != 1:
+            _fail(path, "scenario value must use PARAMETER = VALUE", statement.head, "values")
+        name, value = (part.strip() for part in statement.head.text.split("=", 1))
+        if not name or not value:
+            _fail(path, "scenario value must include both parameter and value", statement.head, "values")
+        if name in raw["values"]:
+            _fail(path, f"duplicate scenario value {name!r}", statement.head, f"values.{name}")
+        raw["values"][name] = _atom(value, path, statement.head)
+        _set_position(positions, f"values.{name}", statement.head)
+    return raw
+
+
+def _parse_plot(
+    doc_id: str,
+    description: Optional[str],
+    sections: Dict[str, Tuple[_Line, ...]],
+    top_values: Dict[str, Tuple[str, _Line]],
+    positions: Dict[str, Tuple[int, int]],
+    path: Path,
+) -> Dict[str, Any]:
+    if set(sections) - {"y"}:
+        unknown = sorted(set(sections) - {"y"})[0]
+        _fail(path, f"unknown plot section {unknown!r}", field=unknown)
+    allowed = {
+        "x", "range", "points", "scenario", "title", "x-label", "y-label",
+        "export-svg", "export-csv",
+    }
+    unknown = sorted(set(top_values) - allowed)
+    if unknown:
+        key = unknown[0]
+        _fail(path, f"unknown plot key {key!r}", top_values[key][1], key)
+    required = {"x", "range", "points"}
+    missing = sorted(required - set(top_values))
+    if missing:
+        _fail(path, "plot is missing required key(s): " + ", ".join(missing))
+
+    raw: Dict[str, Any] = {
+        "schema_version": 1,
+        "id": doc_id,
+        "name": doc_id,
+        "type": "plot",
+        "x": top_values["x"][0].strip(),
+        "points": 0,
+        "y": [],
+    }
+    if description is not None:
+        raw["description"] = description
+    range_text, range_line = top_values["range"]
+    raw["range"] = list(_split_range(range_text.strip(), path, range_line))
+    points_text, points_line = top_values["points"]
+    try:
+        raw["points"] = int(points_text)
+    except ValueError:
+        _fail(path, "plot points must be an integer", points_line, "points")
+
+    key_map = {
+        "scenario": "scenario",
+        "title": "title",
+        "x-label": "x_label",
+        "y-label": "y_label",
+        "export-svg": "out",
+        "export-csv": "data_out",
+    }
+    for source, target in key_map.items():
+        if source in top_values:
+            value, line = top_values[source]
+            raw[target] = _decode_string(value, path, line)
+            _set_position(positions, target, line)
+
+    labels: Dict[str, str] = {}
+    for statement in _statements(sections.get("y", ()), path, "y"):
+        if statement.continuation:
+            _fail(path, "plot curve declarations must fit on one line", statement.head, "y")
+        match = re.fullmatch(r'(.+?)(?:\s+as\s+("(?:[^"\\]|\\.)*"))?', statement.head.text)
+        assert match is not None
+        target = match.group(1).strip()
+        if not target:
+            _fail(path, "plot curve target may not be empty", statement.head, "y")
+        raw["y"].append(target)
+        label = match.group(2)
+        if label:
+            labels[target] = _decode_string(label, path, statement.head)
+        _set_position(positions, f"y.{len(raw['y']) - 1}", statement.head)
+    if labels:
+        raw["curve_labels"] = labels
+    return raw
+
+
+def parse_kirin_source(
+    text: str, path: Path
+) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]]]:
+    """Parse one Kirin source buffer into the current raw schema shape."""
+    doc_type, doc_id, description, sections, top_values, positions = _parse_document_structure(text, path)
+    if doc_type == "entry":
+        raw = _parse_entry(doc_id, description, sections, top_values, positions, path)
+    elif doc_type == "scenario":
+        raw = _parse_scenario(doc_id, description, sections, top_values, positions, path)
+    else:
+        raw = _parse_plot(doc_id, description, sections, top_values, positions, path)
+    return raw, positions
+
+
+def _render_atom(value: Any, *, text: bool = False) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False) if text else value
+    if value is None or isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    raise SchemaError(f"cannot render unsupported Kirin value {value!r}")
+
+
+def _render_type(spec: Dict[str, Any]) -> str:
+    if spec.get("value_type") == "boolean":
+        return "boolean"
+    if spec.get("domain"):
+        return str(spec["domain"])
+    return f"number[{spec.get('unit', 'dimensionless')}]"
+
+
+def _render_input(name: str, spec: Dict[str, Any], *, allow_default: bool = True) -> str:
+    labelled_name = name
+    if spec.get("label") is not None:
+        labelled_name += f" {_render_atom(spec['label'], text=True)}"
+    parts = [f"{labelled_name}: {_render_type(spec)}"]
+    if allow_default and "default" in spec:
+        parts.append(f"= {_render_atom(spec['default'])}")
+    minimum = spec.get("min")
+    maximum = spec.get("max")
+    if minimum is not None or maximum is not None:
+        parts.append(f"in {minimum if minimum is not None else '*'}..{maximum if maximum is not None else '*'}")
+    if spec.get("integer"):
+        parts.append("integer")
+    if "allowed_values" in spec:
+        allowed = ", ".join(_render_atom(item) for item in spec.get("allowed_values", []))
+        parts.append(f"one-of [{allowed}]")
+    unsupported = set(spec) - {
+        "value_type", "domain", "unit", "default", "min", "max", "integer", "allowed_values",
+        "label",
+    }
+    if unsupported:
+        raise SchemaError(
+            f"Kirin v1 renderer cannot preserve input attribute(s): {', '.join(sorted(unsupported))}"
+        )
+    return " ".join(parts)
+
+
+def _description_block(description: str) -> List[str]:
+    lines = description.splitlines()
+    length = 3
+    while "-" * length in lines:
+        length += 1
+    fence = "-" * length
+    return [fence, *lines, fence]
+
+
+def _render_expression(prefix: str, expression: str, indent: str = "  ") -> List[str]:
+    expression_lines = expression.splitlines() or [expression]
+    if len(expression_lines) == 1 and len(prefix) + len(expression_lines[0]) <= 100:
+        return [prefix + expression_lines[0]]
+    return [prefix.rstrip(), *(indent + "  " + line.strip() for line in expression_lines if line.strip())]
+
+
+def _dimension_text(powers: Dict[str, Any]) -> str:
+    if not powers:
+        return "1"
+    terms = []
+    for name, raw_power in powers.items():
+        power = Fraction(str(raw_power))
+        if power == 1:
+            terms.append(name)
+        else:
+            exponent = (
+                f"({power.numerator}/{power.denominator})"
+                if power.denominator != 1
+                else str(power.numerator)
+            )
+            terms.append(f"{name} ** {exponent}")
+    return " * ".join(terms)
+
+
+def render_kirin_document(raw: Dict[str, Any]) -> str:
+    """Render one structured schema document as canonical Kirin v1 source."""
+    doc_type = raw.get("type")
+    doc_id = raw.get("id")
+    if raw.get("schema_version") != 1 or doc_type not in {"entry", "scenario", "plot"}:
+        raise SchemaError("Kirin renderer requires a schema-v1 entry, scenario, or plot")
+    if not isinstance(doc_id, str):
+        raise SchemaError("Kirin renderer requires a document id")
+    lines = ["@kirin 1", f"@{doc_type} {doc_id}"]
+    directive_map = {
+        "template": "template",
+        "game_version": "game-version",
+        "validation_status": "status",
+    }
+    for source, directive in directive_map.items():
+        if source in raw:
+            lines.append(f"@{directive} {_render_atom(raw[source], text=True)}")
+    lines.extend(["", f"// {str(raw.get('name', doc_id)).replace(chr(10), ' ')}"])
+    if "description" in raw:
+        lines.extend(["", *_description_block(str(raw["description"]))])
+
+    if doc_type == "scenario":
+        lines.extend(["", "values:"])
+        for name, value in raw.get("values", {}).items():
+            lines.append(f"  {name} = {_render_atom(value)}")
+        return "\n".join(lines).rstrip() + "\n"
+
+    if doc_type == "plot":
+        lines.extend(
+            [
+                "",
+                f"x: {raw.get('x', '')}",
+                f"range: {raw.get('range', ['', ''])[0]}..{raw.get('range', ['', ''])[1]}",
+                f"points: {raw.get('points', '')}",
+                "",
+                "y:",
+            ]
+        )
+        labels = raw.get("curve_labels", {})
+        for target in raw.get("y", []):
+            suffix = f" as {_render_atom(labels[target], text=True)}" if target in labels else ""
+            lines.append(f"  {target}{suffix}")
+        plot_keys = {
+            "scenario": "scenario",
+            "title": "title",
+            "x_label": "x-label",
+            "y_label": "y-label",
+            "out": "export-svg",
+            "data_out": "export-csv",
+        }
+        for source, target in plot_keys.items():
+            if raw.get(source) is not None:
+                lines.append(f"{target}: {_render_atom(raw[source], text=True)}")
+        allowed = {
+            "schema_version", "id", "name", "type", "description", "x", "range", "points",
+            "y", "scenario", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
+        }
+        unsupported = set(raw) - allowed
+        if unsupported:
+            raise SchemaError(f"Kirin v1 renderer cannot preserve plot key(s): {', '.join(sorted(unsupported))}")
+        return "\n".join(lines).rstrip() + "\n"
+
+    if raw.get("sources"):
+        lines.extend(["", "sources:"])
+        for source in raw["sources"]:
+            lines.append(f"  {_render_atom(source, text=isinstance(source, str))}")
+
+    semantics = raw.get("semantics", {})
+    dimensions = semantics.get("dimensions", {})
+    if dimensions:
+        lines.extend(["", "dimensions:"])
+        for name, metadata in dimensions.items():
+            label = metadata.get("name") if isinstance(metadata, dict) else None
+            lines.append(f"  {name}" + (f" {_render_atom(label, text=True)}" if label else ""))
+    units = semantics.get("units", {})
+    if units:
+        lines.extend(["", "units:"])
+        for name, spec in units.items():
+            lines.append(f"  {name} = {_dimension_text(spec.get('dimensions', {}))}")
+    domains = semantics.get("domains", {})
+    if domains:
+        lines.extend(["", "domains:"])
+        for name, spec in domains.items():
+            lines.append(f"  {_render_input(name, spec, allow_default=False)}")
+
+    if raw.get("aliases"):
+        lines.extend(["", "aliases:"])
+        for alias, target in raw["aliases"].items():
+            lines.append(f"  {alias} = {target}")
+
+    if raw.get("inputs"):
+        lines.extend(["", "inputs:"])
+        for name, spec in raw["inputs"].items():
+            lines.append(f"  {_render_input(name, spec)}")
+    if raw.get("constraints"):
+        lines.extend(["", "constraints:"])
+        for expression in raw["constraints"]:
+            lines.append(f"  {' '.join(str(expression).split())}")
+
+    fields = raw.get("fields", {})
+    ordinary_fields = {name: spec for name, spec in fields.items() if spec.get("kind") != "info"}
+    info_fields = {name: spec for name, spec in fields.items() if spec.get("kind") == "info"}
+    if ordinary_fields:
+        lines.extend(["", "fields:"])
+        for name, spec in ordinary_fields.items():
+            unsupported = set(spec) - {"kind", "value", "value_type", "unit", "expression", "label"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve field {name!r} attribute(s): {', '.join(sorted(unsupported))}"
+                )
+            type_text = "boolean" if spec.get("value_type") == "boolean" else str(spec.get("unit", "dimensionless"))
+            labelled_name = name
+            if spec.get("label") is not None:
+                labelled_name += f" {_render_atom(spec['label'], text=True)}"
+            if spec.get("kind") == "value":
+                lines.append(f"  {labelled_name}: {type_text} = {_render_atom(spec.get('value'))}")
+            elif spec.get("kind") == "expression":
+                lines.extend(
+                    _render_expression(
+                        f"  {labelled_name}: {type_text} := ",
+                        str(spec.get("expression", "")),
+                        "  ",
+                    )
+                )
+            else:
+                raise SchemaError(f"unknown field kind {spec.get('kind')!r}")
+    if info_fields:
+        lines.extend(["", "info:"])
+        for name, spec in info_fields.items():
+            unsupported = set(spec) - {"kind", "value", "label"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve info field {name!r} attribute(s): {', '.join(sorted(unsupported))}"
+                )
+            labelled_name = name
+            if spec.get("label") is not None:
+                labelled_name += f" {_render_atom(spec['label'], text=True)}"
+            lines.append(
+                f"  {labelled_name} = "
+                f"{_render_atom(spec.get('value'), text=isinstance(spec.get('value'), str))}"
+            )
+
+    if raw.get("functions"):
+        lines.extend(["", "functions:"])
+        for name, spec in raw["functions"].items():
+            unsupported = set(spec) - {"parameters", "expression", "unit", "label"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve function {name!r} attribute(s): {', '.join(sorted(unsupported))}"
+                )
+            parameters = ", ".join(
+                _render_input(parameter, parameter_spec, allow_default=False)
+                for parameter, parameter_spec in spec.get("parameters", {}).items()
+            )
+            labelled_name = name
+            if spec.get("label") is not None:
+                labelled_name += f" {_render_atom(spec['label'], text=True)}"
+            prefix = f"  {labelled_name}({parameters}) -> {spec.get('unit', 'dimensionless')} = "
+            lines.extend(_render_expression(prefix, str(spec.get("expression", "")), "  "))
+    if raw.get("outputs"):
+        lines.extend(["", "outputs:"])
+        for name, spec in raw["outputs"].items():
+            unsupported = set(spec) - {"expression", "unit", "label"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve output {name!r} attribute(s): {', '.join(sorted(unsupported))}"
+                )
+            labelled_name = name
+            if spec.get("label") is not None:
+                labelled_name += f" {_render_atom(spec['label'], text=True)}"
+            prefix = f"  {labelled_name}: {spec.get('unit', 'dimensionless')} = "
+            lines.extend(_render_expression(prefix, str(spec.get("expression", "")), "  "))
+
+    allowed = {
+        "schema_version", "id", "name", "type", "template", "description", "sources",
+        "game_version", "validation_status", "semantics", "aliases", "inputs", "constraints", "fields",
+        "functions", "outputs",
+    }
+    unsupported = set(raw) - allowed
+    if unsupported:
+        raise SchemaError(f"Kirin v1 renderer cannot preserve entry key(s): {', '.join(sorted(unsupported))}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def load_kirin_document(
+    path: Path, text_override: Optional[str] = None
+) -> Tuple[Dict[str, Any], str, str, Dict[str, Tuple[int, int]]]:
+    """Load a Kirin document from disk or an unsaved editor buffer."""
+    if text_override is None:
+        raw_bytes = path.read_bytes()
+        if len(raw_bytes) > MAX_SOURCE_BYTES:
+            raise SchemaError(
+                f"Kirin source file exceeds {MAX_SOURCE_BYTES} bytes",
+                SourceLocation(path=str(path)),
+            )
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SchemaError("Kirin source files must be UTF-8", SourceLocation(path=str(path))) from exc
+    else:
+        text = text_override
+        raw_bytes = text.encode("utf-8")
+        if len(raw_bytes) > MAX_SOURCE_BYTES:
+            raise SchemaError(
+                f"Kirin source buffer exceeds {MAX_SOURCE_BYTES} bytes",
+                SourceLocation(path=str(path)),
+            )
+    raw, positions = parse_kirin_source(text, path)
+    return raw, text, hashlib.sha256(raw_bytes).hexdigest(), positions

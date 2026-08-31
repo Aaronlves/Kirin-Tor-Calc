@@ -271,6 +271,9 @@ class RestrictedCompiler:
                 )
             if name in self.entry.fields or name in self.entry.outputs:
                 return self.engine.resolve_member(self.entry.id, name)
+            if name in self.entry.aliases:
+                entry_id, member = self.entry.aliases[name].split(".", 1)
+                return self.engine.resolve_member(entry_id, member)
         spec = self.engine.global_input(name)
         if spec is not None:
             symbol = self.engine.input_symbol(name, spec)
@@ -392,6 +395,10 @@ class RestrictedCompiler:
         if self.entry is not None and name in self.entry.functions:
             args = [self._build(arg) for arg in node.args]
             return self.engine.call_function(self.entry.id, name, args)
+        if self.entry is not None and name in self.entry.aliases:
+            entry_id, function_name = self.entry.aliases[name].split(".", 1)
+            args = [self._build(arg) for arg in node.args]
+            return self.engine.call_function(entry_id, function_name, args)
         if name == "sum":
             return self._finite_sum(node)
         if name in {"if_else", "piecewise"}:
@@ -492,6 +499,7 @@ class RestrictedCompiler:
                 | set(self.entry.fields)
                 | set(self.entry.functions)
                 | set(self.entry.outputs)
+                | set(self.entry.aliases)
             )
         if index_name in self.local_values or index_name in entry_names:
             raise ExpressionError(f"sum index {index_name!r} shadows a declared name", self.location)

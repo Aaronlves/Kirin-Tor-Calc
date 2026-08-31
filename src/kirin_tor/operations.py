@@ -398,11 +398,15 @@ def _scan_core(
         "status": "ok",
         "operation": "scan",
         "x": axis_name,
+        "x_display_label": specs[0].label,
         "x_unit": specs[0].unit_name,
         "x_domain": specs[0].domain_name,
         "range": [exact_text(start), exact_text(end)],
         "points": points,
         "targets": list(targets),
+        "labels": {
+            target: (engine.display_label(target) or target) for target in targets
+        },
         "units": y_units,
         "parameters": {
             name: exact_text(value)
@@ -461,6 +465,7 @@ def _explain_core(workspace: Workspace, target: str) -> dict:
         "status": "ok",
         "operation": "explain",
         "target": target,
+        "label": engine.display_label(target),
         "expression": exact_text(value.expr),
         "unit": workspace.units.render(value.dimension),
         "is_boolean": value.is_boolean,
@@ -468,6 +473,7 @@ def _explain_core(workspace: Workspace, target: str) -> dict:
         "inputs": {
             key: {
                 "local_name": spec.name,
+                "label": spec.label,
                 "domain": spec.domain_name,
                 "value_type": spec.value_type,
                 "unit": spec.unit_name,

@@ -7,9 +7,8 @@ import importlib.resources
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
-import yaml
-
 from .errors import KTError, ReferenceError, SchemaError, SourceLocation, ValidationErrors, WorkspaceError
+from .kirin_syntax import load_kirin_document, parse_kirin_source, render_kirin_document
 from .schema import (
     Document,
     Entry,
@@ -17,13 +16,12 @@ from .schema import (
     Scenario,
     build_semantic_registry,
     parse_document,
-    safe_load_document,
 )
-from .limits import MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_YAML_BYTES
+from .limits import MAX_SOURCE_BYTES, MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_SOURCE_BYTES
 from .units import UnitRegistry
 
 
-MARKER = ".kirin-tor.yaml"
+MARKER = "kirin.workspace"
 
 
 class Workspace:
@@ -73,7 +71,61 @@ class Workspace:
         paths = cls._document_paths(root)
         raw_documents = []
         for path in paths:
-            raw, text, digest, positions = safe_load_document(path)
+            raw, text, digest, positions = cls._load_source_document(path)
+            raw_documents.append((raw, text, digest, path, positions))
+        registry = build_semantic_registry(raw_documents)
+        documents = [
+            parse_document(raw, text, digest, path, registry, positions)
+            for raw, text, digest, path, positions in raw_documents
+        ]
+        return cls(root, documents, registry)
+
+    @classmethod
+    def load_with_overlay(cls, root: Path, source_path: Path, source_text: str) -> "Workspace":
+        """Load a workspace with one unsaved Kirin editor buffer overlaid."""
+        return cls.load_with_overlays(root, {source_path: source_text})
+
+    @classmethod
+    def load_with_overlays(cls, root: Path, overlays: Dict[Path, str]) -> "Workspace":
+        """Load a workspace with unsaved Kirin editor buffers overlaid."""
+        root = root.resolve()
+        if not (root / MARKER).is_file():
+            raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
+        cls._validate_marker(root)
+        resolved_overlays: Dict[Path, str] = {}
+        for source_path, source_text in overlays.items():
+            source_path = source_path.resolve()
+            try:
+                relative = source_path.relative_to(root)
+            except ValueError as exc:
+                raise WorkspaceError(f"editor source must stay inside the workspace: {source_path}") from exc
+            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
+                "entries", "scenarios", "plots"
+            }:
+                raise WorkspaceError("editor source must be a .kirin file inside entries, scenarios, or plots")
+            resolved_overlays[source_path] = source_text
+        paths = cls._document_paths(root)
+        for source_path in resolved_overlays:
+            if source_path not in paths:
+                paths.append(source_path)
+        paths.sort()
+        if len(paths) > MAX_WORKSPACE_DOCUMENTS:
+            raise WorkspaceError(
+                f"workspace exceeds {MAX_WORKSPACE_DOCUMENTS} source documents"
+            )
+        total_bytes = sum(
+            len(resolved_overlays[path].encode("utf-8")) if path in resolved_overlays else path.stat().st_size
+            for path in paths
+        )
+        if total_bytes > MAX_WORKSPACE_SOURCE_BYTES:
+            raise WorkspaceError(
+                f"workspace sources exceed {MAX_WORKSPACE_SOURCE_BYTES} total bytes"
+            )
+        raw_documents = []
+        for path in paths:
+            raw, text, digest, positions = cls._load_source_document(
+                path, resolved_overlays.get(path)
+            )
             raw_documents.append((raw, text, digest, path, positions))
         registry = build_semantic_registry(raw_documents)
         documents = [
@@ -83,44 +135,80 @@ class Workspace:
         return cls(root, documents, registry)
 
     @staticmethod
+    def _load_source_document(path: Path, text_override: Optional[str] = None):
+        if path.suffix.lower() != ".kirin":
+            raise WorkspaceError(f"workspace source must use the .kirin extension: {path}")
+        return load_kirin_document(path, text_override)
+
+    @staticmethod
     def _document_paths(root: Path) -> list[Path]:
         paths = []
         for folder in ("entries", "scenarios", "plots"):
             directory = root / folder
             if directory.exists():
-                paths.extend(path for path in directory.rglob("*.yaml") if path.is_file())
-                paths.extend(path for path in directory.rglob("*.yml") if path.is_file())
+                paths.extend(path for path in directory.rglob("*.kirin") if path.is_file())
         result = sorted(set(paths))
         if len(result) > MAX_WORKSPACE_DOCUMENTS:
             raise WorkspaceError(
-                f"workspace exceeds {MAX_WORKSPACE_DOCUMENTS} YAML documents"
+                f"workspace exceeds {MAX_WORKSPACE_DOCUMENTS} source documents"
             )
         total_bytes = sum(path.stat().st_size for path in result)
-        if total_bytes > MAX_WORKSPACE_YAML_BYTES:
+        if total_bytes > MAX_WORKSPACE_SOURCE_BYTES:
             raise WorkspaceError(
-                f"workspace YAML exceeds {MAX_WORKSPACE_YAML_BYTES} total bytes"
+                f"workspace sources exceed {MAX_WORKSPACE_SOURCE_BYTES} total bytes"
             )
         return result
 
     @staticmethod
     def _validate_marker(root: Path) -> None:
         marker = root / MARKER
-        raw, _text, _digest, _positions = safe_load_document(marker)
-        unknown = sorted(set(raw) - {"schema_version", "kind", "initial_package"})
-        if unknown:
+        raw_bytes = marker.read_bytes()
+        if len(raw_bytes) > MAX_SOURCE_BYTES:
+            raise SchemaError("workspace marker is too large", SourceLocation(path=str(marker)))
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SchemaError("workspace marker must be UTF-8", SourceLocation(path=str(marker))) from exc
+        lines = [
+            (number, line.strip())
+            for number, line in enumerate(text.splitlines(), 1)
+            if line.strip() and not line.lstrip().startswith("//")
+        ]
+        if not lines or lines[0][1] != "@kirin-workspace 1":
             raise SchemaError(
-                "unknown workspace marker key(s): " + ", ".join(unknown),
-                SourceLocation(path=str(marker)),
+                "workspace marker must start with '@kirin-workspace 1'",
+                SourceLocation(path=str(marker), line=lines[0][0] if lines else 1, column=1),
             )
-        if raw.get("schema_version") != 1:
-            raise SchemaError("workspace schema_version must be 1", SourceLocation(path=str(marker)))
-        if raw.get("kind") != "kirin_tor_workspace":
+        seen = set()
+        for number, line in lines[1:]:
+            if ":" not in line:
+                raise SchemaError(
+                    "workspace setting must use KEY: VALUE",
+                    SourceLocation(path=str(marker), line=number, column=1),
+                )
+            key, value = (part.strip() for part in line.split(":", 1))
+            if key != "initial-package":
+                raise SchemaError(
+                    f"unknown workspace setting {key!r}",
+                    SourceLocation(path=str(marker), line=number, column=1),
+                )
+            if key in seen or not value:
+                raise SchemaError(
+                    "workspace initial-package must appear once with a value",
+                    SourceLocation(path=str(marker), line=number, column=1),
+                )
+            if value not in AVAILABLE_PACKAGES:
+                raise SchemaError(
+                    "workspace initial-package must be one of: "
+                    + ", ".join(sorted(AVAILABLE_PACKAGES)),
+                    SourceLocation(path=str(marker), line=number, column=1),
+                )
+            seen.add(key)
+        if "initial-package" not in seen:
             raise SchemaError(
-                "workspace marker kind must be kirin_tor_workspace",
-                SourceLocation(path=str(marker)),
+                "workspace marker requires initial-package",
+                SourceLocation(path=str(marker), line=1, column=1),
             )
-        if "initial_package" in raw and not isinstance(raw["initial_package"], str):
-            raise SchemaError("workspace initial_package must be text", SourceLocation(path=str(marker)))
 
     @classmethod
     def load_for_check(cls, root: Path) -> "Workspace":
@@ -133,7 +221,7 @@ class Workspace:
         errors = []
         for path in cls._document_paths(root):
             try:
-                raw, text, digest, positions = safe_load_document(path)
+                raw, text, digest, positions = cls._load_source_document(path)
                 raw_documents.append((raw, text, digest, path, positions))
             except KTError as exc:
                 errors.append(exc)
@@ -170,12 +258,11 @@ class Workspace:
                 raise SchemaError("run snapshot content is invalid")
             text = snapshot.get("source_text")
             if not isinstance(text, str):
-                text = yaml.safe_dump(raw, allow_unicode=True, sort_keys=False)
+                text = render_kirin_document(raw)
             digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-            path = virtual_root / f"{index:04d}-{raw.get('id', 'unknown')}.yaml"
-            from .schema import _collect_positions
-
-            raw_documents.append((raw, text, digest, path, _collect_positions(text)))
+            path = virtual_root / f"{index:04d}-{raw.get('id', 'unknown')}.kirin"
+            _parsed, positions = parse_kirin_source(text, path)
+            raw_documents.append((raw, text, digest, path, positions))
         registry = build_semantic_registry(raw_documents)
         for raw, text, digest, path, positions in raw_documents:
             documents.append(parse_document(raw, text, digest, path, registry, positions))
@@ -221,15 +308,15 @@ def initialize(root: Path, package_name: str = "none") -> Path:
     marker = root / MARKER
     if marker.exists():
         raise WorkspaceError(f"workspace already exists at {root}")
-    package_path = root / "entries" / f"{package_name}_semantics.yaml"
+    package_path = root / "entries" / f"{package_name}_semantics.kirin"
     if package_name != "none" and package_path.exists():
         raise WorkspaceError(f"initialization would overwrite an existing file: {package_path}")
     for folder in ("entries", "scenarios", "plots", "runs", "results"):
         (root / folder).mkdir(exist_ok=True)
     with marker.open("x", encoding="utf-8") as handle:
-        handle.write(f"schema_version: 1\nkind: kirin_tor_workspace\ninitial_package: {package_name}\n")
+        handle.write(f"@kirin-workspace 1\ninitial-package: {package_name}\n")
     if package_name != "none":
-        resource = importlib.resources.files("kirin_tor.packages").joinpath(f"{package_name}.yaml")
+        resource = importlib.resources.files("kirin_tor.packages").joinpath(f"{package_name}.kirin")
         content = resource.read_text(encoding="utf-8")
         with package_path.open("x", encoding="utf-8") as handle:
             handle.write(content)
@@ -242,42 +329,40 @@ def create_entry_template(workspace: Workspace, entry_type: str, entry_id: str) 
     require_identifier(entry_id, "id", SourceLocation(entry_id=entry_id))
     if entry_type not in {"entry", "skill", "model"}:
         raise SchemaError("new entry template must be entry, skill, or model")
-    path = workspace.root / "entries" / f"{entry_id}.yaml"
+    if entry_id in workspace.documents:
+        raise WorkspaceError(f"document id already exists: {entry_id}")
+    path = workspace.root / "entries" / f"{entry_id}.kirin"
     if path.exists():
         raise WorkspaceError(f"file already exists: {path}")
     if entry_type in {"entry", "skill"}:
-        content = {
-            "schema_version": 1,
-            "id": entry_id,
-            "name": entry_id,
-            "type": "entry",
-            "template": entry_type,
-            "description": "Edit this fictional template.",
-            "inputs": {},
-            "fields": {
-                "base_value": {"kind": "value", "value": "0", "unit": "dimensionless"}
-            },
-            "functions": {},
-            "outputs": {},
-        }
+        content = f"""@kirin 1
+@entry {entry_id}
+@template {entry_type}
+
+// {entry_id}
+
+---
+Edit this fictional template.
+---
+
+fields:
+  base_value: dimensionless = 0
+"""
     else:
-        content = {
-            "schema_version": 1,
-            "id": entry_id,
-            "name": entry_id,
-            "type": "entry",
-            "template": "model",
-            "inputs": {
-                "x": {"unit": "dimensionless", "default": "0"}
-            },
-            "fields": {},
-            "functions": {},
-            "outputs": {
-                "result": {"expression": "x", "unit": "dimensionless"}
-            },
-        }
+        content = f"""@kirin 1
+@entry {entry_id}
+@template model
+
+// {entry_id}
+
+inputs:
+  x: number[dimensionless] = 0
+
+outputs:
+  result: dimensionless = x
+"""
     with path.open("x", encoding="utf-8") as handle:
-        handle.write(yaml.safe_dump(content, allow_unicode=True, sort_keys=False))
+        handle.write(content)
     return path
 
 
@@ -285,18 +370,20 @@ def create_scenario_template(workspace: Workspace, scenario_id: str) -> Path:
     from .schema import require_identifier
 
     require_identifier(scenario_id, "id", SourceLocation(entry_id=scenario_id))
-    path = workspace.root / "scenarios" / f"{scenario_id}.yaml"
+    if scenario_id in workspace.documents:
+        raise WorkspaceError(f"document id already exists: {scenario_id}")
+    path = workspace.root / "scenarios" / f"{scenario_id}.kirin"
     if path.exists():
         raise WorkspaceError(f"file already exists: {path}")
-    content = {
-        "schema_version": 1,
-        "id": scenario_id,
-        "name": scenario_id,
-        "type": "scenario",
-        "values": {},
-    }
+    content = f"""@kirin 1
+@scenario {scenario_id}
+
+// {scenario_id}
+
+values:
+"""
     with path.open("x", encoding="utf-8") as handle:
-        handle.write(yaml.safe_dump(content, allow_unicode=True, sort_keys=False))
+        handle.write(content)
     return path
 
 
@@ -304,21 +391,26 @@ def create_plot_template(workspace: Workspace, plot_id: str) -> Path:
     from .schema import require_identifier
 
     require_identifier(plot_id, "id", SourceLocation(entry_id=plot_id))
-    path = workspace.root / "plots" / f"{plot_id}.yaml"
+    if plot_id in workspace.documents:
+        raise WorkspaceError(f"document id already exists: {plot_id}")
+    path = workspace.root / "plots" / f"{plot_id}.kirin"
     if path.exists():
         raise WorkspaceError(f"file already exists: {path}")
-    content = {
-        "schema_version": 1,
-        "id": plot_id,
-        "name": plot_id,
-        "type": "plot",
-        "x": "entry.input",
-        "range": ["0", "1"],
-        "points": 101,
-        "y": ["entry.output"],
-        "out": f"results/{plot_id}.svg",
-        "data_out": f"results/{plot_id}.csv",
-    }
+    content = f"""@kirin 1
+@plot {plot_id}
+
+// {plot_id}
+
+x: entry.input
+range: 0..1
+points: 101
+
+y:
+  entry.output
+
+export-svg: \"results/{plot_id}.svg\"
+export-csv: \"results/{plot_id}.csv\"
+"""
     with path.open("x", encoding="utf-8") as handle:
-        handle.write(yaml.safe_dump(content, allow_unicode=True, sort_keys=False))
+        handle.write(content)
     return path

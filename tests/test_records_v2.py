@@ -30,8 +30,8 @@ def test_replay_reports_version_drift_without_using_current_entries(
     record["software"]["sympy"] = "0.0-test-drift"
     record_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    (example_workspace / "entries" / "技能甲.yaml").write_text(
-        "not: [valid yaml", encoding="utf-8"
+    (example_workspace / "entries" / "技能甲.kirin").write_text(
+        "not valid Kirin source", encoding="utf-8"
     )
     replayed = runner.invoke(app, ["replay", "versioned", "--json"])
     assert replayed.exit_code == 0, replayed.stderr
@@ -61,8 +61,8 @@ def test_plot_record_hashes_and_regenerates_artifacts_from_snapshots(
     assert record["artifacts"]["out"]["sha256"]
     assert record["artifacts"]["data_out"]["sha256"]
 
-    (example_workspace / "entries" / "组合模型.yaml").write_text(
-        "not: [valid yaml", encoding="utf-8"
+    (example_workspace / "entries" / "组合模型.kirin").write_text(
+        "not valid Kirin source", encoding="utf-8"
     )
     replayed = runner.invoke(
         app,

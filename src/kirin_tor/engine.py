@@ -126,6 +126,23 @@ class Engine:
         self._check_dependency_count(value)
         return value
 
+    def display_label(self, target: str) -> Optional[str]:
+        """Return non-authoritative presentation text for a canonical member target."""
+        match = TARGET_RE.fullmatch(target.strip())
+        if not match:
+            return None
+        entry = self.workspace.entries.get(match.group(1))
+        if entry is None:
+            return None
+        member = match.group(2)
+        if member in entry.inputs:
+            return entry.inputs[member].label
+        for collection in (entry.fields, entry.functions, entry.outputs):
+            if member in collection:
+                label = collection[member].get("label")
+                return label if isinstance(label, str) else None
+        return None
+
     def resolve_member(self, entry_id: str, member: str) -> MathValue:
         key = (entry_id, member)
         if key in self._member_cache:
@@ -538,16 +555,26 @@ class Engine:
         checked = []
         errors = []
 
-        def capture(label: str, action) -> None:
+        def capture(label: str, action, *, count: bool = True) -> None:
             try:
                 action()
-                checked.append(label)
+                if count:
+                    checked.append(label)
             except KTError as exc:
                 errors.append(exc)
 
         for entry in self.workspace.entries.values():
             if entry.semantics:
                 checked.append(f"{entry.id}.semantics")
+            for alias, target in entry.aliases.items():
+                def validate_alias(entry=entry, alias=alias, target=target):
+                    target_entry_id, target_member = target.split(".", 1)
+                    target_entry = self.workspace.get_entry(target_entry_id)
+                    if target_member in target_entry.functions:
+                        return
+                    self.resolve_member(target_entry_id, target_member)
+
+                capture(f"{entry.id}.aliases.{alias}", validate_alias, count=False)
             for spec in entry.inputs.values():
                 def validate_spec(spec=spec, entry=entry):
                     if spec.minimum is not None and spec.maximum is not None:

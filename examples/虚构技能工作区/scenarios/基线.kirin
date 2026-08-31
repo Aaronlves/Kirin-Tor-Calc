@@ -1,0 +1,7 @@
+@kirin 1
+@scenario baseline
+
+// 基线参数（虚构）
+
+values:
+  combo.crit = 0.25

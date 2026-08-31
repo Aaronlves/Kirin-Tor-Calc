@@ -12,13 +12,16 @@ license = { text = "MIT" }
 authors = [{ name = "Kirin Tor contributors" }]
 dependencies = [
   "matplotlib>=3.8,<3.10",
-  "PyYAML>=6.0,<7",
   "sympy>=1.13,<1.15",
   "typer>=0.12,<1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9"]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+tui = [
+  "plotext>=6,<7",
+  "textual>=8.2,<8.3",
+]
 
 [project.scripts]
 kt = "kirin_tor.cli:app"
@@ -27,7 +30,7 @@ kt = "kirin_tor.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"kirin_tor.packages" = ["*.yaml"]
+"kirin_tor.packages" = ["*.kirin"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

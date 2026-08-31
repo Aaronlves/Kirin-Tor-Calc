@@ -13,15 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
-import yaml
-
 from . import __version__
 from .engine import Engine
 from .errors import KTError, SchemaError, UnsupportedError, WorkspaceError
+from .kirin_syntax import parse_kirin_source
 from .limits import MAX_RUN_RECORD_BYTES
 from .operations import differentiate, evaluate, scan_values, solve_equation, transform
 from .plotting import render_plot, write_scan_csv
-from .schema import StrictSafeLoader
 from .timeout import run_with_timeout
 from .workspace import Workspace
 
@@ -61,7 +59,7 @@ def software_versions() -> dict:
     package_root = Path(__file__).resolve().parent
     implementation = hashlib.sha256()
     implementation_files = sorted(package_root.glob("*.py")) + sorted(
-        (package_root / "packages").glob("*.yaml")
+        (package_root / "packages").glob("*.kirin")
     )
     for path in implementation_files:
         implementation.update(str(path.relative_to(package_root)).encode("utf-8"))
@@ -74,7 +72,7 @@ def software_versions() -> dict:
         "python": platform.python_version(),
         "platform": sys.platform,
     }
-    for distribution in ("sympy", "typer", "PyYAML", "matplotlib"):
+    for distribution in ("sympy", "typer", "matplotlib"):
         try:
             result[distribution] = importlib.metadata.version(distribution)
         except importlib.metadata.PackageNotFoundError:
@@ -190,8 +188,10 @@ def load_run(workspace_or_root: Union[Workspace, Path], run_id: str) -> dict:
         if hashlib.sha256(source_text.encode("utf-8")).hexdigest() != snapshot.get("source_sha256"):
             raise SchemaError(f"embedded definition snapshot {snapshot.get('id')!r} failed its source hash")
         try:
-            parsed_source = yaml.load(source_text, Loader=StrictSafeLoader)
-        except yaml.YAMLError as exc:
+            parsed_source, _positions = parse_kirin_source(
+                source_text, Path(f"{snapshot.get('id', 'unknown')}.kirin")
+            )
+        except SchemaError as exc:
             raise SchemaError(
                 f"embedded definition snapshot {snapshot.get('id')!r} has invalid source text"
             ) from exc

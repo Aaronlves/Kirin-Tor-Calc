@@ -5,8 +5,9 @@ from inspect import signature
 from pathlib import Path
 
 import pytest
-import yaml
 from typer.testing import CliRunner
+
+from kirin_tor.kirin_syntax import load_kirin_document, render_kirin_document
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -32,13 +33,14 @@ def example_workspace(tmp_path: Path) -> Path:
     return destination
 
 
-def load_yaml(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+def load_kirin(path: Path) -> dict:
+    raw, _text, _digest, _positions = load_kirin_document(path)
+    return raw
 
 
-def write_yaml(path: Path, content: dict) -> None:
+def write_kirin(path: Path, content: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(content, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    path.write_text(render_kirin_document(content), encoding="utf-8")
 
 
 def minimal_entry(entry_id: str, expression: str, inputs=None, unit: str = "dimensionless") -> dict:

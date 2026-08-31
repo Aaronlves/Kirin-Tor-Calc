@@ -23,42 +23,42 @@ from kirin_tor.operations import evaluate, scan_values, solve_equation, transfor
 from kirin_tor.timeout import run_with_timeout
 from kirin_tor.workspace import Workspace
 
-from conftest import load_yaml, minimal_entry, write_yaml
+from conftest import load_kirin, minimal_entry, write_kirin
 
 
 def test_missing_parameter_and_undeclared_variable(example_workspace: Path) -> None:
-    combo_path = example_workspace / "entries" / "组合模型.yaml"
-    combo = load_yaml(combo_path)
+    combo_path = example_workspace / "entries" / "组合模型.kirin"
+    combo = load_kirin(combo_path)
     del combo["inputs"]["crit"]["default"]
-    write_yaml(combo_path, combo)
+    write_kirin(combo_path, combo)
     engine = Engine(Workspace.load(example_workspace))
     with pytest.raises(ParameterError, match="missing parameter"):
         evaluate(engine, "combo.total")
 
     combo["outputs"]["total"]["expression"] = "skill_a.expected(crti)"
-    write_yaml(combo_path, combo)
+    write_kirin(combo_path, combo)
     with pytest.raises(ExpressionError, match="undeclared variable 'crti'"):
         Engine(Workspace.load(example_workspace)).validate_all()
 
 
 def test_duplicate_id_and_missing_reference(example_workspace: Path) -> None:
-    duplicate = load_yaml(example_workspace / "entries" / "技能甲.yaml")
-    write_yaml(example_workspace / "entries" / "重复.yaml", duplicate)
+    duplicate = load_kirin(example_workspace / "entries" / "技能甲.kirin")
+    write_kirin(example_workspace / "entries" / "重复.kirin", duplicate)
     with pytest.raises(SchemaError, match="duplicate id 'skill_a'"):
         Workspace.load(example_workspace)
-    (example_workspace / "entries" / "重复.yaml").unlink()
+    (example_workspace / "entries" / "重复.kirin").unlink()
 
-    combo_path = example_workspace / "entries" / "组合模型.yaml"
-    combo = load_yaml(combo_path)
+    combo_path = example_workspace / "entries" / "组合模型.kirin"
+    combo = load_kirin(combo_path)
     combo["outputs"]["total"]["expression"] = "missing_skill.expected(crit)"
-    write_yaml(combo_path, combo)
+    write_kirin(combo_path, combo)
     with pytest.raises(ReferenceError, match="missing reference"):
         Engine(Workspace.load(example_workspace)).validate_all()
 
 
 def test_dependency_cycle_reports_path(example_workspace: Path) -> None:
-    write_yaml(example_workspace / "entries" / "a.yaml", minimal_entry("a", "b.result"))
-    write_yaml(example_workspace / "entries" / "b.yaml", minimal_entry("b", "a.result"))
+    write_kirin(example_workspace / "entries" / "a.kirin", minimal_entry("a", "b.result"))
+    write_kirin(example_workspace / "entries" / "b.kirin", minimal_entry("b", "a.result"))
     with pytest.raises(DependencyCycleError, match=r"a\.result -> b\.result -> a\.result"):
         Engine(Workspace.load(example_workspace)).resolve_target("a.result")
 
@@ -77,7 +77,7 @@ def test_probability_bounds_division_domain_and_unit_errors(example_workspace: P
         "x / x",
         inputs={"x": {"unit": "dimensionless"}},
     )
-    write_yaml(example_workspace / "entries" / "ratio.yaml", ratio)
+    write_kirin(example_workspace / "entries" / "ratio.kirin", ratio)
     engine = Engine(Workspace.load(example_workspace))
     symbolic = transform(engine, "simplify", "ratio.result", keep={"x"})
     assert symbolic["expression"] == "1"
@@ -90,7 +90,7 @@ def test_probability_bounds_division_domain_and_unit_errors(example_workspace: P
         "if_else(x > 0, sqrt(x), sqrt(-x))",
         inputs={"x": {"unit": "dimensionless"}},
     )
-    write_yaml(example_workspace / "entries" / "conditional.yaml", conditional)
+    write_kirin(example_workspace / "entries" / "conditional.kirin", conditional)
     assert evaluate(
         Engine(Workspace.load(example_workspace)),
         "conditional_domain.result",
@@ -102,10 +102,10 @@ def test_probability_bounds_division_domain_and_unit_errors(example_workspace: P
         overrides={"x": "-1"},
     )["exact"] == "1"
 
-    combo_path = example_workspace / "entries" / "组合模型.yaml"
-    combo = load_yaml(combo_path)
+    combo_path = example_workspace / "entries" / "组合模型.kirin"
+    combo = load_kirin(combo_path)
     combo["outputs"]["total"]["expression"] = "skill_a.base_damage + crit"
-    write_yaml(combo_path, combo)
+    write_kirin(combo_path, combo)
     with pytest.raises(UnitError, match="incompatible units"):
         Engine(Workspace.load(example_workspace)).validate_all()
 
@@ -123,33 +123,31 @@ def test_restricted_parser_blocks_code_and_complexity(example_workspace: Path) -
     assert evaluate(engine, "sum(i, i, 1, 3)")["exact"] == "6"
 
 
-def test_yaml_float_is_rejected_to_preserve_text(example_workspace: Path) -> None:
-    scenario_path = example_workspace / "scenarios" / "基线.yaml"
+def test_kirin_decimal_is_exact_without_quotes(example_workspace: Path) -> None:
+    scenario_path = example_workspace / "scenarios" / "decimal.kirin"
     scenario_path.write_text(
-        "schema_version: 1\nid: bad_float\nname: 坏浮点\ntype: scenario\nvalues:\n  crit: 0.2\n",
+        "@kirin 1\n@scenario decimal\n\nvalues:\n  combo.crit = 0.2\n",
         encoding="utf-8",
     )
-    with pytest.raises(SchemaError, match="quoted decimal string"):
-        Workspace.load(example_workspace)
+    result = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", "decimal")
+    assert result["exact"] == "2640"
 
 
-def test_duplicate_yaml_mapping_keys_are_rejected(example_workspace: Path) -> None:
-    path = example_workspace / "entries" / "duplicate_key.yaml"
+def test_duplicate_kirin_members_are_rejected(example_workspace: Path) -> None:
+    path = example_workspace / "entries" / "duplicate_key.kirin"
     path.write_text(
-        "schema_version: 1\nid: first\nid: second\nname: duplicate\ntype: entry\n",
+        "@kirin 1\n@entry duplicate\n\ninputs:\n  x: number[dimensionless] = 1\n  x: number[dimensionless] = 2\n",
         encoding="utf-8",
     )
-    with pytest.raises(SchemaError, match="duplicate mapping key 'id'") as caught:
+    with pytest.raises(SchemaError, match="duplicate input 'x'") as caught:
         Workspace.load(example_workspace)
-    assert caught.value.location.line == 3
+    assert caught.value.location.line == 6
 
 
 def test_legacy_business_entry_types_are_not_core_schema_types(example_workspace: Path) -> None:
-    path = example_workspace / "entries" / "legacy.yaml"
-    legacy = minimal_entry("legacy", "1")
-    legacy["type"] = "skill"
-    write_yaml(path, legacy)
-    with pytest.raises(SchemaError, match="type must be one of"):
+    path = example_workspace / "entries" / "legacy.kirin"
+    path.write_text("@kirin 1\n@skill legacy\n", encoding="utf-8")
+    with pytest.raises(SchemaError, match="second declaration"):
         Workspace.load(example_workspace)
 
 
@@ -159,7 +157,7 @@ def test_invalid_scan_point_records_reason_instead_of_zero(example_workspace: Pa
         "sqrt(x - 1/2)",
         inputs={"x": {"unit": "probability"}},
     )
-    write_yaml(example_workspace / "entries" / "root.yaml", entry)
+    write_kirin(example_workspace / "entries" / "root.kirin", entry)
     scan = scan_values(Engine(Workspace.load(example_workspace)), "x", "0:1", 3, ["root_model.result"])
     first = scan["rows"][0]["values"]["root_model.result"]
     assert first["exact"] is None

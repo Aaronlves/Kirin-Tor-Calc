@@ -6,11 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
-
 from kirin_tor.cli import app
+from kirin_tor.workspace import Workspace
 
-from conftest import make_cli_runner, minimal_entry, write_yaml
+from conftest import load_kirin, make_cli_runner, minimal_entry, write_kirin
 
 
 runner = make_cli_runner()
@@ -51,12 +50,11 @@ def test_cli_help_new_check_and_chinese_paths(tmp_path: Path, monkeypatch) -> No
     monkeypatch.chdir(outside)
     created = runner.invoke(app, ["new", "skill", "fictional_skill"])
     assert created.exit_code == 0, created.output
-    assert (outside / "entries" / "fictional_skill.yaml").is_file()
-    created_document = yaml.safe_load(
-        (outside / "entries" / "fictional_skill.yaml").read_text(encoding="utf-8")
-    )
-    assert created_document["type"] == "entry"
-    assert created_document["template"] == "skill"
+    created_path = outside / "entries" / "fictional_skill.kirin"
+    assert created_path.is_file()
+    created_document = Workspace.load(outside).get_entry("fictional_skill")
+    assert created_document.type == "entry"
+    assert created_document.template == "skill"
     checked = runner.invoke(app, ["check", "--json"])
     assert checked.exit_code == 0, checked.output
     assert json.loads(checked.stdout)["status"] == "ok"
@@ -114,9 +112,9 @@ def test_new_game_neutral_templates_and_wow_data_package(tmp_path: Path, monkeyp
     root = tmp_path / "工作区"
     initialized = runner.invoke(app, ["init", str(root), "--package", "wow"])
     assert initialized.exit_code == 0, initialized.output
-    package = root / "entries" / "wow_semantics.yaml"
+    package = root / "entries" / "wow_semantics.kirin"
     assert package.is_file()
-    package_document = yaml.safe_load(package.read_text(encoding="utf-8"))
+    package_document = load_kirin(package)
     assert package_document["type"] == "entry"
     assert "attack_power" in package_document["semantics"]["dimensions"]
 
@@ -128,16 +126,16 @@ def test_new_game_neutral_templates_and_wow_data_package(tmp_path: Path, monkeyp
     ):
         created = runner.invoke(app, ["new", kind, item_id])
         assert created.exit_code == 0, created.output
-        assert (root / folder / f"{item_id}.yaml").is_file()
+        assert (root / folder / f"{item_id}.kirin").is_file()
 
 
 def test_check_aggregates_independent_math_errors_as_json(example_workspace: Path, monkeypatch) -> None:
-    write_yaml(
-        example_workspace / "entries" / "broken_a.yaml",
+    write_kirin(
+        example_workspace / "entries" / "broken_a.kirin",
         minimal_entry("broken_a", "missing_a.result"),
     )
-    write_yaml(
-        example_workspace / "entries" / "broken_b.yaml",
+    write_kirin(
+        example_workspace / "entries" / "broken_b.kirin",
         minimal_entry("broken_b", "missing_b.result"),
     )
     monkeypatch.chdir(example_workspace)
@@ -152,8 +150,8 @@ def test_check_aggregates_independent_math_errors_as_json(example_workspace: Pat
 def test_incomplete_solve_keeps_structured_result_and_nonzero_exit(
     example_workspace: Path, monkeypatch
 ) -> None:
-    write_yaml(
-        example_workspace / "entries" / "identity.yaml",
+    write_kirin(
+        example_workspace / "entries" / "identity.kirin",
         minimal_entry("identity", "x - x", {"x": {}}),
     )
     monkeypatch.chdir(example_workspace)

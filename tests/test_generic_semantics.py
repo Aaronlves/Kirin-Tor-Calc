@@ -9,7 +9,7 @@ from kirin_tor.errors import DomainError, ParameterError, SchemaError, UnitError
 from kirin_tor.operations import differentiate, evaluate, scan_values
 from kirin_tor.workspace import Workspace, initialize
 
-from conftest import minimal_entry, write_yaml
+from conftest import minimal_entry, write_kirin
 
 
 def _semantic_entry(entry_id: str = "semantics") -> dict:
@@ -49,11 +49,11 @@ def test_inputs_are_entry_qualified_and_short_names_must_be_unambiguous(tmp_path
     root = initialize(tmp_path / "workspace")
     entry_a = minimal_entry("a", "x", {"x": {"default": "1"}})
     entry_a["constraints"] = ["x <= 5"]
-    write_yaml(root / "entries" / "a.yaml", entry_a)
-    write_yaml(root / "entries" / "b.yaml", minimal_entry("b", "x", {"x": {"default": "2"}}))
-    write_yaml(root / "entries" / "combo.yaml", minimal_entry("combo", "a.x + b.x"))
-    write_yaml(
-        root / "scenarios" / "values.yaml",
+    write_kirin(root / "entries" / "a.kirin", entry_a)
+    write_kirin(root / "entries" / "b.kirin", minimal_entry("b", "x", {"x": {"default": "2"}}))
+    write_kirin(root / "entries" / "combo.kirin", minimal_entry("combo", "a.x + b.x"))
+    write_kirin(
+        root / "scenarios" / "values.kirin",
         {
             "schema_version": 1,
             "id": "values",
@@ -76,62 +76,64 @@ def test_inputs_are_entry_qualified_and_short_names_must_be_unambiguous(tmp_path
 
 def test_user_defined_dimensions_domains_and_piecewise_values(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(root / "entries" / "semantics.yaml", _semantic_entry())
+    write_kirin(root / "entries" / "semantics.kirin", _semantic_entry())
     entry = minimal_entry(
         "choice",
         "piecewise(level == 0, 0, level == 1, 10, level == 2, 20, 0)",
         {"level": {"domain": "level_choice", "default": "2"}},
     )
-    write_yaml(root / "entries" / "choice.yaml", entry)
+    write_kirin(root / "entries" / "choice.kirin", entry)
     assert evaluate(Engine(Workspace.load(root)), "choice.result")["exact"] == "20"
     with pytest.raises(ParameterError, match="not one of"):
         evaluate(Engine(Workspace.load(root)), "choice.result", overrides={"choice.level": "3"})
 
     duplicate = _semantic_entry("duplicate_semantics")
     duplicate["semantics"]["dimensions"]["damage"] = {"name": "Different display label"}
-    write_yaml(root / "entries" / "duplicate.yaml", duplicate)
+    write_kirin(root / "entries" / "duplicate.kirin", duplicate)
     assert Workspace.load(root).units.parse_unit("damage").render() == "damage"
 
 
 def test_conflicting_semantics_report_both_sources(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(root / "entries" / "first.yaml", _semantic_entry("first"))
+    write_kirin(root / "entries" / "first.kirin", _semantic_entry("first"))
     second = _semantic_entry("second")
     second["semantics"]["units"]["damage"] = {"dimensions": {"time": 1}}
-    write_yaml(root / "entries" / "second.yaml", second)
+    write_kirin(root / "entries" / "second.kirin", second)
     with pytest.raises(SchemaError, match="conflicts with its declaration") as caught:
         Workspace.load(root)
-    assert "first.yaml" in str(caught.value)
-    assert "second.yaml" in str(caught.value)
+    assert "first.kirin" in str(caught.value)
+    assert "second.kirin" in str(caught.value)
 
 
 def test_check_rejects_unknown_keys_and_evaluates_default_constraints(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    typo = minimal_entry("typo", "x", {"x": {"defualt": "1"}})
-    write_yaml(root / "entries" / "typo.yaml", typo)
+    (root / "entries" / "typo.kirin").write_text(
+        "@kirin 1\n@entry typo\n\ninputs:\n  x: number[dimensionless] defualt 1\n",
+        encoding="utf-8",
+    )
     with pytest.raises(ValidationErrors) as caught:
         Workspace.load_for_check(root)
-    assert "unknown input key" in str(caught.value)
+    assert "input must use" in str(caught.value)
     assert ":" in str(caught.value.errors[0].location.render())
 
-    (root / "entries" / "typo.yaml").unlink()
+    (root / "entries" / "typo.kirin").unlink()
     constrained = minimal_entry("constrained", "x", {"x": {"default": "1"}})
     constrained["constraints"] = ["x > 2"]
-    write_yaml(root / "entries" / "constrained.yaml", constrained)
+    write_kirin(root / "entries" / "constrained.kirin", constrained)
     with pytest.raises(DomainError, match="domain condition failed"):
         Engine(Workspace.load(root)).validate_all()
 
 
 def test_mixed_curve_units_are_explicit_warning_not_error(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(root / "entries" / "semantics.yaml", _semantic_entry())
-    write_yaml(root / "entries" / "axis.yaml", minimal_entry("axis", "x", {"x": {}}))
+    write_kirin(root / "entries" / "semantics.kirin", _semantic_entry())
+    write_kirin(root / "entries" / "axis.kirin", minimal_entry("axis", "x", {"x": {}}))
     damage = minimal_entry("damage_curve", "base * (1 + axis.x)", unit="damage")
     damage["fields"] = {"base": {"kind": "value", "value": "10", "unit": "damage"}}
     time = minimal_entry("time_curve", "base * (1 + axis.x)", unit="time")
     time["fields"] = {"base": {"kind": "value", "value": "2", "unit": "time"}}
-    write_yaml(root / "entries" / "damage.yaml", damage)
-    write_yaml(root / "entries" / "time.yaml", time)
+    write_kirin(root / "entries" / "damage.kirin", damage)
+    write_kirin(root / "entries" / "time.kirin", time)
     result = scan_values(
         Engine(Workspace.load(root)),
         "axis.x",
@@ -147,8 +149,8 @@ def test_mixed_curve_units_are_explicit_warning_not_error(tmp_path: Path) -> Non
 
 def test_derivative_keeps_other_declared_variables(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(
-        root / "entries" / "formula.yaml",
+    write_kirin(
+        root / "entries" / "formula.kirin",
         minimal_entry("formula", "x * y", {"x": {}, "y": {}}),
     )
     result = differentiate(Engine(Workspace.load(root)), "formula.result", "formula.x")
@@ -158,9 +160,9 @@ def test_derivative_keeps_other_declared_variables(tmp_path: Path) -> None:
 
 def test_unitful_scan_range_uses_declared_user_unit(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(root / "entries" / "semantics.yaml", _semantic_entry())
-    write_yaml(
-        root / "entries" / "timer.yaml",
+    write_kirin(root / "entries" / "semantics.kirin", _semantic_entry())
+    write_kirin(
+        root / "entries" / "timer.kirin",
         minimal_entry("timer", "elapsed", {"elapsed": {"unit": "time"}}, unit="time"),
     )
     result = scan_values(
@@ -171,15 +173,15 @@ def test_unitful_scan_range_uses_declared_user_unit(tmp_path: Path) -> None:
 
 def test_exact_zero_is_unit_polymorphic_but_nonzero_is_not(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    write_yaml(root / "entries" / "semantics.yaml", _semantic_entry())
+    write_kirin(root / "entries" / "semantics.kirin", _semantic_entry())
     entry = minimal_entry("zero_case", "if_else(enabled, base, 0)", unit="damage")
     entry["inputs"] = {"enabled": {"value_type": "boolean", "default": False}}
     entry["fields"] = {"base": {"kind": "value", "value": "10", "unit": "damage"}}
     entry["constraints"] = ["base >= 0"]
-    write_yaml(root / "entries" / "zero.yaml", entry)
+    write_kirin(root / "entries" / "zero.kirin", entry)
     assert evaluate(Engine(Workspace.load(root)), "zero_case.result")["exact"] == "0"
 
     entry["outputs"]["result"]["expression"] = "base + 1"
-    write_yaml(root / "entries" / "zero.yaml", entry)
+    write_kirin(root / "entries" / "zero.kirin", entry)
     with pytest.raises(UnitError, match="incompatible units"):
         Engine(Workspace.load(root)).validate_all()

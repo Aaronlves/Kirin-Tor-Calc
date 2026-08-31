@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 import sympy as sp
-import yaml
 
 from kirin_tor.engine import Engine
 from kirin_tor.errors import ParameterError
@@ -14,7 +13,7 @@ from kirin_tor.plotting import render_plot, write_scan_csv
 from kirin_tor.records import replay, save_run
 from kirin_tor.workspace import Workspace
 
-from conftest import load_yaml, write_yaml
+from conftest import load_kirin, write_kirin
 
 
 def test_required_math_acceptance(example_workspace: Path) -> None:
@@ -79,11 +78,11 @@ def test_unified_entry_supports_multiline_boolean_constraints_and_piecewise(
 
 
 def test_display_name_and_file_move_do_not_break_stable_reference(example_workspace: Path) -> None:
-    old_path = example_workspace / "entries" / "技能甲.yaml"
-    content = load_yaml(old_path)
+    old_path = example_workspace / "entries" / "技能甲.kirin"
+    content = load_kirin(old_path)
     content["name"] = "完全不同的中文显示名"
-    moved = example_workspace / "entries" / "重新整理" / "任意文件名.yaml"
-    write_yaml(moved, content)
+    moved = example_workspace / "entries" / "重新整理" / "任意文件名.kirin"
+    write_kirin(moved, content)
     old_path.unlink()
 
     result = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", scenario="baseline")
@@ -117,15 +116,15 @@ def test_saved_run_replays_embedded_old_definitions(example_workspace: Path) -> 
     }
     save_run(workspace, "before_change", "eval", request, result, result["dependency_ids"])
 
-    skill_path = example_workspace / "entries" / "技能甲.yaml"
-    skill = load_yaml(skill_path)
+    skill_path = example_workspace / "entries" / "技能甲.kirin"
+    skill = load_kirin(skill_path)
     skill["fields"]["base_damage"]["value"] = "1100"
-    write_yaml(skill_path, skill)
+    write_kirin(skill_path, skill)
     current = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", scenario="baseline")
     assert current["exact"] == "2875"
 
     # Replay discovers only the marker and record; even an invalid current source file is ignored.
-    skill_path.write_text("this: [is no longer valid YAML", encoding="utf-8")
+    skill_path.write_text("this is no longer valid Kirin source", encoding="utf-8")
     replayed = replay(example_workspace, "before_change")
     assert replayed["used_embedded_definitions"] is True
     assert replayed["matches_recorded_result"] is True

@@ -8,7 +8,7 @@ from kirin_tor.engine import Engine
 from kirin_tor.operations import evaluate, scan_values
 from kirin_tor.workspace import Workspace, initialize
 
-from conftest import make_cli_runner, write_yaml
+from conftest import make_cli_runner, write_kirin
 
 
 runner = make_cli_runner()
@@ -35,8 +35,8 @@ def _build_capability_workspace(root: Path) -> Path:
     initialize(root, "wow")
     entries = root / "entries"
 
-    write_yaml(
-        entries / "character.yaml",
+    write_kirin(
+        entries / "character.kirin",
         _entry(
             "character",
             inputs={
@@ -59,8 +59,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        entries / "talent_a.yaml",
+    write_kirin(
+        entries / "talent_a.kirin",
         _entry(
             "talent_a",
             template="skill",
@@ -79,8 +79,8 @@ def _build_capability_workspace(root: Path) -> Path:
             },
         ),
     )
-    write_yaml(
-        entries / "talent_b.yaml",
+    write_kirin(
+        entries / "talent_b.kirin",
         _entry(
             "talent_b",
             template="skill",
@@ -100,8 +100,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        entries / "talent_selection.yaml",
+    write_kirin(
+        entries / "talent_selection.kirin",
         _entry(
             "talent_selection",
             inputs={
@@ -129,8 +129,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        entries / "skill.yaml",
+    write_kirin(
+        entries / "skill.kirin",
         _entry(
             "skill",
             template="skill",
@@ -154,8 +154,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        entries / "combo.yaml",
+    write_kirin(
+        entries / "combo.kirin",
         _entry(
             "combo",
             template="model",
@@ -184,8 +184,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        entries / "target_curve.yaml",
+    write_kirin(
+        entries / "target_curve.kirin",
         _entry(
             "target_curve",
             template="model",
@@ -212,8 +212,8 @@ def _build_capability_workspace(root: Path) -> Path:
         ),
     )
 
-    write_yaml(
-        root / "scenarios" / "alternate_talents.yaml",
+    write_kirin(
+        root / "scenarios" / "alternate_talents.kirin",
         {
             "schema_version": 1,
             "id": "alternate_talents",
@@ -222,8 +222,8 @@ def _build_capability_workspace(root: Path) -> Path:
             "values": {"choose_talent_a": False, "choose_talent_b": True},
         },
     )
-    write_yaml(
-        root / "plots" / "target_scaling.yaml",
+    write_kirin(
+        root / "plots" / "target_scaling.kirin",
         {
             "schema_version": 1,
             "id": "target_scaling",

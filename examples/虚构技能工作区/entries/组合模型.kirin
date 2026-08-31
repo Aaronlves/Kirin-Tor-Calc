@@ -1,0 +1,21 @@
+@kirin 1
+@entry combo
+@template model
+@game-version fictional
+@status example_only
+
+// 双技能组合（虚构）
+
+---
+完全虚构的组合验收模型。
+---
+
+aliases:
+  技能甲 = skill_a.expected
+  技能乙 = skill_b.expected
+
+inputs:
+  crit "暴击率": probability = 0.10 in 0..1
+
+outputs:
+  total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)

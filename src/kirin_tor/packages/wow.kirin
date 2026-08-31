@@ -1,0 +1,33 @@
+@kirin 1
+@entry wow_semantics
+@template semantics
+@game-version generic
+@status bundled_starter
+
+// 魔兽世界基础数学语义
+
+---
+Data-only starter declarations for World of Warcraft workspaces. These declarations use the same public schema as user-authored entries and have no privileged runtime behavior.
+---
+
+dimensions:
+  time "时间"
+  damage "伤害"
+  attack_power "攻击强度"
+  healing "治疗"
+  armor "护甲"
+  resource "资源"
+
+units:
+  time = time
+  damage = damage
+  attack_power = attack_power
+  healing = healing
+  armor = armor
+  resource = resource
+  damage_per_time = damage / time
+  damage_per_attack_power = damage / attack_power
+
+domains:
+  probability: number[dimensionless] in 0..1
+  nonnegative_integer: number[dimensionless] in 0..* integer

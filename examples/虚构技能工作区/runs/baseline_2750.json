@@ -1,7 +1,7 @@
 {
   "run_format_version": 2,
   "run_id": "baseline_2750",
-  "created_at": "2026-08-31T17:50:11.392717+00:00",
+  "created_at": "2026-08-31T20:10:51.105692+00:00",
   "operation": "eval",
   "request": {
     "target": "combo.total",
@@ -17,13 +17,13 @@
   "definitions": [
     {
       "id": "baseline",
-      "source_sha256": "916132c77b277fa84c35549e28656ddbe7b01d24c0bc407e06e17ff9d4c49b04",
-      "content_sha256": "ea10be9a9f024afad0575182ea71647f94c712bfbb16de63ff49eb4d465ea456",
-      "source_text": "schema_version: 1\nid: baseline\nname: 基线参数（虚构）\ntype: scenario\nvalues:\n  combo.crit: \"0.25\"\n",
+      "source_sha256": "6a59da4aec973ee832aeca2a1b58ae7325e731e0eb6f3f12f804c2aea914789b",
+      "content_sha256": "83b9c1c3dfb1c0e1e1dcf42b3b1c8f3d69553861508bef0236dc9fcc58cc3946",
+      "source_text": "@kirin 1\n@scenario baseline\n\n// 基线参数（虚构）\n\nvalues:\n  combo.crit = 0.25\n",
       "content": {
         "schema_version": 1,
         "id": "baseline",
-        "name": "基线参数（虚构）",
+        "name": "baseline",
         "type": "scenario",
         "values": {
           "combo.crit": "0.25"
@@ -32,48 +32,60 @@
     },
     {
       "id": "combo",
-      "source_sha256": "75b5c2da83686ea9324ef726f9dfe300fcc6d144a795365f28c1a4996722322e",
-      "content_sha256": "e9a787f013554fd97195972235b95b501852644e3a501c083269cc58cd82e371",
-      "source_text": "schema_version: 1\nid: combo\nname: 双技能组合（虚构）\ntype: entry\ntemplate: model\ndescription: 完全虚构的组合验收模型。\ngame_version: fictional\nvalidation_status: example_only\ninputs:\n  crit:\n    domain: probability\n    default: \"0.10\"\n    min: \"0\"\n    max: \"1\"\nfields: {}\nfunctions: {}\noutputs:\n  total:\n    expression: skill_a.expected(crit) + 2 * skill_b.expected(crit)\n    unit: damage\n",
+      "source_sha256": "57824554284bfa433c5ad0ee9189ba57c765af020d2a65d1cf2a086d0ccf0e28",
+      "content_sha256": "4632eb7a3694550a72aa2e2964bdbb12a1801bd9790fcda781490b4410d098f4",
+      "source_text": "@kirin 1\n@entry combo\n@template model\n@game-version fictional\n@status example_only\n\n// 双技能组合（虚构）\n\n---\n完全虚构的组合验收模型。\n---\n\naliases:\n  技能甲 = skill_a.expected\n  技能乙 = skill_b.expected\n\ninputs:\n  crit \"暴击率\": probability = 0.10 in 0..1\n\noutputs:\n  total \"组合期望伤害\": damage = 技能甲(crit) + 2 * 技能乙(crit)\n",
       "content": {
         "schema_version": 1,
         "id": "combo",
-        "name": "双技能组合（虚构）",
+        "name": "combo",
         "type": "entry",
-        "template": "model",
-        "description": "完全虚构的组合验收模型。",
-        "game_version": "fictional",
-        "validation_status": "example_only",
         "inputs": {
           "crit": {
-            "domain": "probability",
+            "unit": "probability",
+            "label": "暴击率",
             "default": "0.10",
             "min": "0",
             "max": "1"
           }
         },
+        "constraints": [],
         "fields": {},
         "functions": {},
         "outputs": {
           "total": {
-            "expression": "skill_a.expected(crit) + 2 * skill_b.expected(crit)",
-            "unit": "damage"
+            "expression": "技能甲(crit) + 2 * 技能乙(crit)",
+            "unit": "damage",
+            "label": "组合期望伤害"
           }
+        },
+        "description": "完全虚构的组合验收模型。",
+        "template": "model",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "aliases": {
+          "技能甲": "skill_a.expected",
+          "技能乙": "skill_b.expected"
         }
       }
     },
     {
       "id": "example_semantics",
-      "source_sha256": "2b8fbd884e3f45dbe984f9ab593eaf6e3d3a116fb34d3e64eac94b958e53789a",
-      "content_sha256": "fee83f123652dec4fb304c5260fcaa6973c2cf5769225937c1d6798e76d9eb4a",
-      "source_text": "schema_version: 1\nid: example_semantics\nname: 验收示例基础数学语义\ntype: entry\ntemplate: semantics\ndescription: 完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。\nvalidation_status: example_only\nsemantics:\n  dimensions:\n    damage:\n      name: 伤害\n    time:\n      name: 时间\n  units:\n    damage:\n      dimensions: {damage: 1}\n    time:\n      dimensions: {time: 1}\n    damage_per_time:\n      dimensions: {damage: 1, time: -1}\n  domains:\n    probability:\n      value_type: number\n      unit: dimensionless\n      min: \"0\"\n      max: \"1\"\n    positive_integer:\n      value_type: number\n      unit: dimensionless\n      min: \"1\"\n      integer: true\ninputs: {}\nconstraints: []\nfields: {}\nfunctions: {}\noutputs: {}\n",
+      "source_sha256": "cf4df571d061004df77a0e491636eac400df077032884cd98a53a1f7931e4e00",
+      "content_sha256": "a7de4fded56d17bf90eab9c944c2e47d61a8d6a5b5a8a0a9b3a1864f33bfb5b2",
+      "source_text": "@kirin 1\n@entry example_semantics\n@template semantics\n@status example_only\n\n// 验收示例基础数学语义\n\n---\n完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。\n---\n\ndimensions:\n  damage \"伤害\"\n  time \"时间\"\n\nunits:\n  damage = damage\n  time = time\n  damage_per_time = damage / time\n\ndomains:\n  probability: number[dimensionless] in 0..1\n  positive_integer: number[dimensionless] in 1..* integer\n",
       "content": {
         "schema_version": 1,
         "id": "example_semantics",
-        "name": "验收示例基础数学语义",
+        "name": "example_semantics",
         "type": "entry",
-        "template": "semantics",
+        "inputs": {},
+        "constraints": [],
+        "fields": {},
+        "functions": {},
+        "outputs": {},
         "description": "完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。",
+        "template": "semantics",
         "validation_status": "example_only",
         "semantics": {
           "dimensions": {
@@ -87,18 +99,18 @@
           "units": {
             "damage": {
               "dimensions": {
-                "damage": 1
+                "damage": "1"
               }
             },
             "time": {
               "dimensions": {
-                "time": 1
+                "time": "1"
               }
             },
             "damage_per_time": {
               "dimensions": {
-                "damage": 1,
-                "time": -1
+                "damage": "1",
+                "time": "-1"
               }
             }
           },
@@ -116,35 +128,21 @@
               "integer": true
             }
           }
-        },
-        "inputs": {},
-        "constraints": [],
-        "fields": {},
-        "functions": {},
-        "outputs": {}
+        }
       }
     },
     {
       "id": "skill_a",
-      "source_sha256": "203b16a1a343da222e663b0c18cea04fddb8469428bfd5fef5b6e9a0e434e6b4",
-      "content_sha256": "7a7b66a93f2bc9a8bee7ea10a0c0e7fb36d4b711573c515e9c7ca98feaf88c49",
-      "source_text": "schema_version: 1\nid: skill_a\nname: 技能 A（虚构）\ntype: entry\ntemplate: skill\ndescription: 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\ngame_version: fictional\nvalidation_status: example_only\nsources:\n  - kind: note\n    citation: 本地验收示例，无游戏数据来源\ninputs: {}\nfields:\n  base_damage:\n    kind: value\n    value: \"1000\"\n    unit: damage\n  note:\n    kind: info\n    value: 该字段只作说明，不参与数学计算。\nfunctions:\n  expected:\n    parameters:\n      c:\n        domain: probability\n    expression: base_damage * (1 + c)\n    unit: damage\noutputs: {}\n",
+      "source_sha256": "81deb43cf7f170405a181da33a28b4ca4e7446e24447265d4215c091220f0a6c",
+      "content_sha256": "bd3b95ec685103c794bf2dede24e1b9ddd6ed3c556f2971c0dbd8a8b7eac5d52",
+      "source_text": "@kirin 1\n@entry skill_a\n@template skill\n@game-version fictional\n@status example_only\n\n// 技能 A（虚构）\n\n---\n完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\n---\n\nsources:\n  {\"kind\":\"note\",\"citation\":\"本地验收示例，无游戏数据来源\"}\n\nfields:\n  base_damage: damage = 1000\n\ninfo:\n  note = \"该字段只作说明，不参与数学计算。\"\n\nfunctions:\n  expected(c: probability) -> damage = base_damage * (1 + c)\n",
       "content": {
         "schema_version": 1,
         "id": "skill_a",
-        "name": "技能 A（虚构）",
+        "name": "skill_a",
         "type": "entry",
-        "template": "skill",
-        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
-        "game_version": "fictional",
-        "validation_status": "example_only",
-        "sources": [
-          {
-            "kind": "note",
-            "citation": "本地验收示例，无游戏数据来源"
-          }
-        ],
         "inputs": {},
+        "constraints": [],
         "fields": {
           "base_damage": {
             "kind": "value",
@@ -160,31 +158,38 @@
           "expected": {
             "parameters": {
               "c": {
-                "domain": "probability"
+                "unit": "probability"
               }
             },
             "expression": "base_damage * (1 + c)",
             "unit": "damage"
           }
         },
-        "outputs": {}
+        "outputs": {},
+        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
+        "template": "skill",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "sources": [
+          {
+            "kind": "note",
+            "citation": "本地验收示例，无游戏数据来源"
+          }
+        ]
       }
     },
     {
       "id": "skill_b",
-      "source_sha256": "c065cb011f6c762fa1d79ccf9a142541635a9673e0383ab3de2fcb7a690d04c0",
-      "content_sha256": "cb9451515baad85076a2ac52bb8eaded6e03272e8938e52099284f32131a5feb",
-      "source_text": "schema_version: 1\nid: skill_b\nname: 技能 B（虚构）\ntype: entry\ntemplate: skill\ndescription: 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\ngame_version: fictional\nvalidation_status: example_only\ninputs: {}\nfields:\n  base_damage:\n    kind: value\n    value: \"600\"\n    unit: damage\nfunctions:\n  expected:\n    parameters:\n      c:\n        domain: probability\n    expression: base_damage * (1 + c)\n    unit: damage\noutputs: {}\n",
+      "source_sha256": "6989d957e08452d7334183f71197e8162998ca6f9c7cb02d8d86d147240b5a31",
+      "content_sha256": "d4d2a99950b41bcae7efb8bad836eae603dfd56dca6aa1b1a509a97d6622ca1d",
+      "source_text": "@kirin 1\n@entry skill_b\n@template skill\n@game-version fictional\n@status example_only\n\n// 技能 B（虚构）\n\n---\n完全虚构的验收数据，不代表任何实际《魔兽世界》技能。\n---\n\nfields:\n  base_damage: damage = 600\n\nfunctions:\n  expected(c: probability) -> damage = base_damage * (1 + c)\n",
       "content": {
         "schema_version": 1,
         "id": "skill_b",
-        "name": "技能 B（虚构）",
+        "name": "skill_b",
         "type": "entry",
-        "template": "skill",
-        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
-        "game_version": "fictional",
-        "validation_status": "example_only",
         "inputs": {},
+        "constraints": [],
         "fields": {
           "base_damage": {
             "kind": "value",
@@ -196,25 +201,28 @@
           "expected": {
             "parameters": {
               "c": {
-                "domain": "probability"
+                "unit": "probability"
               }
             },
             "expression": "base_damage * (1 + c)",
             "unit": "damage"
           }
         },
-        "outputs": {}
+        "outputs": {},
+        "description": "完全虚构的验收数据，不代表任何实际《魔兽世界》技能。",
+        "template": "skill",
+        "game_version": "fictional",
+        "validation_status": "example_only"
       }
     }
   ],
   "software": {
     "kirin_tor_cli": "0.2.0",
-    "kirin_tor_implementation_sha256": "8f9c344c224a1a4b34b1a0f35e8da4336b6abcf6903a1e8f4106d438151a6b52",
+    "kirin_tor_implementation_sha256": "5f67a5410327e342205320ed1b700080c8b5eb01574704fee42c1df2e190d3a0",
     "python": "3.9.6",
     "platform": "darwin",
     "sympy": "1.14.0",
     "typer": "0.23.2",
-    "PyYAML": "6.0.3",
     "matplotlib": "3.9.4"
   },
   "domain": [],

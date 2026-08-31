@@ -2,66 +2,32 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-import yaml
-
 from .errors import SchemaError, SourceLocation
 from .limits import (
     MAX_ABS_DIMENSION_EXPONENT,
     MAX_DECIMAL_EXPONENT,
     MAX_DOMAIN_VALUES,
+    MAX_ENTRY_ALIASES,
     MAX_MODEL_INPUTS,
     MAX_NUMERIC_LITERAL_LENGTH,
-    MAX_YAML_BYTES,
-    MAX_YAML_DEPTH,
-    MAX_YAML_NODES,
 )
 from .units import Dimension, DomainSpec, UnitRegistry
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PARAMETER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$")
+QUALIFIED_MEMBER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
 NUMBER_TEXT_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$")
 DOCUMENT_TYPES = {"entry", "scenario", "plot"}
-
-
-class StrictSafeLoader(yaml.SafeLoader):
-    """SafeLoader variant that rejects mapping keys PyYAML would overwrite."""
-
-
-def _construct_unique_mapping(loader, node, deep=False):
-    mapping = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        try:
-            duplicate = key in mapping
-        except TypeError as exc:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                "mapping keys must be hashable scalars",
-                key_node.start_mark,
-            ) from exc
-        if duplicate:
-            raise yaml.constructor.ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                f"duplicate mapping key {key!r}",
-                key_node.start_mark,
-            )
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
-
-
-StrictSafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
-)
+EXPRESSION_RESERVED_NAMES = {
+    "abs", "ceil", "floor", "if_else", "max", "min", "piecewise", "sqrt", "sum"
+}
 
 
 def require_identifier(value: Any, label: str, location: Optional[SourceLocation]) -> str:
@@ -77,6 +43,31 @@ def require_parameter_name(value: Any, label: str, location: Optional[SourceLoca
         raise SchemaError(f"{label} must be NAME or ENTRY_ID.NAME", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} components may not start with '__'", location)
+    return value
+
+
+def require_alias_identifier(value: Any, location: Optional[SourceLocation]) -> str:
+    if not isinstance(value, str) or not value.isidentifier():
+        raise SchemaError("alias must be one Unicode identifier without spaces or punctuation", location)
+    if value.startswith("__"):
+        raise SchemaError("alias may not start with '__'", location)
+    if value in EXPRESSION_RESERVED_NAMES:
+        raise SchemaError(f"alias {value!r} is reserved by the expression language", location)
+    return value
+
+
+def require_qualified_member(value: Any, label: str, location: Optional[SourceLocation]) -> str:
+    if not isinstance(value, str) or not QUALIFIED_MEMBER_RE.fullmatch(value):
+        raise SchemaError(f"{label} must be ENTRY_ID.MEMBER", location)
+    if any(part.startswith("__") for part in value.split(".")):
+        raise SchemaError(f"{label} components may not start with '__'", location)
+    return value
+
+
+def require_display_label(value: Any, label: str, location: Optional[SourceLocation]) -> str:
+    value = require_text(value, label, location)
+    if not value.strip():
+        raise SchemaError(f"{label} may not be empty", location)
     return value
 
 
@@ -97,7 +88,7 @@ def require_text(value: Any, label: str, location: Optional[SourceLocation]) -> 
 def number_text(value: Any, label: str, location: Optional[SourceLocation] = None) -> str:
     if isinstance(value, bool) or isinstance(value, float):
         raise SchemaError(
-            f"{label} must be an integer or a quoted decimal string; YAML floats are rejected to preserve exact input text",
+            f"{label} must be an integer or exact numeric text; binary floating-point values are rejected",
             location,
         )
     if isinstance(value, int):
@@ -144,6 +135,7 @@ class InputSpec:
     maximum: Optional[str]
     integer: bool = False
     allowed_values: Tuple[Any, ...] = ()
+    label: Optional[str] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
@@ -180,6 +172,7 @@ class Document:
 class Entry(Document):
     template: Optional[str] = None
     semantics: Dict[str, Any] = field(default_factory=dict)
+    aliases: Dict[str, str] = field(default_factory=dict)
     inputs: Dict[str, InputSpec] = field(default_factory=dict)
     constraints: List[str] = field(default_factory=list)
     fields: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -206,94 +199,6 @@ class PlotConfig(Document):
     x_label: Optional[str] = None
     y_label: Optional[str] = None
     curve_labels: Dict[str, str] = field(default_factory=dict)
-
-
-def _collect_positions(text: str) -> Dict[str, Tuple[int, int]]:
-    try:
-        root = yaml.compose(text)
-    except yaml.YAMLError:
-        return {}
-    positions: Dict[str, Tuple[int, int]] = {}
-
-    def visit(node, path: tuple[str, ...]) -> None:
-        if isinstance(node, yaml.MappingNode):
-            for key_node, value_node in node.value:
-                key = str(key_node.value)
-                child = (*path, key)
-                positions[".".join(child)] = (key_node.start_mark.line + 1, key_node.start_mark.column + 1)
-                visit(value_node, child)
-        elif isinstance(node, yaml.SequenceNode):
-            for index, value_node in enumerate(node.value):
-                child = (*path, str(index))
-                positions[".".join(child)] = (value_node.start_mark.line + 1, value_node.start_mark.column + 1)
-                visit(value_node, child)
-
-    if root is not None:
-        visit(root, ())
-    return positions
-
-
-def _check_yaml_structure(value: Any, path: Path) -> None:
-    count = 0
-    active = set()
-
-    def visit(node: Any, depth: int) -> None:
-        nonlocal count
-        count += 1
-        if count > MAX_YAML_NODES:
-            raise SchemaError(f"YAML structure exceeds {MAX_YAML_NODES} nodes", SourceLocation(path=str(path)))
-        if depth > MAX_YAML_DEPTH:
-            raise SchemaError(f"YAML structure exceeds depth {MAX_YAML_DEPTH}", SourceLocation(path=str(path)))
-        if isinstance(node, (dict, list)):
-            marker = id(node)
-            if marker in active:
-                raise SchemaError("recursive YAML structures are not allowed", SourceLocation(path=str(path)))
-            active.add(marker)
-            values = node.items() if isinstance(node, dict) else enumerate(node)
-            for key, item in values:
-                if isinstance(node, dict) and not isinstance(key, str):
-                    raise SchemaError(
-                        "all YAML mapping keys must be text",
-                        SourceLocation(path=str(path)),
-                    )
-                visit(key, depth + 1)
-                visit(item, depth + 1)
-            active.remove(marker)
-        elif node is not None and not isinstance(node, (str, int, bool)):
-            raise SchemaError(
-                "YAML scalars must be text, integers, booleans, or null; use a quoted decimal string and quote dates",
-                SourceLocation(path=str(path)),
-            )
-
-    visit(value, 0)
-
-
-def safe_load_document(path: Path) -> tuple[Dict[str, Any], str, str, Dict[str, Tuple[int, int]]]:
-    raw_bytes = path.read_bytes()
-    if len(raw_bytes) > MAX_YAML_BYTES:
-        raise SchemaError(f"YAML file exceeds {MAX_YAML_BYTES} bytes", SourceLocation(path=str(path)))
-    try:
-        text = raw_bytes.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise SchemaError("YAML files must be UTF-8", SourceLocation(path=str(path))) from exc
-    try:
-        if any(isinstance(event, yaml.events.AliasEvent) for event in yaml.parse(text)):
-            raise SchemaError("YAML aliases are not supported", SourceLocation(path=str(path)))
-        raw = yaml.load(text, Loader=StrictSafeLoader)
-    except SchemaError:
-        raise
-    except yaml.YAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        location = SourceLocation(
-            path=str(path),
-            line=(mark.line + 1) if mark else None,
-            column=(mark.column + 1) if mark else None,
-        )
-        raise SchemaError(f"invalid YAML: {exc}", location) from exc
-    if not isinstance(raw, dict):
-        raise SchemaError("document root must be a mapping", SourceLocation(path=str(path)))
-    _check_yaml_structure(raw, path)
-    return raw, text, hashlib.sha256(raw_bytes).hexdigest(), _collect_positions(text)
 
 
 def _location(path: Path, entry_id: Optional[str], positions, field_name: Optional[str] = None):
@@ -420,7 +325,8 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
 
 
 INPUT_KEYS = {
-    "value_type", "domain", "unit", "default", "min", "max", "integer", "allowed_values", "description"
+    "value_type", "domain", "unit", "default", "min", "max", "integer", "allowed_values",
+    "description", "label",
 }
 
 
@@ -434,6 +340,9 @@ def _parse_input(
     require_identifier(name, "input name", location)
     data = require_mapping(raw, f"input {name}", location)
     _reject_unknown(data, INPUT_KEYS, "input", location)
+    display_label = None
+    if "label" in data:
+        display_label = require_display_label(data["label"], "input label", location)
     domain_name = data.get("domain")
     domain_shorthand = False
     if domain_name is None and data.get("unit") in registry.domains:
@@ -503,9 +412,9 @@ def _parse_input(
         if unit_name != "dimensionless" or minimum is not None or maximum is not None or integer:
             raise SchemaError("boolean inputs cannot define units, numeric bounds, or integer", location)
         if default is not None and not isinstance(default, bool):
-            raise SchemaError("boolean input defaults must be YAML true or false", location)
+            raise SchemaError("boolean input defaults must be true or false", location)
         if any(not isinstance(item, bool) for item in allowed):
-            raise SchemaError("boolean allowed_values must contain only YAML booleans", location)
+            raise SchemaError("boolean allowed_values must contain only booleans", location)
     else:
         default = number_text(default, "default", location) if default is not None else None
         if any(isinstance(item, bool) for item in allowed):
@@ -537,13 +446,14 @@ def _parse_input(
         maximum=maximum,
         integer=integer,
         allowed_values=allowed,
+        label=display_label,
         location=location,
     )
 
 
 TOP_KEYS = {
     "schema_version", "id", "name", "type", "template", "description", "sources", "game_version",
-    "validation_status", "semantics", "inputs", "constraints", "fields", "functions", "outputs",
+    "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "outputs",
 }
 
 
@@ -556,7 +466,7 @@ def parse_document(
     positions: Optional[Dict[str, Tuple[int, int]]] = None,
 ) -> Document:
     registry = registry or UnitRegistry()
-    positions = positions or _collect_positions(text)
+    positions = positions or {}
     root_location = _location(path, None, positions)
     require_mapping(raw, "document root", root_location)
     if raw.get("schema_version") != 1:
@@ -592,6 +502,19 @@ def parse_document(
             )
             for key, value in input_data.items()
         }
+        aliases_raw = require_mapping(
+            raw.get("aliases", {}), "aliases", _location(path, doc_id, positions, "aliases")
+        )
+        if len(aliases_raw) > MAX_ENTRY_ALIASES:
+            raise SchemaError(
+                f"an entry may define at most {MAX_ENTRY_ALIASES} aliases",
+                _location(path, doc_id, positions, "aliases"),
+            )
+        aliases = {}
+        for alias, target in aliases_raw.items():
+            alias_location = _location(path, doc_id, positions, f"aliases.{alias}")
+            require_alias_identifier(alias, alias_location)
+            aliases[alias] = require_qualified_member(target, "alias target", alias_location)
         fields = dict(require_mapping(raw.get("fields", {}), "fields", root_location))
         constraints_raw = raw.get("constraints", [])
         if not isinstance(constraints_raw, list) or not all(isinstance(item, str) for item in constraints_raw):
@@ -612,7 +535,7 @@ def parse_document(
                     if kind not in {"value", "expression", "info"}:
                         raise SchemaError("field kind must be value, expression, or info", member_location)
                     if kind == "value":
-                        _reject_unknown(data, {"kind", "value", "value_type", "unit", "description"}, "value field", member_location)
+                        _reject_unknown(data, {"kind", "value", "value_type", "unit", "description", "label"}, "value field", member_location)
                         if "value" not in data or "expression" in data:
                             raise SchemaError("value field requires value and may not define expression", member_location)
                         value_type = data.get("value_type", "number")
@@ -620,26 +543,30 @@ def parse_document(
                             raise SchemaError("value field value_type must be number or boolean", member_location)
                         if value_type == "boolean":
                             if not isinstance(data["value"], bool):
-                                raise SchemaError("boolean value fields require YAML true or false", member_location)
+                                raise SchemaError("boolean value fields require true or false", member_location)
                             if data.get("unit", "dimensionless") != "dimensionless":
                                 raise SchemaError("boolean value fields must be dimensionless", member_location)
                         else:
                             number_text(data["value"], "field value", member_location)
                     elif kind == "expression":
-                        _reject_unknown(data, {"kind", "expression", "unit", "description"}, "expression field", member_location)
+                        _reject_unknown(data, {"kind", "expression", "unit", "description", "label"}, "expression field", member_location)
                         if "expression" not in data or "value" in data:
                             raise SchemaError("expression field requires expression and may not define value", member_location)
                         require_text(data["expression"], "expression", member_location)
                     else:
-                        _reject_unknown(data, {"kind", "value", "description"}, "info field", member_location)
+                        _reject_unknown(data, {"kind", "value", "description", "label"}, "info field", member_location)
                         if "value" not in data or "expression" in data:
                             raise SchemaError("info field requires value and may not define expression", member_location)
+                    if "label" in data:
+                        require_display_label(data["label"], "field label", member_location)
                     if kind != "info":
                         unit_name = data.get("unit", "dimensionless")
                         require_identifier(unit_name, "unit", member_location)
                         registry.parse_unit(unit_name, member_location)
                 elif section_name == "functions":
-                    _reject_unknown(data, {"parameters", "expression", "unit", "description"}, "function", member_location)
+                    _reject_unknown(data, {"parameters", "expression", "unit", "description", "label"}, "function", member_location)
+                    if "label" in data:
+                        require_display_label(data["label"], "function label", member_location)
                     require_text(data.get("expression"), "function expression", member_location)
                     params = require_mapping(data.get("parameters", {}), "function parameters", member_location)
                     if len(params) > MAX_MODEL_INPUTS:
@@ -655,14 +582,23 @@ def parse_document(
                             raise SchemaError("explicit function parameters may not define defaults", parsed.location)
                     registry.parse_unit(data.get("unit", "dimensionless"), member_location)
                 else:
-                    _reject_unknown(data, {"expression", "unit", "description"}, "output", member_location)
+                    _reject_unknown(data, {"expression", "unit", "description", "label"}, "output", member_location)
+                    if "label" in data:
+                        require_display_label(data["label"], "output label", member_location)
                     require_text(data.get("expression"), "output expression", member_location)
                     registry.parse_unit(data.get("unit", "dimensionless"), member_location)
+        for alias in aliases:
+            if alias in occupied:
+                raise SchemaError(
+                    f"alias {alias!r} conflicts with a declared member",
+                    _location(path, doc_id, positions, f"aliases.{alias}"),
+                )
         semantics = dict(require_mapping(raw.get("semantics", {}), "semantics", root_location))
         return Entry(
             **base,
             template=template,
             semantics=semantics,
+            aliases=aliases,
             inputs=inputs,
             constraints=list(constraints_raw),
             fields=fields,
@@ -728,5 +664,7 @@ def parse_document(
 
 
 def load_document(path: Path, registry: Optional[UnitRegistry] = None) -> Document:
-    raw, text, digest, positions = safe_load_document(path)
+    from .kirin_syntax import load_kirin_document
+
+    raw, text, digest, positions = load_kirin_document(path)
     return parse_document(raw, text, digest, path, registry, positions)

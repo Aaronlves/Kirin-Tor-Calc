@@ -7,11 +7,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Union
 
 import typer
-import yaml
 
 from . import __version__
 from .engine import Engine
-from .errors import KTError, ParameterError
+from .errors import KTError, ParameterError, UnsupportedError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import differentiate, evaluate, explain, scan_values, solve_equation, transform
 from .plotting import render_plot, write_scan_csv
@@ -43,7 +42,7 @@ def _emit(result: dict, json_output: bool, human: Optional[str] = None) -> None:
     if json_output:
         typer.echo(json.dumps(result, ensure_ascii=False, sort_keys=True))
     else:
-        typer.echo(human if human is not None else yaml.safe_dump(result, allow_unicode=True, sort_keys=False).rstrip())
+        typer.echo(human if human is not None else json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _execute(action: Callable[[], None], json_output: bool = False) -> None:
@@ -169,6 +168,27 @@ def version_command() -> None:
     typer.echo(__version__)
 
 
+@app.command("tui")
+def tui_command(
+    source: Optional[Path] = typer.Argument(
+        None,
+        help="Kirin source path relative to the workspace; defaults to the first .kirin document.",
+    ),
+) -> None:
+    """Open the single-editor Kirin authoring workbench."""
+    def action():
+        root = Workspace.find_root()
+        try:
+            from .tui import run_tui
+        except ModuleNotFoundError as exc:
+            raise UnsupportedError(
+                "TUI dependencies are not installed; install 'kirin-tor-cli[tui]'"
+            ) from exc
+        run_tui(root, source)
+
+    _execute(action)
+
+
 @app.command("init")
 def init_command(
     directory: Path,
@@ -264,8 +284,8 @@ def show_command(entry_id: str, json_output: bool = typer.Option(False, "--json"
         if entry_id not in workspace.documents:
             from .errors import ReferenceError
             raise ReferenceError(f"unknown document id {entry_id!r}")
-        raw = workspace.documents[entry_id].raw
-        _emit({"status": "ok", "document": raw}, json_output, yaml.safe_dump(raw, allow_unicode=True, sort_keys=False).rstrip())
+        document = workspace.documents[entry_id]
+        _emit({"status": "ok", "document": document.raw}, json_output, document.raw_text.rstrip())
 
     _execute(action, json_output)
 

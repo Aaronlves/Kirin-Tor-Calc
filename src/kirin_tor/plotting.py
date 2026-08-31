@@ -111,6 +111,12 @@ def render_plot(
     temporary = path.with_name(f".{path.stem}.{uuid.uuid4().hex}{path.suffix}")
     figure, axis = plt.subplots(figsize=(8, 5))
     try:
+        explicit_labels = curve_labels or {}
+        default_labels = scan.get("labels", {})
+
+        def display_label(target: str) -> str:
+            return explicit_labels.get(target, default_labels.get(target, target))
+
         xs = [float(row["x_approximate"]) for row in scan["rows"]]
         if any(not math.isfinite(value) for value in xs):
             raise ParameterError("plot axis contains values outside finite float display range")
@@ -127,11 +133,12 @@ def render_plot(
                     ys.append(converted)
                 else:
                     ys.append(math.nan)
-            axis.plot(xs, ys, label=(curve_labels or {}).get(target, target))
-        axis.set_xlabel(x_label or f"{scan['x']} [{scan['x_unit']}]")
+            axis.plot(xs, ys, label=display_label(target))
+        axis_name = scan.get("x_display_label") or scan["x"]
+        axis.set_xlabel(x_label or f"{axis_name} [{scan['x_unit']}]")
         if len(scan["targets"]) == 1:
             target = scan["targets"][0]
-            axis.set_ylabel(y_label or f"{(curve_labels or {}).get(target, target)} [{scan['units'][target]}]")
+            axis.set_ylabel(y_label or f"{display_label(target)} [{scan['units'][target]}]")
         else:
             axis.set_ylabel(y_label or "value (see legend and CSV units)")
             axis.legend()
