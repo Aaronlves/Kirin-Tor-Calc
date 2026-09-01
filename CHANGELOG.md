@@ -9,6 +9,11 @@
 - Added entry-local Unicode aliases and presentation-only member labels, including default labels in explanations and generated charts.
 - Added Chinese TUI status and diagnostics with source locations and full-width punctuation suggestions; document selection now shows the first `//` title alongside its path.
 - Added Kirin-specific editor highlighting plus `Ctrl+Space` completion for workspace members, Chinese labels and aliases, semantics, built-ins, and Chinese structural snippets.
+- Rebuilt the Textual UI around player-facing Calculate, Charts, Documents, Diagnostics, and Runs views while retaining structured documents as the only writable definition authority.
+- Added canonical in-memory document drafts, unsaved-change decisions, multi-variant comparisons, player-label and percentage overrides, ad-hoc scan tables, Plot-draft creation, aggregated diagnostic navigation, formula explanation, comparison run records, and replay.
+- Added target-specific input guidance, baseline input solving, multi-variant comparison curves, dynamic chart tables, real TUI export coverage, player acceptance notes, and a tested World of Warcraft-style expected/equivalent mechanics capability audit.
+- Added a Kirin Tor purple/gold/mana theme, cached one-shot chart reveal frames, reduced/off motion settings, and compact terminal layouts.
+- Moved template construction, override parsing, workspace indexes, comparison orchestration, artifact boundaries, and run recording into shared CLI/TUI application services.
 
 ## 0.2.0 — 2026-09-01
 

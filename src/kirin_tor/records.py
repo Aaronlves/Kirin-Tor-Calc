@@ -223,6 +223,25 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             display_digits=request["display_digits"],
             timeout_seconds=request["timeout_seconds"],
         )
+    if operation == "compare":
+        from .application import ComparisonVariant, compare_variants
+
+        variants = [
+            ComparisonVariant(
+                item["name"],
+                item.get("scenario"),
+                item.get("overrides", {}),
+            )
+            for item in request["variants"]
+        ]
+        return compare_variants(
+            workspace,
+            request["target"],
+            variants,
+            precision=request["precision"],
+            display_digits=request["display_digits"],
+            timeout_seconds=request["timeout_seconds"],
+        )
     if operation in {"simplify", "expand", "factor"}:
         return transform(
             engine,

@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, List, Optional
 
 import typer
 
 from . import __version__
+from .application import (
+    artifact_path as _artifact_path,
+    parse_override_assignments as _parse_sets,
+    preflight_artifacts as _preflight_artifacts,
+    record_operation as _recorded_compute,
+)
 from .engine import Engine
 from .errors import KTError, ParameterError, UnsupportedError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import differentiate, evaluate, explain, scan_values, solve_equation, transform
 from .plotting import render_plot, write_scan_csv
 from .records import replay as replay_run
-from .records import run_record_path, save_run
-from .schema import require_identifier, require_parameter_name
 from .timeout import run_with_timeout
 from .workspace import (
     AVAILABLE_PACKAGES,
@@ -63,103 +67,8 @@ def _execute(action: Callable[[], None], json_output: bool = False) -> None:
         raise typer.Exit(code=1)
 
 
-def _parse_sets(values: List[str]) -> Dict[str, str]:
-    result = {}
-    for value in values:
-        if value.count("=") != 1:
-            raise ParameterError("--set must use NAME=VALUE")
-        name, number = value.split("=", 1)
-        require_parameter_name(name, "parameter name", None)
-        if name in result:
-            raise ParameterError(f"parameter {name!r} was overridden more than once")
-        result[name] = number
-    return result
-
-
-def _artifact_path(workspace: Union[Workspace, Path], text: str, allow_outside: bool = False) -> Path:
-    root = workspace.root if isinstance(workspace, Workspace) else Path(workspace).resolve()
-    path = Path(text)
-    resolved = (path if path.is_absolute() else root / path).resolve()
-    if not allow_outside:
-        try:
-            resolved.relative_to(root)
-        except ValueError as exc:
-            raise ParameterError(
-                f"output path leaves the workspace; pass --allow-outside-workspace explicitly: {resolved}"
-            ) from exc
-    return resolved
-
-
-def _preflight_artifacts(paths: List[Path], force: bool) -> None:
-    if len(set(paths)) != len(paths):
-        raise ParameterError("plot and data outputs must use different paths")
-    if not force:
-        existing = [path for path in paths if path.exists()]
-        if existing:
-            raise ParameterError(
-                "output file already exists; use --force to replace it: " + ", ".join(map(str, existing))
-            )
-
-
 def _validate_workspace(workspace: Workspace) -> dict:
     return Engine(workspace).validate_all()
-
-
-def _recorded_compute(
-    workspace: Workspace,
-    save_run_id: Optional[str],
-    operation: str,
-    request: dict,
-    compute: Callable[[], dict],
-    extra_document_ids=(),
-) -> dict:
-    if save_run_id:
-        candidate = run_record_path(workspace, save_run_id)
-        if candidate.exists():
-            from .errors import WorkspaceError
-
-            raise WorkspaceError(
-                f"run record already exists and will not be overwritten: {candidate}"
-            )
-    try:
-        result = compute()
-    except KTError as exc:
-        if save_run_id:
-            save_run(
-                workspace,
-                save_run_id,
-                operation,
-                request,
-                exc.as_dict(),
-                workspace.documents.keys(),
-            )
-        raise
-    except Exception as exc:
-        if save_run_id:
-            failure = {"status": "error", "code": "internal_operation_error", "message": str(exc)}
-            save_run(
-                workspace,
-                save_run_id,
-                operation,
-                request,
-                failure,
-                workspace.documents.keys(),
-            )
-        raise
-    if save_run_id:
-        final_request = dict(request)
-        final_request["effective_parameters"] = result.get("parameters", {})
-        document_ids = set(result.get("dependency_ids", [])) | set(extra_document_ids)
-        path = save_run(
-            workspace,
-            save_run_id,
-            operation,
-            final_request,
-            result,
-            document_ids,
-        )
-        result["run_record"] = str(path)
-    return result
 
 
 @app.command("version")
@@ -175,7 +84,7 @@ def tui_command(
         help="Kirin source path relative to the workspace; defaults to the first .kirin document.",
     ),
 ) -> None:
-    """Open the single-editor Kirin authoring workbench."""
+    """Open the player calculation, chart, document, diagnostics, and runs workbench."""
     def action():
         root = Workspace.find_root()
         try:

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib.resources
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Sequence
 
 from .errors import KTError, ReferenceError, SchemaError, SourceLocation, ValidationErrors, WorkspaceError
 from .kirin_syntax import load_kirin_document, parse_kirin_source, render_kirin_document
@@ -16,12 +17,24 @@ from .schema import (
     Scenario,
     build_semantic_registry,
     parse_document,
+    require_identifier,
 )
 from .limits import MAX_SOURCE_BYTES, MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_SOURCE_BYTES
 from .units import UnitRegistry
 
 
 MARKER = "kirin.workspace"
+DOCUMENT_DRAFT_KINDS = ("entry", "skill", "model", "scenario", "plot")
+
+
+@dataclass(frozen=True)
+class DocumentDraft:
+    """A validated source-template proposal which has not necessarily been written."""
+
+    kind: str
+    document_id: str
+    path: Path
+    source_text: str
 
 
 class Workspace:
@@ -248,6 +261,83 @@ class Workspace:
         return workspace
 
     @classmethod
+    def load_for_check_with_overlays(
+        cls, root: Path, overlays: Dict[Path, str]
+    ) -> "Workspace":
+        """Aggregate independent source failures while honoring unsaved editor overlays."""
+        root = root.resolve()
+        if not (root / MARKER).is_file():
+            raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
+        cls._validate_marker(root)
+        resolved_overlays: Dict[Path, str] = {}
+        for source_path, source_text in overlays.items():
+            source_path = source_path.resolve()
+            try:
+                relative = source_path.relative_to(root)
+            except ValueError as exc:
+                raise WorkspaceError(
+                    f"editor source must stay inside the workspace: {source_path}"
+                ) from exc
+            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
+                "entries",
+                "scenarios",
+                "plots",
+            }:
+                raise WorkspaceError(
+                    "editor source must be a .kirin file inside entries, scenarios, or plots"
+                )
+            resolved_overlays[source_path] = source_text
+        paths = cls._document_paths(root)
+        for source_path in resolved_overlays:
+            if source_path not in paths:
+                paths.append(source_path)
+        paths.sort()
+        if len(paths) > MAX_WORKSPACE_DOCUMENTS:
+            raise WorkspaceError(
+                f"workspace exceeds {MAX_WORKSPACE_DOCUMENTS} source documents"
+            )
+        total_bytes = sum(
+            len(resolved_overlays[path].encode("utf-8"))
+            if path in resolved_overlays
+            else path.stat().st_size
+            for path in paths
+        )
+        if total_bytes > MAX_WORKSPACE_SOURCE_BYTES:
+            raise WorkspaceError(
+                f"workspace sources exceed {MAX_WORKSPACE_SOURCE_BYTES} total bytes"
+            )
+
+        raw_documents = []
+        errors = []
+        for path in paths:
+            try:
+                raw, text, digest, positions = cls._load_source_document(
+                    path, resolved_overlays.get(path)
+                )
+                raw_documents.append((raw, text, digest, path, positions))
+            except KTError as exc:
+                errors.append(exc)
+        try:
+            registry = build_semantic_registry(raw_documents)
+        except KTError as exc:
+            errors.append(exc)
+            raise ValidationErrors(errors)
+        documents = []
+        for raw, text, digest, path, positions in raw_documents:
+            try:
+                documents.append(parse_document(raw, text, digest, path, registry, positions))
+            except KTError as exc:
+                errors.append(exc)
+        try:
+            workspace = cls(root, documents, registry)
+        except KTError as exc:
+            errors.append(exc)
+            workspace = cls(root, [], registry)
+        if errors:
+            raise ValidationErrors(errors)
+        return workspace
+
+    @classmethod
     def from_snapshots(cls, snapshots: Iterable[dict]) -> "Workspace":
         documents = []
         virtual_root = Path("/snapshot")
@@ -323,23 +413,38 @@ def initialize(root: Path, package_name: str = "none") -> Path:
     return root
 
 
-def create_entry_template(workspace: Workspace, entry_type: str, entry_id: str) -> Path:
-    from .schema import require_identifier
+def build_document_draft(
+    root: Path,
+    document_kind: str,
+    document_id: str,
+    *,
+    plot_x: str = "entry.input",
+    plot_targets: Sequence[str] = ("entry.output",),
+    plot_range_start: str = "0",
+    plot_range_end: str = "1",
+    plot_points: int = 101,
+    plot_scenario: Optional[str] = None,
+) -> DocumentDraft:
+    """Build the canonical CLI/TUI source template without writing it."""
+    require_identifier(document_id, "id", SourceLocation(entry_id=document_id))
+    if document_kind not in DOCUMENT_DRAFT_KINDS:
+        raise SchemaError(
+            "new document template must be one of: " + ", ".join(DOCUMENT_DRAFT_KINDS)
+        )
+    root = root.resolve()
+    if document_kind in {"entry", "skill", "model"}:
+        path = root / "entries" / f"{document_id}.kirin"
+    elif document_kind == "scenario":
+        path = root / "scenarios" / f"{document_id}.kirin"
+    else:
+        path = root / "plots" / f"{document_id}.kirin"
 
-    require_identifier(entry_id, "id", SourceLocation(entry_id=entry_id))
-    if entry_type not in {"entry", "skill", "model"}:
-        raise SchemaError("new entry template must be entry, skill, or model")
-    if entry_id in workspace.documents:
-        raise WorkspaceError(f"document id already exists: {entry_id}")
-    path = workspace.root / "entries" / f"{entry_id}.kirin"
-    if path.exists():
-        raise WorkspaceError(f"file already exists: {path}")
-    if entry_type in {"entry", "skill"}:
-        content = f"""@kirin 1
-@entry {entry_id}
-@template {entry_type}
+    if document_kind in {"entry", "skill"}:
+        source_text = f"""@kirin 1
+@entry {document_id}
+@template {document_kind}
 
-// {entry_id}
+// {document_id}
 
 ---
 Edit this fictional template.
@@ -348,12 +453,12 @@ Edit this fictional template.
 fields:
   base_value: dimensionless = 0
 """
-    else:
-        content = f"""@kirin 1
-@entry {entry_id}
+    elif document_kind == "model":
+        source_text = f"""@kirin 1
+@entry {document_id}
 @template model
 
-// {entry_id}
+// {document_id}
 
 inputs:
   x: number[dimensionless] = 0
@@ -361,56 +466,62 @@ inputs:
 outputs:
   result: dimensionless = x
 """
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(content)
-    return path
+    elif document_kind == "scenario":
+        source_text = f"""@kirin 1
+@scenario {document_id}
 
-
-def create_scenario_template(workspace: Workspace, scenario_id: str) -> Path:
-    from .schema import require_identifier
-
-    require_identifier(scenario_id, "id", SourceLocation(entry_id=scenario_id))
-    if scenario_id in workspace.documents:
-        raise WorkspaceError(f"document id already exists: {scenario_id}")
-    path = workspace.root / "scenarios" / f"{scenario_id}.kirin"
-    if path.exists():
-        raise WorkspaceError(f"file already exists: {path}")
-    content = f"""@kirin 1
-@scenario {scenario_id}
-
-// {scenario_id}
+// {document_id}
 
 values:
 """
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(content)
-    return path
+    else:
+        targets = tuple(plot_targets)
+        if not targets:
+            raise SchemaError("new plot template requires at least one output target")
+        if isinstance(plot_points, bool) or not isinstance(plot_points, int) or plot_points < 2:
+            raise SchemaError("new plot template points must be an integer of at least 2")
+        scenario_line = f"scenario: {plot_scenario}\n\n" if plot_scenario else ""
+        target_lines = "\n".join(f"  {target}" for target in targets)
+        source_text = f"""@kirin 1
+@plot {document_id}
+
+// {document_id}
+
+x: {plot_x}
+range: {plot_range_start}..{plot_range_end}
+points: {plot_points}
+
+{scenario_line}y:
+{target_lines}
+
+export-svg: \"results/{document_id}.svg\"
+export-csv: \"results/{document_id}.csv\"
+"""
+    return DocumentDraft(document_kind, document_id, path.resolve(), source_text)
+
+
+def create_document_template(workspace: Workspace, document_kind: str, document_id: str) -> Path:
+    """Create one canonical source template without replacing existing authority."""
+    draft = build_document_draft(workspace.root, document_kind, document_id)
+    if document_id in workspace.documents:
+        raise WorkspaceError(f"document id already exists: {document_id}")
+    if draft.path.exists():
+        raise WorkspaceError(f"file already exists: {draft.path}")
+    draft.path.parent.mkdir(parents=True, exist_ok=True)
+    with draft.path.open("x", encoding="utf-8") as handle:
+        handle.write(draft.source_text)
+    return draft.path
+
+
+def create_entry_template(workspace: Workspace, entry_type: str, entry_id: str) -> Path:
+    if entry_type not in {"entry", "skill", "model"}:
+        raise SchemaError("new entry template must be entry, skill, or model")
+    return create_document_template(workspace, entry_type, entry_id)
+
+
+def create_scenario_template(workspace: Workspace, scenario_id: str) -> Path:
+    return create_document_template(workspace, "scenario", scenario_id)
 
 
 def create_plot_template(workspace: Workspace, plot_id: str) -> Path:
-    from .schema import require_identifier
-
-    require_identifier(plot_id, "id", SourceLocation(entry_id=plot_id))
-    if plot_id in workspace.documents:
-        raise WorkspaceError(f"document id already exists: {plot_id}")
-    path = workspace.root / "plots" / f"{plot_id}.kirin"
-    if path.exists():
-        raise WorkspaceError(f"file already exists: {path}")
-    content = f"""@kirin 1
-@plot {plot_id}
-
-// {plot_id}
-
-x: entry.input
-range: 0..1
-points: 101
-
-y:
-  entry.output
-
-export-svg: \"results/{plot_id}.svg\"
-export-csv: \"results/{plot_id}.csv\"
-"""
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(content)
-    return path
+    return create_document_template(workspace, "plot", plot_id)

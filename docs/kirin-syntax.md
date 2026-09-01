@@ -154,13 +154,17 @@ export-csv: "results/curve.csv"
 
 ## TUI editing states
 
-The TUI retains an in-memory buffer for every opened document and validates them together as a workspace overlay. `Ctrl+P` switches documents without discarding drafts. Its selector shows the first non-empty `//` comment as a presentation-only title alongside the stable relative path. It reports three practical states:
+The TUI is a calculation and comparison workbench with Calculate, Charts, Documents, Diagnostics, and Runs entry points. Documents remain the authoritative definitions; calculations, charts, selectors, and comparison tables are derived views.
+
+The Documents view retains an in-memory buffer for every opened document and validates them together as a workspace overlay. `Ctrl+N` creates an in-memory draft without writing a file. `Ctrl+P` switches documents without discarding drafts. Its selector shows the first non-empty `//` comment as a presentation-only title alongside the stable relative path and its new/modified state. It reports three practical states:
 
 - modified and invalid: diagnostics are shown and save/export is rejected;
 - modified and valid: calculations and plot preview use the draft without writing it;
 - saved and valid: the buffer matches the atomic on-disk write.
 
-For plot documents, preview uses Plotext directly in the terminal. `Ctrl+S` validates and saves every modified buffer. `Ctrl+E` does the same, then recomputes the current plot and replaces the configured SVG/CSV exports.
+The Calculate view evaluates one declared output for one or more named variants against the same validated workspace revision. Variant inputs may use canonical names, unique local names, or display labels; exact percentages are normalized before the engine sees them. It can also solve one input against a requested output value using the first variant as the baseline. Unsaved but valid overlays may be explored, but durable run records require saved sources.
+
+The Charts view performs an ad-hoc scan and uses the same result for its Plotext preview and data table. It may alternatively scan the variants currently configured on Calculate as named curves on one shared axis. A single-variant chart exploration may create a Plot source draft; a multi-variant interactive chart is not silently converted into a one-scenario Plot. `Ctrl+S` validates and saves every modified buffer. `Ctrl+E` does the same, then recomputes the current saved Plot document and replaces its configured SVG/CSV exports.
 
 TUI status text and common diagnostics are presented in Chinese without changing core error codes or CLI JSON. A diagnostic includes the relative source path, line and column, formal entry/field identity, a Chinese explanation, and the original technical message. When the failing line contains common full-width Chinese punctuation, the diagnostic suggests the corresponding Kirin punctuation rather than silently rewriting the source.
 

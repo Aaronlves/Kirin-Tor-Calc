@@ -18,7 +18,12 @@ from kirin_tor.authoring import (
 from kirin_tor.diagnostics import extract_author_title, format_tui_diagnostic
 from kirin_tor.errors import SchemaError, SourceLocation
 from kirin_tor.schema import PlotConfig
-from kirin_tor.tui import KirinTUI, KirinTextArea, render_terminal_plot
+from kirin_tor.tui import (
+    KirinTUI,
+    KirinTextArea,
+    build_terminal_plot_frames,
+    render_terminal_plot,
+)
 from kirin_tor.workspace import initialize
 
 
@@ -55,6 +60,9 @@ def test_terminal_plot_renderer_builds_ansi_text() -> None:
     rendered = render_terminal_plot(scan, config, 50, 14)
     assert "Preview" in rendered.plain
     assert "Result" in rendered.plain
+    frames = build_terminal_plot_frames(scan, config, 50, 14, frame_count=3)
+    assert len(frames) >= 2
+    assert frames[-1].plain == rendered.plain
 
 
 def test_chinese_title_and_full_width_punctuation_diagnostic(tmp_path: Path) -> None:
@@ -232,7 +240,11 @@ outputs:
     app = KirinTUI(root, model)
     async with app.run_test(size=(110, 36)) as pilot:
         await pilot.pause(0.3)
+        await pilot.press("ctrl+3")
+        await pilot.pause(0.1)
         editor = app.query_one("#editor", TextArea)
+        editor.focus()
+        await pilot.pause(0.1)
         editor.move_cursor((7, len(editor.document[7])))
         await pilot.press("ctrl+space")
         await pilot.pause(0.1)
