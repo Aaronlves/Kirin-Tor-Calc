@@ -40,6 +40,7 @@ from .package_manifest import (
     load_workspace_requirements,
     normalize_source,
     package_source_paths,
+    package_template_paths,
     source_kind,
 )
 
@@ -319,7 +320,7 @@ class PackageStoreManager:
         temporary = Path(tempfile.mkdtemp(prefix=f".{digest}.", dir=self.root))
         try:
             shutil.copy2(source_root / PACKAGE_MANIFEST, temporary / PACKAGE_MANIFEST)
-            for path in package_source_paths(source_root):
+            for path in (*package_source_paths(source_root), *package_template_paths(source_root)):
                 relative = path.relative_to(source_root)
                 destination = temporary / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)

@@ -489,7 +489,7 @@ def package_source_paths(root: Path) -> Tuple[Path, ...]:
     root = root.resolve()
     result = []
     total_bytes = 0
-    for folder_name in ("entries", "plots"):
+    for folder_name in ("entries",):
         folder = root / folder_name
         if not folder.exists():
             continue
@@ -522,7 +522,62 @@ def package_source_paths(root: Path) -> Tuple[Path, ...]:
                         f"package exceeds {MAX_WORKSPACE_DOCUMENTS} Kirin documents", _location(root)
                     )
     if not result:
-        raise PackageError("package must contain at least one .kirin source under entries/ or plots/", _location(root))
+        raise PackageError("package must contain at least one .kirin source under entries/", _location(root))
+    return tuple(sorted(result, key=lambda path: path.relative_to(root).as_posix()))
+
+
+def package_template_paths(root: Path) -> Tuple[Path, ...]:
+    """Return static creation templates shipped as authoritative Package data."""
+    root = root.resolve()
+    result = []
+    total_bytes = 0
+    base = root / "templates"
+    if not base.exists():
+        return ()
+    if base.is_symlink() or not base.is_dir():
+        raise PackageError("package templates/ must be a real directory", _location(base))
+    for folder_name in ("entries",):
+        folder = base / folder_name
+        if not folder.exists():
+            continue
+        if folder.is_symlink() or not folder.is_dir():
+            raise PackageError(
+                f"package templates/{folder_name}/ must be a real directory",
+                _location(folder),
+            )
+        for current, directory_names, filenames in os.walk(folder, followlinks=False):
+            current_path = Path(current)
+            for directory_name in list(directory_names):
+                candidate = current_path / directory_name
+                if candidate.is_symlink():
+                    raise PackageError(
+                        "package template directories may not be symbolic links",
+                        _location(candidate),
+                    )
+            for filename in filenames:
+                path = current_path / filename
+                if path.suffix.lower() != ".kirin":
+                    continue
+                if path.is_symlink() or not path.is_file():
+                    raise PackageError(
+                        "package templates must be regular files", _location(path)
+                    )
+                try:
+                    path.resolve().relative_to(root)
+                except ValueError as exc:
+                    raise PackageError("package template leaves its root", _location(path)) from exc
+                total_bytes += path.stat().st_size
+                if total_bytes > MAX_PACKAGE_EXTRACTED_BYTES:
+                    raise PackageError(
+                        f"package templates exceed {MAX_PACKAGE_EXTRACTED_BYTES} bytes",
+                        _location(root),
+                    )
+                result.append(path)
+                if len(result) > MAX_WORKSPACE_DOCUMENTS:
+                    raise PackageError(
+                        f"package exceeds {MAX_WORKSPACE_DOCUMENTS} templates",
+                        _location(root),
+                    )
     return tuple(sorted(result, key=lambda path: path.relative_to(root).as_posix()))
 
 
@@ -531,7 +586,7 @@ def canonical_content_sha256(root: Path) -> str:
     manifest = root / PACKAGE_MANIFEST
     if manifest.is_symlink() or not manifest.is_file():
         raise PackageError(f"package manifest not found: {manifest}", _location(manifest))
-    paths = (manifest, *package_source_paths(root))
+    paths = (manifest, *package_source_paths(root), *package_template_paths(root))
     digest = hashlib.sha256()
     for path in paths:
         relative = path.relative_to(root).as_posix().encode("utf-8")

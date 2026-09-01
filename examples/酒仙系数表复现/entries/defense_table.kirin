@@ -1,6 +1,5 @@
 @kirin 1
 @entry defense_table
-@template model
 @game-version 12.0.1.65617
 @status workbook_reproduction
 
@@ -42,9 +41,9 @@ fields:
   healing_from_health: healing_per_health = 1
   rating_from_ap: rating_per_attack_power = 1
   rating_from_armor: rating_per_armor = 1
-  max_health "最大生命上限": health := stamina * 20
-  additional_agility: attack_power := damage_table.effective_agility - base_agility
-  crit_rate "暴击率": dimensionless := 0.10 + crit_rating / 4600
+  max_health "最大生命上限": health = stamina * 20
+  additional_agility: attack_power = damage_table.effective_agility - base_agility
+  crit_rate "暴击率": dimensionless = 0.10 + crit_rating / 4600
 
   calming_presence: dimensionless = 0.03
   flow_of_chi: dimensionless = 0.05
@@ -61,13 +60,13 @@ fields:
   high_tolerance_two_multiplier: dimensionless = 1.2
   ox_stance_multiplier: dimensionless = 1.4
 
-  healing_taken_multiplier "受到治疗乘数": dimensionless :=
+  healing_taken_multiplier "受到治疗乘数": dimensionless =
     (1 + grace_of_crane) *
     if_else(health_fraction < 0.35, 1 + silent_sanctuary, 1)
-  healing_done_multiplier "造成治疗乘数": dimensionless :=
+  healing_done_multiplier "造成治疗乘数": dimensionless =
     (1 + chi_proficiency) *
     if_else(save_them_all, 1 + (1 - health_fraction) / 10, 1)
-  general_damage_reduction "通用伤害减免": dimensionless :=
+  general_damage_reduction "通用伤害减免": dimensionless =
     1 - (1 - calming_presence) *
     if_else(
     health_fraction >= 0.35 and health_fraction <= 0.90,
@@ -75,7 +74,7 @@ fields:
     1
     )
 
-  stagger_rating: dimensionless :=
+  stagger_rating: dimensionless =
     damage_table.effective_agility * rating_from_ap * 1.13 * shuffle_multiplier *
     if_else(fortifying_brew_determination, determination_multiplier, 1) *
     if_else(
@@ -87,13 +86,13 @@ fields:
     if_else(zen_state, 1.8 - 0.8 * health_fraction, 1)
 
   expel_harm_initial: dimensionless = 120
-  vivify_initial: dimensionless := 258 * 1.92 * 1.4
-  silent_sanctuary_initial: dimensionless := 300 * 1.25
+  vivify_initial: dimensionless = 258 * 1.92 * 1.4
+  silent_sanctuary_initial: dimensionless = 300 * 1.25
   healing_sphere_initial: dimensionless = 330
   refreshing_drink_initial: dimensionless = 3200
   harmonic_surge_healing_initial: dimensionless = 50
-  celestial_brew_initial: dimensionless := 2268 * 1.25
-  celestial_infusion_initial: dimensionless := 2268 * 1.25
+  celestial_brew_initial: dimensionless = 2268 * 1.25
+  celestial_infusion_initial: dimensionless = 2268 * 1.25
   awakening_spirit_initial: dimensionless = 600
   mantra_of_purity_initial: dimensionless = 100
   mantra_of_tenacity_initial: dimensionless = 12

@@ -13,7 +13,6 @@ from kirin_tor.workspace import Workspace, initialize
 
 ENTRY_SOURCE = """@kirin 1
 @entry model
-@template model
 
 // Model title is an author comment, not schema data.
 
@@ -28,7 +27,7 @@ inputs:
 
 fields:
   base: dimensionless = 2
-  scaled: dimensionless :=
+  scaled: dimensionless =
     base * (1 + x)
 
 constraints:
@@ -43,6 +42,24 @@ outputs:
   result: dimensionless = scaled
   doubled: dimensionless = multiply(2)
 """
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        ("@template model\n\noutputs:\n  result: dimensionless = 1\n", "unknown directive"),
+        ("info:\n  note = text\n", "unknown entry section"),
+        ("fields:\n  derived: dimensionless := 1 + 1\n", "field must use"),
+    ],
+)
+def test_removed_source_forms_are_rejected(tmp_path: Path, body: str, message: str) -> None:
+    root = initialize(tmp_path / "removed")
+    (root / "entries" / "removed.kirin").write_text(
+        "@kirin 1\n@entry removed\n" + body,
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match=message):
+        Workspace.load(root)
 
 
 def test_kirin_entry_preset_groups_display_and_plot_use_existing_engine(tmp_path: Path) -> None:
@@ -60,16 +77,6 @@ presets:
 
 display:
   result: percent digits 1
-"""
-    (root / "entries" / "model.kirin").write_text(
-        source,
-        encoding="utf-8",
-    )
-    (root / "plots" / "curve.kirin").write_text(
-        """@kirin 1
-@plot curve
-
-// Curve
 
 x: model.x
 range: 0..1
@@ -84,10 +91,11 @@ x-label: "Input"
 y-label: "Value"
 export-svg: "results/curve.svg"
 export-csv: "results/curve.csv"
-""",
+"""
+    (root / "entries" / "model.kirin").write_text(
+        source,
         encoding="utf-8",
     )
-
     workspace = Workspace.load(root)
     result = Engine(workspace).validate_all()
     assert result["status"] == "ok"
@@ -98,7 +106,7 @@ export-csv: "results/curve.csv"
     assert workspace.get_entry("model").groups["results"].outputs == ("result", "doubled")
     assert workspace.get_entry("model").outputs["result"]["display"] == "percent"
 
-    plot = workspace.get_plot("curve")
+    plot = workspace.get_chart("model")
     scan = scan_values(
         Engine(workspace), plot.x, f"{plot.range_start}:{plot.range_end}", plot.points, plot.y
     )

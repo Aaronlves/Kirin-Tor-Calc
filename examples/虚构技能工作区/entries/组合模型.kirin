@@ -1,6 +1,5 @@
 @kirin 1
 @entry combo
-@template model
 @game-version fictional
 @status example_only
 
@@ -26,3 +25,13 @@ groups:
 
 display:
   total: integer
+
+x: combo.crit
+range: 0..0.6
+points: 61
+
+y:
+  combo.total
+preset: presets.baseline
+export-svg: "results/damage.svg"
+export-csv: "results/damage.csv"

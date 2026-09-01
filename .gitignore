@@ -5,5 +5,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+node_modules/
+frontend/dist/
 .DS_Store
 .kirin/

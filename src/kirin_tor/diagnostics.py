@@ -1,4 +1,4 @@
-"""Chinese presentation of stable Kirin Tor errors for the authoring TUI."""
+"""Chinese presentation of stable Kirin Tor errors for the authoring workbench."""
 
 from __future__ import annotations
 
@@ -50,9 +50,9 @@ def extract_author_title(source: str, fallback: str) -> str:
 def _translated_message(message: str, code: str) -> str:
     exact_prefixes = (
         ("first declaration must be", "文件第一条声明必须是 `@kirin 1`。"),
-        ("second declaration must be", "第二条声明必须指定 `@entry` 或 `@plot` 及其正式 ID。"),
+        ("second declaration must be", "第二条声明必须指定 `@entry` 及其正式 ID。"),
         ("input must use", "输入声明格式不正确。应写为 `ID [\"标签\"]: 类型 [= 默认值] [in 下限..上限]`。"),
-        ("field must use", "字段声明格式不正确。固定值使用 `=`，派生公式使用 `:=`。"),
+        ("field must use", "字段声明格式不正确。字段应使用 `名称: 类型 = 值或公式`。"),
         ("function must use", "函数声明格式不正确。应写为 `ID [\"标签\"](参数) -> 单位 = 公式`。"),
         ("output must use", "输出声明格式不正确。应写为 `ID [\"标签\"]: 单位 = 公式`。"),
         ("alias must use", "别名声明格式不正确。应写为 `中文别名 = entry.member`。"),
@@ -167,7 +167,7 @@ def _format_one(
     return "\n".join(lines)
 
 
-def format_tui_diagnostic(
+def format_author_diagnostic(
     error: KTError,
     root: Optional[Path] = None,
     sources: Optional[Mapping[Path, str]] = None,
@@ -177,3 +177,18 @@ def format_tui_diagnostic(
         blocks = [_format_one(item, root, sources) for item in error.errors]
         return f"发现 {len(blocks)} 个校验错误：\n\n" + "\n\n".join(blocks)
     return _format_one(error, root, sources)
+
+
+def author_error_payload(
+    error: KTError,
+    root: Optional[Path] = None,
+    sources: Optional[Mapping[Path, str]] = None,
+) -> dict:
+    """Add presentation text without changing stable error codes or fields."""
+    payload = error.as_dict()
+    if isinstance(error, ValidationErrors):
+        payload["errors"] = [
+            author_error_payload(item, root, sources) for item in error.errors
+        ]
+    payload["author_message"] = format_author_diagnostic(error, root, sources)
+    return payload

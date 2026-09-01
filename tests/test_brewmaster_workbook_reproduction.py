@@ -185,7 +185,7 @@ def test_aoe_plot_performs_a_real_scan_and_export(tmp_path: Path) -> None:
     copied_root = tmp_path / "酒仙系数表复现"
     shutil.copytree(EXAMPLE_ROOT, copied_root, ignore=shutil.ignore_patterns("results"))
     workspace = Workspace.load(copied_root)
-    plot = workspace.get_plot("aoe_dpc_curves")
+    plot = workspace.get_chart("aoe_table")
     scan = scan_values(
         Engine(workspace),
         plot.x,

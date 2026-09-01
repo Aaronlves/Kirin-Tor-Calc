@@ -1,6 +1,5 @@
 @kirin 1
 @entry example_semantics
-@template semantics
 @status example_only
 
 // 验收示例基础数学语义

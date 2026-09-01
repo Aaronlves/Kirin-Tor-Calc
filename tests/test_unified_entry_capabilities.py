@@ -20,7 +20,6 @@ def _entry(entry_id: str, **sections) -> dict:
         "id": entry_id,
         "name": entry_id,
         "type": "entry",
-        "template": "data",
         "inputs": {},
         "constraints": [],
         "fields": {},
@@ -38,7 +37,6 @@ def _build_capability_workspace(root: Path) -> Path:
     (entries / "fixture_game_semantics.kirin").write_text(
         """@kirin 1
 @entry fixture_game_semantics
-@template semantics
 
 // Test-owned fictional game semantics; not supplied by the Kirin core.
 
@@ -82,7 +80,6 @@ units:
         entries / "talent_a.kirin",
         _entry(
             "talent_a",
-            template="skill",
             fields={
                 "modifier": {
                     "kind": "value",
@@ -102,7 +99,6 @@ units:
         entries / "talent_b.kirin",
         _entry(
             "talent_b",
-            template="skill",
             fields={
                 "modifier": {
                     "kind": "value",
@@ -161,7 +157,6 @@ units:
         entries / "skill.kirin",
         _entry(
             "skill",
-            template="skill",
             fields={
                 "coefficient": {
                     "kind": "value",
@@ -186,7 +181,6 @@ units:
         entries / "combo.kirin",
         _entry(
             "combo",
-            template="model",
             fields={
                 "first_hit": {
                     "kind": "expression",
@@ -216,7 +210,6 @@ units:
         entries / "target_curve.kirin",
         _entry(
             "target_curve",
-            template="model",
             inputs={
                 "targets": {
                     "unit": "dimensionless",
@@ -240,21 +233,21 @@ units:
         ),
     )
 
-    write_kirin(
-        root / "plots" / "target_scaling.kirin",
-        {
-            "schema_version": 1,
-            "id": "target_scaling",
-            "name": "target_scaling",
-            "type": "plot",
-            "x": "targets",
-            "range": ["1", "10"],
-            "points": 10,
-            "y": ["target_curve.total"],
-            "out": "results/target-scaling.svg",
-            "data_out": "results/target-scaling.csv",
-        },
-    )
+    target_curve_path = root / "entries" / "target_curve.kirin"
+    target_curve = target_curve_path.read_text(encoding="utf-8").rstrip()
+    target_curve += """
+
+x: target_curve.targets
+range: 1..10
+points: 10
+
+y:
+  target_curve.total
+
+export-svg: "results/target-scaling.svg"
+export-csv: "results/target-scaling.csv"
+"""
+    target_curve_path.write_text(target_curve, encoding="utf-8")
     return root
 
 
@@ -306,7 +299,7 @@ def test_piecewise_curve_scan_and_cli_plot(tmp_path: Path, monkeypatch) -> None:
     assert checked.exit_code == 0, checked.output
     assert json.loads(checked.stdout)["status"] == "ok"
 
-    plotted = runner.invoke(app, ["plot", "--config", "target_scaling", "--json"])
+    plotted = runner.invoke(app, ["plot", "--config", "target_curve", "--json"])
     assert plotted.exit_code == 0, plotted.output
     payload = json.loads(plotted.stdout)
     assert Path(payload["out"]).read_text(encoding="utf-8").lstrip().startswith("<?xml")

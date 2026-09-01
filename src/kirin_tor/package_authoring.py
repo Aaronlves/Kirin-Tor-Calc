@@ -22,16 +22,33 @@ from .package_manifest import (
     load_package_manifest,
     load_workspace_requirements,
     normalize_source,
+    package_template_paths,
     render_package_manifest,
     render_workspace_requirements,
 )
 from .package_store import PackageResolution, PackageResolver, PackageStoreManager
+from .templates import expand_template_source
 from .workspace import Workspace, initialize
 
 
 def _validate_resolved_workspace(root: Path, resolution: PackageResolution) -> dict:
     workspace = Workspace.load(root, package_resolution=resolution)
-    return Engine(workspace).validate_all()
+    result = Engine(workspace).validate_all()
+    template_index = 0
+    for package in resolution.packages:
+        for path in package_template_paths(package.root):
+            kind = "entry"
+            document_id = f"package_template_check_{template_index}"
+            template_index += 1
+            source = expand_template_source(path.read_text(encoding="utf-8"), kind, document_id)
+            target = (root / "entries" / f"{document_id}.kirin").resolve()
+            candidate = Workspace.load_with_overlays(
+                root,
+                {target: source},
+                package_resolution=resolution,
+            )
+            Engine(candidate).validate_all()
+    return result
 
 
 def _write_transaction(requirements: WorkspaceRequirements, resolution: PackageResolution) -> None:
@@ -242,6 +259,8 @@ def create_package_template(
     (root / "kirin.package.toml").write_text(render_package_manifest(manifest), encoding="utf-8")
     entries = root / "entries"
     entries.mkdir()
+    template_entries = root / "templates" / "entries"
+    template_entries.mkdir(parents=True)
     entry_id = f"{namespace}_example"
     (entries / "example.kirin").write_text(
         f'''@kirin 1
@@ -261,6 +280,17 @@ outputs:
 ''',
         encoding="utf-8",
     )
+    (template_entries / "consumer.kirin").write_text(
+        f'''@kirin 1
+@entry package_consumer
+
+// {name} consumer
+
+outputs:
+  result: dimensionless = {entry_id}.result
+''',
+        encoding="utf-8",
+    )
     (root / "README.md").write_text(
         f'''# {name}
 
@@ -273,6 +303,8 @@ kt package check .
 
 Document the package scope, excluded claims, game/ruleset versions, evidence policy, and
 maintainer process here. Package sources are data only and must not require executable hooks.
+`templates/entries/consumer.kirin` is a static creation skeleton; generated workspace
+documents are independent and do not inherit from it.
 ''',
         encoding="utf-8",
     )

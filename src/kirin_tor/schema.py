@@ -24,7 +24,7 @@ IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PARAMETER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$")
 QUALIFIED_MEMBER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
 NUMBER_TEXT_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$")
-DOCUMENT_TYPES = {"entry", "plot"}
+DOCUMENT_TYPES = {"entry"}
 DISPLAY_FORMATS = {"number", "integer", "percent", "coefficient_percent"}
 EXPRESSION_RESERVED_NAMES = {
     "abs", "ceil", "floor", "if_else", "interpolate", "lookup", "max", "min", "piecewise", "product", "sqrt", "sum"
@@ -192,7 +192,6 @@ class Document:
 
 @dataclass
 class Entry(Document):
-    template: Optional[str] = None
     game_version: Optional[str] = None
     validation_status: Optional[str] = None
     sources: List[Dict[str, Any]] = field(default_factory=list)
@@ -206,6 +205,22 @@ class Entry(Document):
     outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     groups: Dict[str, "OutputGroup"] = field(default_factory=dict)
     presets: Dict[str, "Preset"] = field(default_factory=dict)
+    x: Optional[str] = None
+    range_start: Optional[str] = None
+    range_end: Optional[str] = None
+    points: Optional[int] = None
+    y: List[str] = field(default_factory=list)
+    preset: Optional[str] = None
+    out: Optional[str] = None
+    data_out: Optional[str] = None
+    title: Optional[str] = None
+    x_label: Optional[str] = None
+    y_label: Optional[str] = None
+    curve_labels: Dict[str, str] = field(default_factory=dict)
+
+    @property
+    def has_chart(self) -> bool:
+        return self.x is not None
 
 
 @dataclass(frozen=True)
@@ -250,21 +265,6 @@ class LookupTable:
     def qualified_id(self) -> str:
         return f"{self.owner_id}.{self.id}"
 
-
-@dataclass
-class PlotConfig(Document):
-    x: str = ""
-    range_start: str = ""
-    range_end: str = ""
-    points: int = 0
-    y: List[str] = field(default_factory=list)
-    preset: Optional[str] = None
-    out: Optional[str] = None
-    data_out: Optional[str] = None
-    title: Optional[str] = None
-    x_label: Optional[str] = None
-    y_label: Optional[str] = None
-    curve_labels: Dict[str, str] = field(default_factory=dict)
 
 def _location(path: Path, entry_id: Optional[str], positions, field_name: Optional[str] = None):
     line = column = None
@@ -522,9 +522,10 @@ def _parse_input(
 
 
 TOP_KEYS = {
-    "schema_version", "id", "name", "type", "template", "description", "sources", "game_version",
+    "schema_version", "id", "name", "type", "description", "sources", "game_version",
     "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables", "outputs",
-    "groups", "presets",
+    "groups", "presets", "x", "range", "points", "y", "preset", "out", "data_out",
+    "title", "x_label", "y_label", "curve_labels",
 }
 
 
@@ -617,9 +618,6 @@ def parse_document(
                     source_location,
                 )
             sources.append(normalized_source)
-        template = raw.get("template")
-        if template is not None:
-            require_identifier(template, "entry template", _location(path, doc_id, positions, "template"))
         input_data = require_mapping(raw.get("inputs", {}), "inputs", _location(path, doc_id, positions, "inputs"))
         if len(input_data) > MAX_MODEL_INPUTS:
             raise SchemaError(f"an entry may define at most {MAX_MODEL_INPUTS} inputs", root_location)
@@ -725,8 +723,8 @@ def parse_document(
                 data = require_mapping(value, f"{section_name}.{member}", member_location)
                 if section_name == "fields":
                     kind = data.get("kind")
-                    if kind not in {"value", "expression", "info"}:
-                        raise SchemaError("field kind must be value, expression, or info", member_location)
+                    if kind not in {"value", "expression"}:
+                        raise SchemaError("field kind must be value or expression", member_location)
                     if kind == "value":
                         _reject_unknown(data, {"kind", "value", "value_type", "unit", "description", "label"}, "value field", member_location)
                         if "value" not in data or "expression" in data:
@@ -746,16 +744,11 @@ def parse_document(
                         if "expression" not in data or "value" in data:
                             raise SchemaError("expression field requires expression and may not define value", member_location)
                         require_text(data["expression"], "expression", member_location)
-                    else:
-                        _reject_unknown(data, {"kind", "value", "description", "label"}, "info field", member_location)
-                        if "value" not in data or "expression" in data:
-                            raise SchemaError("info field requires value and may not define expression", member_location)
                     if "label" in data:
                         require_display_label(data["label"], "field label", member_location)
-                    if kind != "info":
-                        unit_name = data.get("unit", "dimensionless")
-                        require_identifier(unit_name, "unit", member_location)
-                        registry.parse_unit(unit_name, member_location)
+                    unit_name = data.get("unit", "dimensionless")
+                    require_identifier(unit_name, "unit", member_location)
+                    registry.parse_unit(unit_name, member_location)
                 elif section_name == "functions":
                     _reject_unknown(data, {"parameters", "expression", "unit", "description", "label"}, "function", member_location)
                     if "label" in data:
@@ -881,10 +874,83 @@ def parse_document(
                 preset_location,
             )
 
+        chart_keys = {
+            "x", "range", "points", "y", "preset", "out", "data_out", "title",
+            "x_label", "y_label", "curve_labels",
+        }
+        chart_present = bool(chart_keys.intersection(raw))
+        chart = {
+            "x": None,
+            "range_start": None,
+            "range_end": None,
+            "points": None,
+            "y": [],
+            "preset": None,
+            "out": None,
+            "data_out": None,
+            "title": None,
+            "x_label": None,
+            "y_label": None,
+            "curve_labels": {},
+        }
+        if chart_present:
+            missing = sorted({"x", "range", "points", "y"} - set(raw))
+            if missing:
+                raise SchemaError(
+                    "chart configuration is missing required key(s): " + ", ".join(missing),
+                    root_location,
+                )
+            chart["x"] = require_parameter_name(
+                raw.get("x"), "chart x", _location(path, doc_id, positions, "x")
+            )
+            range_value = raw.get("range")
+            if not isinstance(range_value, list) or len(range_value) != 2:
+                raise SchemaError(
+                    "chart range must be a two-item list",
+                    _location(path, doc_id, positions, "range"),
+                )
+            chart["range_start"] = number_text(range_value[0], "chart range start", root_location)
+            chart["range_end"] = number_text(range_value[1], "chart range end", root_location)
+            points = raw.get("points")
+            if not isinstance(points, int) or isinstance(points, bool):
+                raise SchemaError(
+                    "chart points must be an integer",
+                    _location(path, doc_id, positions, "points"),
+                )
+            chart["points"] = points
+            y = raw.get("y")
+            if not isinstance(y, list) or not y or not all(isinstance(item, str) for item in y):
+                raise SchemaError(
+                    "chart y must be a non-empty list of targets",
+                    _location(path, doc_id, positions, "y"),
+                )
+            chart["y"] = list(y)
+            preset = raw.get("preset")
+            if preset is not None:
+                chart["preset"] = require_parameter_name(
+                    preset, "chart preset", _location(path, doc_id, positions, "preset")
+                )
+            for key in ("out", "data_out", "title", "x_label", "y_label"):
+                value = raw.get(key)
+                if value is not None:
+                    chart[key] = require_text(
+                        value, f"chart {key}", _location(path, doc_id, positions, key)
+                    )
+            labels_raw = require_mapping(
+                raw.get("curve_labels", {}), "curve_labels", root_location
+            )
+            if not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in labels_raw.items()
+            ):
+                raise SchemaError(
+                    "curve_labels must map target text to label text", root_location
+                )
+            chart["curve_labels"] = dict(labels_raw)
+
         semantics = dict(require_mapping(raw.get("semantics", {}), "semantics", root_location))
         return Entry(
             **base,
-            template=template,
             game_version=raw.get("game_version"),
             validation_status=raw.get("validation_status"),
             sources=sources,
@@ -898,54 +964,10 @@ def parse_document(
             outputs=outputs,
             groups=groups,
             presets=presets,
+            **chart,
         )
 
-    _reject_unknown(
-        raw,
-        {
-            "schema_version", "id", "name", "type", "description", "x", "range", "points", "y", "preset",
-            "out", "data_out", "title", "x_label", "y_label", "curve_labels",
-        },
-        "plot",
-        root_location,
-    )
-    x = require_parameter_name(raw.get("x"), "plot x", _location(path, doc_id, positions, "x"))
-    range_value = raw.get("range")
-    if not isinstance(range_value, list) or len(range_value) != 2:
-        raise SchemaError("plot range must be a two-item list", _location(path, doc_id, positions, "range"))
-    start = number_text(range_value[0], "plot range start", root_location)
-    end = number_text(range_value[1], "plot range end", root_location)
-    points = raw.get("points")
-    if not isinstance(points, int) or isinstance(points, bool):
-        raise SchemaError("plot points must be an integer", _location(path, doc_id, positions, "points"))
-    y = raw.get("y")
-    if not isinstance(y, list) or not y or not all(isinstance(item, str) for item in y):
-        raise SchemaError("plot y must be a non-empty list of targets", _location(path, doc_id, positions, "y"))
-    preset = raw.get("preset")
-    if preset is not None:
-        require_parameter_name(
-            preset, "plot preset", _location(path, doc_id, positions, "preset")
-        )
-    text_options = {}
-    for key in ("out", "data_out", "title", "x_label", "y_label"):
-        value = raw.get(key)
-        if value is not None:
-            require_text(value, f"plot {key}", _location(path, doc_id, positions, key))
-        text_options[key] = value
-    labels_raw = require_mapping(raw.get("curve_labels", {}), "curve_labels", root_location)
-    if not all(isinstance(key, str) and isinstance(value, str) for key, value in labels_raw.items()):
-        raise SchemaError("curve_labels must map target text to label text", root_location)
-    return PlotConfig(
-        **base,
-        x=x,
-        range_start=start,
-        range_end=end,
-        points=points,
-        y=list(y),
-        preset=preset,
-        curve_labels=dict(labels_raw),
-        **text_options,
-    )
+    raise SchemaError("unsupported document type", root_location)
 
 
 def load_document(path: Path, registry: Optional[UnitRegistry] = None) -> Document:

@@ -49,7 +49,6 @@ def minimal_entry(entry_id: str, expression: str, inputs=None, unit: str = "dime
         "id": entry_id,
         "name": entry_id,
         "type": "entry",
-        "template": "model",
         "inputs": inputs or {},
         "fields": {},
         "functions": {},

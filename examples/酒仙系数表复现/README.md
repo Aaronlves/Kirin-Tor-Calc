@@ -15,7 +15,7 @@
 可以直接运行：
 
 ```bash
-kt tui .
+kt web .
 kt check
 kt eval damage_table.tiger_palm_damage
 kt eval defense_table.expected_physical_reduction
@@ -26,4 +26,4 @@ kt scan --x aoe_table.targets --range 1:20 --points 20 \
 kt plot --config aoe_dpc_curves --force
 ```
 
-每个计算表都用作者声明的分组和显示格式组织结果，TUI 不会自行添加伤害、防御等类别。`plots/aoe_dpc_curves.kirin` 是第 6 张表的玩家向多曲线入口。`results/aoe-dpc.svg` 和 `results/aoe-dpc.csv` 是用真实 Kirin 扫描与导出路径生成的结果。
+每个计算表都用作者声明的分组和显示格式组织结果，浏览器工作台不会自行添加伤害、防御等类别。`entries/aoe_table.kirin` 同时定义第 6 张表的计算与可选多曲线投影。`results/aoe-dpc.svg` 和 `results/aoe-dpc.csv` 是用真实 Kirin 扫描与导出路径生成的结果。

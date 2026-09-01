@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from kirin_tor.application import (
     ComparisonVariant,
+    atomic_write_sources,
     build_workspace_index,
     compare_variants,
     parse_player_override_text,
@@ -13,7 +16,7 @@ from kirin_tor.application import (
 from kirin_tor.workspace import Workspace, build_document_draft, create_entry_template, initialize
 
 
-def test_cli_and_tui_share_one_document_draft_builder(tmp_path: Path) -> None:
+def test_cli_and_web_share_one_document_draft_builder(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     workspace = Workspace.load(root)
     expected = build_document_draft(
@@ -24,6 +27,35 @@ def test_cli_and_tui_share_one_document_draft_builder(tmp_path: Path) -> None:
 
     assert created == expected.path
     assert created.read_text(encoding="utf-8") == expected.source_text
+
+
+def test_multi_document_write_rolls_back_after_replace_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    first = tmp_path / "entries" / "first.kirin"
+    second = tmp_path / "entries" / "second.kirin"
+    first.parent.mkdir()
+    first.write_text("first old", encoding="utf-8")
+    second.write_text("second old", encoding="utf-8")
+
+    from kirin_tor import application
+
+    real_replace = application.os.replace
+    calls = 0
+
+    def fail_second(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated replace failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(application.os, "replace", fail_second)
+    with pytest.raises(OSError, match="simulated"):
+        atomic_write_sources({first: "first new", second: "second new"})
+    assert first.read_text(encoding="utf-8") == "first old"
+    assert second.read_text(encoding="utf-8") == "second old"
+    assert not list(first.parent.glob(".*.tmp"))
 
 
 def test_player_override_text_and_workspace_index(example_workspace: Path) -> None:

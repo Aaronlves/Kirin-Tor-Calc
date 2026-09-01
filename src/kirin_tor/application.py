@@ -1,10 +1,12 @@
-"""Shared player-facing application services for the CLI and TUI adapters."""
+"""Shared player-facing application services for the CLI and browser adapters."""
 
 from __future__ import annotations
 
+import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Union
 
 import sympy as sp
 
@@ -56,7 +58,7 @@ class WorkspaceIndex:
     targets: Tuple[TargetOption, ...]
     inputs: Tuple[InputOption, ...]
     presets: Tuple[NamedOption, ...]
-    plots: Tuple[NamedOption, ...]
+    charts: Tuple[NamedOption, ...]
     document_ids: Tuple[str, ...]
 
 @dataclass(frozen=True)
@@ -198,15 +200,15 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
         NamedOption(reference, preset.label)
         for reference, preset in sorted(workspace.presets.items())
     )
-    plots = tuple(
+    charts = tuple(
         NamedOption(document.id, document.name)
-        for document in sorted(workspace.plots.values(), key=lambda item: item.id)
+        for document in sorted(workspace.charts.values(), key=lambda item: item.id)
     )
     return WorkspaceIndex(
         tuple(targets),
         tuple(inputs),
         presets,
-        plots,
+        charts,
         tuple(sorted(workspace.documents)),
     )
 
@@ -533,6 +535,46 @@ def preflight_artifacts(paths: Sequence[Path], force: bool) -> None:
                 "output file already exists; use --force to replace it: "
                 + ", ".join(map(str, existing))
             )
+
+
+def atomic_write_sources(buffers: Mapping[Path, str]) -> None:
+    """Stage a validated set and roll back if any individual replace fails."""
+    staged: Dict[Path, Path] = {}
+    previous: Dict[Path, Optional[bytes]] = {}
+    replaced = []
+    try:
+        for raw_path, source_text in buffers.items():
+            path = Path(raw_path).resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            previous[path] = path.read_bytes() if path.exists() else None
+            temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+            with temporary.open("x", encoding="utf-8") as handle:
+                handle.write(source_text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            staged[path] = temporary
+        for path, temporary in staged.items():
+            try:
+                os.replace(temporary, path)
+                replaced.append(path)
+            except Exception:
+                for replaced_path in reversed(replaced):
+                    old_content = previous[replaced_path]
+                    if old_content is None:
+                        replaced_path.unlink(missing_ok=True)
+                        continue
+                    restore = replaced_path.with_name(
+                        f".{replaced_path.name}.{uuid.uuid4().hex}.restore"
+                    )
+                    with restore.open("xb") as handle:
+                        handle.write(old_content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(restore, replaced_path)
+                raise
+    finally:
+        for temporary in staged.values():
+            temporary.unlink(missing_ok=True)
 
 
 def record_operation(

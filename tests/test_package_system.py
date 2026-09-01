@@ -33,9 +33,8 @@ from kirin_tor.package_store import (
     PackageStoreManager,
     extract_github_archive,
 )
-from kirin_tor.tui import KirinTUI, resolve_source_path
+from kirin_tor.templates import build_from_template, list_templates
 from kirin_tor.workspace import Workspace, initialize
-from textual.widgets import TextArea
 
 
 def _package(
@@ -100,6 +99,38 @@ def test_content_digest_covers_only_authoritative_package_sources(tmp_path: Path
     assert canonical_content_sha256(root) != before
 
 
+def test_package_static_templates_are_locked_and_expand_once(tmp_path: Path) -> None:
+    workspace = initialize(tmp_path / "workspace")
+    package = _package(tmp_path / "package")
+    template_dir = package / "templates" / "entries"
+    template_dir.mkdir(parents=True)
+    template_path = template_dir / "consumer.kirin"
+    template_path.write_text(
+        """@kirin 1
+@entry package_template
+
+// Package consumer template
+
+outputs:
+  result: dimensionless = community_example_value.result + 1
+""",
+        encoding="utf-8",
+    )
+    digest_before = canonical_content_sha256(package)
+    template_path.write_text(template_path.read_text(encoding="utf-8") + "// revision\n", encoding="utf-8")
+    assert canonical_content_sha256(package) != digest_before
+
+    add_path_package(workspace, "example", package)
+    selected = next(item for item in list_templates(workspace) if item.origin == "package")
+    assert selected.package_name == "community.example"
+    draft = build_from_template(workspace, selected.value, "local_consumer")
+    assert "@entry local_consumer" in draft.source_text
+    assert "@entry package_template" not in draft.source_text
+    assert not draft.path.exists()
+    candidate = Workspace.load_with_overlays(workspace, {draft.path: draft.source_text})
+    assert Engine(candidate).validate_all()["status"] == "ok"
+
+
 def test_local_package_resolves_locks_and_loads_read_only(tmp_path: Path) -> None:
     workspace = initialize(tmp_path / "workspace")
     package = _package(tmp_path / "package")
@@ -123,8 +154,7 @@ def test_local_package_resolves_locks_and_loads_read_only(tmp_path: Path) -> Non
     assert target.package_version == "1.0.0"
 
 
-@pytest.mark.asyncio
-async def test_tui_opens_package_diagnostics_as_read_only(tmp_path: Path) -> None:
+def test_web_catalog_marks_package_documents_read_only(tmp_path: Path) -> None:
     workspace = initialize(tmp_path / "workspace")
     package = _package(tmp_path / "package")
     requirements = WorkspaceRequirements(
@@ -132,13 +162,12 @@ async def test_tui_opens_package_diagnostics_as_read_only(tmp_path: Path) -> Non
         (WorkspaceRequirement("example", f"path:{package}", "1.0.0"),),
     )
     _resolve_and_lock(workspace, requirements)
-    packaged_document = Workspace.load(workspace).get_entry("community_example_value")
-    app = KirinTUI(workspace, resolve_source_path(workspace, None))
-    async with app.run_test() as pilot:
-        app._switch_source(packaged_document.path)
-        await pilot.pause(1.0)
-        assert app.query_one("#editor", TextArea).read_only is True
-        assert packaged_document.path not in app._workspace_overlays()
+    from kirin_tor.workbench import Workbench
+
+    catalog = Workbench(workspace).bootstrap()["documents"]
+    packaged = next(item for item in catalog if item.get("package"))
+    assert packaged["read_only"] is True
+    assert packaged["package"]["name"] == "community.example"
 
 
 def test_package_namespace_is_enforced(tmp_path: Path) -> None:

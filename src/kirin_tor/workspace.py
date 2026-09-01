@@ -13,7 +13,6 @@ from .schema import (
     Document,
     Entry,
     PackageOrigin,
-    PlotConfig,
     Preset,
     build_semantic_registry,
     parse_document,
@@ -26,8 +25,8 @@ from .units import UnitRegistry
 
 
 MARKER = "kirin.workspace"
-DOCUMENT_DRAFT_KINDS = ("entry", "plot")
-ENTRY_TEMPLATE_KINDS = ("blank", "data", "model", "semantics")
+DOCUMENT_DRAFT_KINDS = ("entry",)
+ENTRY_TEMPLATE_KINDS = ("blank", "data", "model", "semantics", "chart")
 
 
 @dataclass(frozen=True)
@@ -75,8 +74,9 @@ class Workspace:
         return result
 
     @property
-    def plots(self) -> Dict[str, PlotConfig]:
-        return {key: value for key, value in self.documents.items() if isinstance(value, PlotConfig)}
+    def charts(self) -> Dict[str, Entry]:
+        """Return documents that opt into a chart through x/y syntax."""
+        return {key: value for key, value in self.entries.items() if value.has_chart}
 
     def allowed_package_sources(self, source: str) -> Optional[set[str]]:
         """Return one package's declared dependency closure, or None for snapshots."""
@@ -163,8 +163,7 @@ class Workspace:
                 check(document, "domain", spec.domain_name, f"inputs.{name}")
                 check(document, "unit", spec.unit_name, f"inputs.{name}")
             for name, data in document.fields.items():
-                if data.get("kind") != "info":
-                    check(document, "unit", data.get("unit", "dimensionless"), f"fields.{name}")
+                check(document, "unit", data.get("unit", "dimensionless"), f"fields.{name}")
             for name, data in document.functions.items():
                 check(document, "unit", data.get("unit", "dimensionless"), f"functions.{name}")
                 for parameter, raw in data.get("parameters", {}).items():
@@ -260,13 +259,19 @@ class Workspace:
         return cls.load_with_overlays(root, {source_path: source_text})
 
     @classmethod
-    def load_with_overlays(cls, root: Path, overlays: Dict[Path, str]) -> "Workspace":
+    def load_with_overlays(
+        cls,
+        root: Path,
+        overlays: Dict[Path, str],
+        *,
+        package_resolution: Optional[PackageResolution] = None,
+    ) -> "Workspace":
         """Load a workspace with unsaved Kirin editor buffers overlaid."""
         root = root.resolve()
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
         cls._validate_marker(root)
-        package_resolution = locked_workspace_resolution(root)
+        package_resolution = package_resolution or locked_workspace_resolution(root)
         origins = cls._package_origins(package_resolution)
         resolved_overlays: Dict[Path, str] = {}
         for source_path, source_text in overlays.items():
@@ -275,10 +280,8 @@ class Workspace:
                 relative = source_path.relative_to(root)
             except ValueError as exc:
                 raise WorkspaceError(f"editor source must stay inside the workspace: {source_path}") from exc
-            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
-                "entries", "plots"
-            }:
-                raise WorkspaceError("editor source must be a .kirin file inside entries or plots")
+            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] != "entries":
+                raise WorkspaceError("editor source must be a .kirin file inside entries")
             resolved_overlays[source_path] = source_text
         paths = cls._document_paths(root, package_resolution)
         for source_path in resolved_overlays:
@@ -330,7 +333,7 @@ class Workspace:
         root: Path, package_resolution: Optional[PackageResolution] = None
     ) -> list[Path]:
         paths = []
-        for folder in ("entries", "plots"):
+        for folder in ("entries",):
             directory = root / folder
             if directory.exists():
                 paths.extend(path for path in directory.rglob("*.kirin") if path.is_file())
@@ -501,12 +504,9 @@ class Workspace:
                 raise WorkspaceError(
                     f"editor source must stay inside the workspace: {source_path}"
                 ) from exc
-            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
-                "entries",
-                "plots",
-            }:
+            if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] != "entries":
                 raise WorkspaceError(
-                    "editor source must be a .kirin file inside entries or plots"
+                    "editor source must be a .kirin file inside entries"
                 )
             resolved_overlays[source_path] = source_text
         paths = cls._document_paths(root, package_resolution)
@@ -640,12 +640,12 @@ class Workspace:
             raise ReferenceError(f"preset {preset_id!r} is ambiguous; use one of: {choices}")
         return matches[0]
 
-    def get_plot(self, plot_id: str) -> PlotConfig:
-        document = self.documents.get(plot_id)
+    def get_chart(self, document_id: str) -> Entry:
+        document = self.documents.get(document_id)
         if document is None:
-            raise ReferenceError(f"missing plot config {plot_id!r}")
-        if not isinstance(document, PlotConfig):
-            raise ReferenceError(f"{plot_id!r} is not a plot config")
+            raise ReferenceError(f"missing chart document {document_id!r}")
+        if not isinstance(document, Entry) or not document.has_chart:
+            raise ReferenceError(f"{document_id!r} does not define x/y chart configuration")
         return document
 
 
@@ -655,7 +655,7 @@ def initialize(root: Path) -> Path:
     marker = root / MARKER
     if marker.exists():
         raise WorkspaceError(f"workspace already exists at {root}")
-    for folder in ("entries", "plots", "runs", "results"):
+    for folder in ("entries", "runs", "results"):
         (root / folder).mkdir(exist_ok=True)
     with marker.open("x", encoding="utf-8") as handle:
         handle.write("@kirin-workspace 1\n")
@@ -667,15 +667,9 @@ def build_document_draft(
     document_kind: str,
     document_id: str,
     *,
-    plot_x: str = "entry.input",
-    plot_targets: Sequence[str] = ("entry.output",),
-    plot_range_start: str = "0",
-    plot_range_end: str = "1",
-    plot_points: int = 101,
-    plot_preset: Optional[str] = None,
     entry_template: str = "model",
 ) -> DocumentDraft:
-    """Build the canonical CLI/TUI source template without writing it."""
+    """Build a canonical one-shot source template without writing it."""
     require_identifier(document_id, "id", SourceLocation(entry_id=document_id))
     if document_kind not in DOCUMENT_DRAFT_KINDS:
         raise SchemaError(
@@ -686,15 +680,11 @@ def build_document_draft(
             "entry template must be one of: " + ", ".join(ENTRY_TEMPLATE_KINDS)
         )
     root = root.resolve()
-    if document_kind == "entry":
-        path = root / "entries" / f"{document_id}.kirin"
-    else:
-        path = root / "plots" / f"{document_id}.kirin"
+    path = root / "entries" / f"{document_id}.kirin"
 
     if document_kind == "entry" and entry_template == "blank":
         source_text = f"""@kirin 1
 @entry {document_id}
-@template entry
 
 // {document_id}
 
@@ -705,7 +695,6 @@ def build_document_draft(
     elif document_kind == "entry" and entry_template == "data":
         source_text = f"""@kirin 1
 @entry {document_id}
-@template data
 
 // {document_id}
 
@@ -715,7 +704,6 @@ fields:
     elif document_kind == "entry" and entry_template == "model":
         source_text = f"""@kirin 1
 @entry {document_id}
-@template model
 
 // {document_id}
 
@@ -725,10 +713,9 @@ inputs:
 outputs:
   result: dimensionless = x
 """
-    elif document_kind == "entry":
+    elif entry_template == "semantics":
         source_text = f"""@kirin 1
 @entry {document_id}
-@template semantics
 
 // {document_id}
 
@@ -742,27 +729,23 @@ domains:
   nonnegative: number[dimensionless] in 0..*
 """
     else:
-        targets = tuple(plot_targets)
-        if not targets:
-            raise SchemaError("new plot template requires at least one output target")
-        if isinstance(plot_points, bool) or not isinstance(plot_points, int) or plot_points < 2:
-            raise SchemaError("new plot template points must be an integer of at least 2")
-        preset_line = f"preset: {plot_preset}\n\n" if plot_preset else ""
-        target_lines = "\n".join(f"  {target}" for target in targets)
         source_text = f"""@kirin 1
-@plot {document_id}
+@entry {document_id}
 
 // {document_id}
 
-x: {plot_x}
-range: {plot_range_start}..{plot_range_end}
-points: {plot_points}
+inputs:
+  x: number[dimensionless] = 0
 
-{preset_line}y:
-{target_lines}
+outputs:
+  result: dimensionless = x
 
-export-svg: \"results/{document_id}.svg\"
-export-csv: \"results/{document_id}.csv\"
+x: {document_id}.x
+range: 0..1
+points: 101
+
+y:
+  {document_id}.result
 """
     return DocumentDraft(document_kind, document_id, path.resolve(), source_text)
 
@@ -795,7 +778,3 @@ def create_entry_template(workspace: Workspace, entry_type: str, entry_id: str) 
     with draft.path.open("x", encoding="utf-8") as handle:
         handle.write(draft.source_text)
     return draft.path
-
-
-def create_plot_template(workspace: Workspace, plot_id: str) -> Path:
-    return create_document_template(workspace, "plot", plot_id)

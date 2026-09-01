@@ -1,6 +1,5 @@
 @kirin 1
 @entry skill_a
-@template skill
 @game-version fictional
 @status example_only
 
@@ -15,9 +14,6 @@ sources:
 
 fields:
   base_damage: damage = 1000
-
-info:
-  note = "该字段只作说明，不参与数学计算。"
 
 functions:
   expected(c: probability) -> damage = base_damage * (1 + c)

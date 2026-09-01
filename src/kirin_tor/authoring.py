@@ -1,4 +1,4 @@
-"""Editor-only Kirin highlighting, completion indexing, and snippets."""
+"""Kirin completion indexing and authoring snippets for the browser editor."""
 
 from __future__ import annotations
 
@@ -6,10 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Optional, Tuple
-
-
-Highlight = Tuple[int, Optional[int], str]
+from typing import Dict, List, Mapping, Optional, Tuple
 
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _QUOTED = r'"(?:[^"\\]|\\.)*"'
@@ -18,143 +15,6 @@ _ENTRY_RE = re.compile(rf"^@entry\s+({_IDENTIFIER})$")
 _SECTION_RE = re.compile(rf"^({_IDENTIFIER}):$")
 _MEMBER_RE = re.compile(rf"^\s+(?P<name>{_IDENTIFIER})(?:\s+(?P<label>{_QUOTED}))?")
 _ALIAS_RE = re.compile(rf"^\s+(?P<name>[^\s=]+)\s*=\s*(?P<target>{_IDENTIFIER}\.{_IDENTIFIER})")
-_STRING_RE = re.compile(_QUOTED)
-_NUMBER_RE = re.compile(r"(?<![\w.])(?:\d+/\d+|\d+\.\d+|\.\d+|\d+)(?:[eE][+-]?\d+)?(?![\w.])")
-_BOOLEAN_RE = re.compile(r"\b(?:true|false)\b")
-_QUALIFIED_RE = re.compile(rf"\b{_IDENTIFIER}\.{_IDENTIFIER}\b")
-_CALL_RE = re.compile(r"(?<![.\w])([^\W\d]\w*)(?=\s*\()", re.UNICODE)
-_OPERATOR_RE = re.compile(r":=|->|\.\.|==|!=|<=|>=|\*\*|[=:+\-*/<>]")
-
-
-def _byte_column(line: str, character_column: int) -> int:
-    return len(line[:character_column].encode("utf-8"))
-
-
-def _highlight(line: str, start: int, end: Optional[int], name: str) -> Highlight:
-    return (
-        _byte_column(line, start),
-        _byte_column(line, end) if end is not None else None,
-        name,
-    )
-
-
-def _overlaps(start: int, end: int, ranges: Iterable[Tuple[int, int]]) -> bool:
-    return any(start < existing_end and end > existing_start for existing_start, existing_end in ranges)
-
-
-def highlight_kirin_source(source: str) -> Dict[int, List[Highlight]]:
-    """Return TextArea-compatible byte highlights without requiring a tree-sitter grammar."""
-    result: Dict[int, List[Highlight]] = {}
-    prose_fence: Optional[str] = None
-    current_section: Optional[str] = None
-    for row, line in enumerate(source.splitlines()):
-        stripped = line.lstrip()
-        indent = len(line) - len(stripped)
-        highlights: List[Highlight] = []
-        if prose_fence is not None:
-            if indent == 0 and stripped == prose_fence:
-                highlights.append(_highlight(line, 0, len(line), "heading.marker"))
-                prose_fence = None
-            elif line:
-                highlights.append(_highlight(line, 0, len(line), "string.documentation"))
-            result[row] = highlights
-            continue
-        if indent == 0 and _FENCE_RE.fullmatch(stripped):
-            prose_fence = stripped
-            result[row] = [_highlight(line, 0, len(line), "heading.marker")]
-            continue
-        if stripped.startswith("//"):
-            result[row] = [_highlight(line, indent, len(line), "comment")]
-            continue
-        if not stripped:
-            continue
-
-        protected: List[Tuple[int, int]] = []
-        for match in _STRING_RE.finditer(line):
-            protected.append(match.span())
-
-        directive = re.match(r"^\s*(@[A-Za-z][A-Za-z-]*)", line)
-        if directive:
-            highlights.append(_highlight(line, directive.start(1), directive.end(1), "keyword"))
-            remainder = re.search(rf"\s({_IDENTIFIER})\s*$", line[directive.end(1) :])
-            if remainder:
-                start = directive.end(1) + remainder.start(1)
-                highlights.append(_highlight(line, start, start + len(remainder.group(1)), "type"))
-
-        section = re.match(rf"^({_IDENTIFIER})(:)$", line)
-        if section:
-            current_section = section.group(1)
-            highlights.append(_highlight(line, section.start(1), section.end(1), "keyword"))
-        elif indent == 0:
-            current_section = None
-
-        for match in _QUALIFIED_RE.finditer(line):
-            if not _overlaps(*match.span(), protected):
-                highlights.append(_highlight(line, match.start(), match.end(), "variable.builtin"))
-        for match in _CALL_RE.finditer(line):
-            if not _overlaps(*match.span(1), protected):
-                highlights.append(_highlight(line, match.start(1), match.end(1), "function.call"))
-        for match in _NUMBER_RE.finditer(line):
-            if not _overlaps(*match.span(), protected):
-                highlights.append(_highlight(line, match.start(), match.end(), "number"))
-        for match in _BOOLEAN_RE.finditer(line):
-            if not _overlaps(*match.span(), protected):
-                highlights.append(_highlight(line, match.start(), match.end(), "boolean"))
-        for match in _OPERATOR_RE.finditer(line):
-            if not _overlaps(*match.span(), protected):
-                highlights.append(_highlight(line, match.start(), match.end(), "operator"))
-
-        declaration = _MEMBER_RE.match(line)
-        declaration_tail = line[declaration.end() :].lstrip() if declaration else ""
-        declaration_valid = False
-        if current_section == "functions":
-            declaration_valid = declaration_tail.startswith("(")
-        elif current_section == "tables":
-            declaration_valid = declaration_tail.startswith(":")
-        elif current_section in {"inputs", "fields", "outputs", "groups", "presets", "display"}:
-            declaration_valid = declaration_tail.startswith(":")
-        elif current_section == "info":
-            declaration_valid = declaration_tail.startswith("=")
-        elif current_section == "dimensions":
-            declaration_valid = True
-        elif current_section == "units":
-            declaration_valid = declaration_tail.startswith("=")
-        elif current_section == "domains":
-            declaration_valid = declaration_tail.startswith(":")
-        if declaration and indent and declaration_valid:
-            if current_section in {"functions", "tables"}:
-                name_style = "function"
-            elif current_section in {"dimensions", "units", "domains"}:
-                name_style = "type"
-            else:
-                name_style = "variable.builtin"
-            highlights.append(
-                _highlight(line, declaration.start("name"), declaration.end("name"), name_style)
-            )
-        if current_section == "aliases":
-            alias = re.match(r"^\s+([^\W\d]\w*)\s*=", line, re.UNICODE)
-            if alias:
-                highlights.append(_highlight(line, alias.start(1), alias.end(1), "variable.builtin"))
-        if current_section in {"inputs", "fields", "outputs"}:
-            for type_match in re.finditer(
-                rf":\s*((?:number\[{_IDENTIFIER}\])|boolean|{_IDENTIFIER})", line
-            ):
-                highlights.append(
-                    _highlight(line, type_match.start(1), type_match.end(1), "type")
-                )
-        if current_section == "functions":
-            return_type = re.search(rf"->\s*({_IDENTIFIER})", line)
-            if return_type:
-                highlights.append(
-                    _highlight(line, return_type.start(1), return_type.end(1), "type")
-                )
-        for match in _STRING_RE.finditer(line):
-            highlights.append(_highlight(line, match.start(), match.end(), "string"))
-        if highlights:
-            result[row] = highlights
-    return result
-
-
 @dataclass(frozen=True)
 class CompletionCandidate:
     label: str
@@ -205,13 +65,6 @@ SNIPPETS = (
         "@kirin 1\n@entry entry_id\n\n// 中文标题\n\n$0",
         1,
     ),
-    _snippet(
-        "图表文档",
-        "图表文档",
-        "plot document",
-        "@kirin 1\n@plot plot_id\n\n// 中文标题\n\nx: entry.input\nrange: 0..1\npoints: 101\n\ny:\n  entry.output\n\n$0",
-        3,
-    ),
     _snippet("输入章节", "输入", "inputs", 'inputs:\n  name "显示名": number[dimensionless] = $0', 10),
     _snippet("别名章节", "别名", "aliases", "aliases:\n  中文名 = entry.member$0", 11),
     _snippet("字段章节", "字段", "fields", 'fields:\n  value "显示名": dimensionless = $0', 12),
@@ -240,7 +93,6 @@ SNIPPETS = (
     ),
     _snippet("显示章节", "显示", "display", "display:\n  result: number digits $0", 17),
     _snippet("约束章节", "约束", "constraints", "constraints:\n  $0", 15),
-    _snippet("说明字段", "说明字段", "info", 'info:\n  note "说明" = "$0"', 16),
     _snippet("来源章节", "来源", "sources", 'sources:\n  {"kind":"note","citation":"$0"}', 17),
     _snippet("长说明块", "长说明", "description", "---\n$0\n---", 18),
     _snippet(

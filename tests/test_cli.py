@@ -57,28 +57,51 @@ def test_cli_help_new_check_and_chinese_paths(tmp_path: Path, monkeypatch) -> No
     assert created_path.is_file()
     created_document = Workspace.load(outside).get_entry("fictional_skill")
     assert created_document.type == "entry"
-    assert created_document.template == "data"
     checked = runner.invoke(app, ["check", "--json"])
     assert checked.exit_code == 0, checked.output
     assert json.loads(checked.stdout)["status"] == "ok"
     help_result = runner.invoke(app, ["--help"])
     assert help_result.exit_code == 0
     assert "Kirin Tor" in help_result.stdout
+    assert "web" in help_result.stdout
+    assert "tui" not in help_result.stdout.lower()
 
 
-def test_tui_command_accepts_workspace_directory_without_chdir(
+def test_web_command_accepts_workspace_directory_without_chdir(
     example_workspace: Path, monkeypatch
 ) -> None:
     captured = {}
 
-    def fake_run_tui(root: Path, source) -> None:
+    def fake_run_web(
+        root: Path,
+        *,
+        port: int,
+        open_browser: bool,
+        initial_document,
+    ) -> None:
         captured["root"] = root
-        captured["source"] = source
+        captured["port"] = port
+        captured["open_browser"] = open_browser
+        captured["initial_document"] = initial_document
 
-    monkeypatch.setattr("kirin_tor.tui.run_tui", fake_run_tui)
-    launched = runner.invoke(app, ["tui", str(example_workspace)])
+    monkeypatch.setattr("kirin_tor.web.run_web", fake_run_web)
+    launched = runner.invoke(app, ["web", str(example_workspace), "--port", "8123", "--no-open"])
     assert launched.exit_code == 0, launched.output
-    assert captured == {"root": example_workspace.resolve(), "source": None}
+    assert captured == {
+        "root": example_workspace.resolve(),
+        "port": 8123,
+        "open_browser": False,
+        "initial_document": None,
+    }
+
+    source = example_workspace / "entries" / "组合模型.kirin"
+    launched = runner.invoke(app, ["web", str(source), "--no-open"])
+    assert launched.exit_code == 0, launched.output
+    assert captured["initial_document"] == source.resolve()
+
+    missing = runner.invoke(app, ["web", str(example_workspace / "missing.kirin"), "--no-open"])
+    assert missing.exit_code == 1
+    assert "existing .kirin file" in missing.stderr
 
 
 def test_installed_entry_point_runs_outside_source_tree(tmp_path: Path) -> None:
@@ -134,16 +157,15 @@ def test_new_workspace_and_templates_are_game_neutral(tmp_path: Path, monkeypatc
     assert (root / "kirin.workspace").read_text(encoding="utf-8") == "@kirin-workspace 1\n"
 
     monkeypatch.chdir(root)
-    for kind, item_id, folder in (
-        ("entry", "generic", "entries"),
-        ("plot", "curve", "plots"),
+    for item_id, template in (
+        ("generic", "model"),
+        ("curve", "chart"),
     ):
-        created = runner.invoke(app, ["new", kind, item_id])
+        created = runner.invoke(app, ["new", "entry", item_id, "--template", template])
         assert created.exit_code == 0, created.output
-        assert (root / folder / f"{item_id}.kirin").is_file()
+        assert (root / "entries" / f"{item_id}.kirin").is_file()
     assert {path.name for path in root.iterdir() if path.is_dir()} == {
         "entries",
-        "plots",
         "results",
         "runs",
     }
@@ -166,6 +188,7 @@ def test_package_author_and_local_consumer_cli_workflow(tmp_path: Path, monkeypa
     assert created.exit_code == 0, created.output
     assert (package / "kirin.package.toml").is_file()
     assert (package / ".github" / "workflows" / "validate.yml").is_file()
+    assert (package / "templates" / "entries" / "consumer.kirin").is_file()
 
     checked = runner.invoke(app, ["package", "check", str(package), "--json"])
     assert checked.exit_code == 0, checked.output

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "kirin-tor-cli"
 version = "0.3.0"
-description = "A game-neutral, file-driven structured mathematics CLI for theorycrafting"
+description = "A game-neutral, file-driven theorycrafting CLI and local browser workbench"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -18,17 +18,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
-tui = [
-  "plotext>=6,<7",
-  "textual>=8.2,<8.3",
-]
+dev = ["pytest>=8,<9"]
 
 [project.scripts]
 kt = "kirin_tor.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+kirin_tor = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

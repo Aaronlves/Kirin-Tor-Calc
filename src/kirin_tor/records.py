@@ -256,6 +256,28 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             display_digits=request["display_digits"],
             timeout_seconds=request["timeout_seconds"],
         )
+    if operation == "scan_compare":
+        from .application import ComparisonVariant, scan_variant_comparison
+
+        variants = [
+            ComparisonVariant(
+                item["name"],
+                item.get("preset"),
+                item.get("overrides", {}),
+            )
+            for item in request["variants"]
+        ]
+        return scan_variant_comparison(
+            workspace,
+            request["x"],
+            request["range"],
+            request["points"],
+            request["target"],
+            variants,
+            precision=request["precision"],
+            display_digits=request["display_digits"],
+            timeout_seconds=request["timeout_seconds"],
+        )
     if operation in {"simplify", "expand", "factor"}:
         return transform(
             engine,

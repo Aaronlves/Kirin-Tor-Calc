@@ -1,6 +1,5 @@
 @kirin 1
 @entry aoe_pattern
-@template data
 @status expression_capability_example
 
 // 通用分段与布尔表达式示例（虚构）
@@ -19,7 +18,7 @@ constraints:
 
 fields:
   base_damage: damage = 100
-  talent_multiplier: dimensionless :=
+  talent_multiplier: dimensionless =
     if_else(
     talent_enabled and targets >= 3,
     1 + bonus,

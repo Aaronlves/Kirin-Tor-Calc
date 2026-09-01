@@ -28,7 +28,7 @@ from .limits import (
     MAX_NUMERIC_PRECISION,
     MAX_SCAN_POINTS,
 )
-from .schema import Document, Entry, InputSpec, PlotConfig, Preset, _parse_input
+from .schema import Document, Entry, InputSpec, Preset, _parse_input
 from .units import DIMENSIONLESS, Dimension
 from .workspace import Workspace
 
@@ -67,7 +67,7 @@ class Engine:
                 member = match.group(2)
                 if member in entry.inputs:
                     return entry.inputs[member].unit_name
-                if member in entry.fields and entry.fields[member].get("kind") != "info":
+                if member in entry.fields:
                     return entry.fields[member].get("unit", "dimensionless")
                 if member in entry.outputs:
                     return entry.outputs[member].get("unit", "dimensionless")
@@ -199,10 +199,6 @@ class Engine:
             if member in entry.fields:
                 data = entry.fields[member]
                 kind = data["kind"]
-                if kind == "info":
-                    raise ReferenceError(
-                        f"field {entry_id}.{member} is informational and cannot be used in mathematics"
-                    )
                 dimension = self.workspace.units.parse_unit(data.get("unit", "dimensionless"))
                 if kind == "value":
                     if data.get("value_type", "number") == "boolean":
@@ -755,9 +751,8 @@ class Engine:
                         self._check_constraint(spec, self._parse_parameter_value(spec, spec.default))
 
                 capture(spec.key, validate_spec)
-            for member, data in entry.fields.items():
-                if data["kind"] != "info":
-                    capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
+            for member in entry.fields:
+                capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
             for member in entry.outputs:
                 def validate_output(entry=entry, member=member):
                     value = self.resolve_member(entry.id, member)
@@ -826,38 +821,38 @@ class Engine:
                 )
 
             capture(preset_reference, validate_preset)
-        for plot in self.workspace.plots.values():
-            def validate_plot(plot=plot):
-                if plot.points < 2 or plot.points > MAX_SCAN_POINTS:
+        for chart in self.workspace.charts.values():
+            def validate_chart(chart=chart):
+                if chart.points < 2 or chart.points > MAX_SCAN_POINTS:
                     raise SchemaError(
-                        f"plot points must be between 2 and {MAX_SCAN_POINTS}", plot.location("points")
+                        f"chart points must be between 2 and {MAX_SCAN_POINTS}", chart.location("points")
                     )
-                start = parse_exact_number(plot.range_start)
-                end = parse_exact_number(plot.range_end)
+                start = parse_exact_number(chart.range_start)
+                end = parse_exact_number(chart.range_end)
                 if start > end:
-                    raise SchemaError("plot range start exceeds its end", plot.location("range"))
-                self.workspace.get_preset(plot.preset)
+                    raise SchemaError("chart range start exceeds its end", chart.location("range"))
+                self.workspace.get_preset(chart.preset)
                 canonical = None
-                plot_dependencies = set()
-                for target in plot.y:
-                    prepared = self.prepare(target, plot.preset, keep={plot.x})
-                    plot_dependencies.update(prepared.value.dependencies)
-                    target_axis = self.resolve_input_key(plot.x, prepared.value.inputs)
+                chart_dependencies = set()
+                for target in chart.y:
+                    prepared = self.prepare(target, chart.preset, keep={chart.x})
+                    chart_dependencies.update(prepared.value.dependencies)
+                    target_axis = self.resolve_input_key(chart.x, prepared.value.inputs)
                     if canonical is None:
                         canonical = target_axis
                     elif canonical != target_axis:
-                        raise ParameterError("plot curves do not share one stable axis input")
+                        raise ParameterError("chart curves do not share one stable axis input")
                 self._check_dependency_versions(
-                    MathValue(sp.Integer(0), dependencies=plot_dependencies),
-                    plot.location("y"),
+                    MathValue(sp.Integer(0), dependencies=chart_dependencies),
+                    chart.location("y"),
                 )
                 self._check_package_dependency_scope(
-                    plot,
-                    MathValue(sp.Integer(0), dependencies=plot_dependencies),
-                    plot.location("y"),
+                    chart,
+                    MathValue(sp.Integer(0), dependencies=chart_dependencies),
+                    chart.location("y"),
                 )
 
-            capture(plot.id, validate_plot)
+            capture(chart.id, validate_chart)
         if errors:
             unique = []
             seen = set()

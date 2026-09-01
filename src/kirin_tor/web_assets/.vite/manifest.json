@@ -1,0 +1,107 @@
+{
+  "_RelationshipGraphCanvas-CBVLR25F.js": {
+    "file": "RelationshipGraphCanvas-CBVLR25F.js",
+    "name": "RelationshipGraphCanvas",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_Title-ByeZf_ty.js": {
+    "file": "Title-ByeZf_ty.js",
+    "name": "Title",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_get-auto-contrast-value-BTPwFOS2.js": {
+    "file": "get-auto-contrast-value-BTPwFOS2.js",
+    "name": "get-auto-contrast-value"
+  },
+  "_play-THkSNnhY.js": {
+    "file": "play-THkSNnhY.js",
+    "name": "play",
+    "imports": [
+      "_get-auto-contrast-value-BTPwFOS2.js",
+      "index.html"
+    ]
+  },
+  "_refresh-cw-CMovQJlL.js": {
+    "file": "refresh-cw-CMovQJlL.js",
+    "name": "refresh-cw",
+    "imports": [
+      "index.html"
+    ]
+  },
+  "_trash-2-B7tl6160.js": {
+    "file": "trash-2-B7tl6160.js",
+    "name": "trash-2",
+    "imports": [
+      "_get-auto-contrast-value-BTPwFOS2.js",
+      "index.html"
+    ]
+  },
+  "index.html": {
+    "file": "index-677QFHaY.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/views/DocumentsView.tsx",
+      "src/views/GraphView.tsx",
+      "src/views/RunsView.tsx",
+      "src/views/PackagesView.tsx"
+    ],
+    "css": [
+      "index-CfpN8tTB.css"
+    ]
+  },
+  "src/views/DocumentsView.tsx": {
+    "file": "DocumentsView-8MuAUN6c.js",
+    "name": "DocumentsView",
+    "src": "src/views/DocumentsView.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_trash-2-B7tl6160.js",
+      "_RelationshipGraphCanvas-CBVLR25F.js",
+      "_refresh-cw-CMovQJlL.js",
+      "_play-THkSNnhY.js",
+      "index.html"
+    ]
+  },
+  "src/views/GraphView.tsx": {
+    "file": "GraphView-DKYmrAat.js",
+    "name": "GraphView",
+    "src": "src/views/GraphView.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_RelationshipGraphCanvas-CBVLR25F.js",
+      "_refresh-cw-CMovQJlL.js",
+      "_Title-ByeZf_ty.js",
+      "index.html"
+    ]
+  },
+  "src/views/PackagesView.tsx": {
+    "file": "PackagesView-1dJkXckv.js",
+    "name": "PackagesView",
+    "src": "src/views/PackagesView.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_trash-2-B7tl6160.js",
+      "_refresh-cw-CMovQJlL.js",
+      "_Title-ByeZf_ty.js",
+      "index.html"
+    ]
+  },
+  "src/views/RunsView.tsx": {
+    "file": "RunsView-BGkldO0j.js",
+    "name": "RunsView",
+    "src": "src/views/RunsView.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_refresh-cw-CMovQJlL.js",
+      "_play-THkSNnhY.js",
+      "_Title-ByeZf_ty.js",
+      "index.html"
+    ]
+  }
+}

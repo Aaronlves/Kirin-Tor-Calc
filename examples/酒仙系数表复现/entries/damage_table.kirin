@@ -1,6 +1,5 @@
 @kirin 1
 @entry damage_table
-@template model
 @game-version 12.0.1.65617
 @status workbook_reproduction
 
@@ -38,39 +37,39 @@ inputs:
 fields:
   ap_to_damage: damage_per_attack_power = 1
   ap_to_healing: healing_per_attack_power = 1
-  master_of_harmony: dimensionless := not shadopan
-  effective_agility: attack_power := agility * if_else(shadopan, 1.04, 1)
-  haste "急速": dimensionless :=
+  master_of_harmony: dimensionless = not shadopan
+  effective_agility: attack_power = agility * if_else(shadopan, 1.04, 1)
+  haste "急速": dimensionless =
     if_else(shadopan, 0.05 + haste_rating / 4400, haste_rating / 4400)
-  mastery "精通提升": dimensionless :=
+  mastery "精通提升": dimensionless =
     mastery_rating / 4600 + 0.08 + if_else(heart_of_niuzao, 0.05, 0)
-  versatility "全能": dimensionless := versatility_rating / 5400
-  base_attack_power "基础攻强": attack_power :=
+  versatility "全能": dimensionless = versatility_rating / 5400
+  base_attack_power "基础攻强": attack_power =
     (weapon_dps * 6 + effective_agility) * (1 + mastery)
-  physical_multiplier "物理增伤总乘数": dimensionless :=
+  physical_multiplier "物理增伤总乘数": dimensionless =
     (1 + 0.04) * (1 + 0.04) * (1 + 0.20) * (1 + 0.05)
-  magical_multiplier "魔法增伤总乘数": dimensionless :=
+  magical_multiplier "魔法增伤总乘数": dimensionless =
     (1 + 0.04) * (1 + 0.04)
-  physical_armor_factor: dimensionless := if_else(shadopan, 0.736, 0.7)
+  physical_armor_factor: dimensionless = if_else(shadopan, 0.736, 0.7)
   tier_set_multiplier: dimensionless = 1.1
 
-  tiger_palm_initial: dimensionless := 90 * 1.73
-  tiger_palm_after_armor: dimensionless := tiger_palm_initial * physical_armor_factor
-  blackout_kick_initial: dimensionless := 84.7 * 1.92
-  blackout_kick_after_armor: dimensionless := blackout_kick_initial * physical_armor_factor
-  spinning_crane_kick_initial: dimensionless := 4 * 10 * 1.8
-  spinning_crane_kick_after_armor: dimensionless :=
+  tiger_palm_initial: dimensionless = 90 * 1.73
+  tiger_palm_after_armor: dimensionless = tiger_palm_initial * physical_armor_factor
+  blackout_kick_initial: dimensionless = 84.7 * 1.92
+  blackout_kick_after_armor: dimensionless = blackout_kick_initial * physical_armor_factor
+  spinning_crane_kick_initial: dimensionless = 4 * 10 * 1.8
+  spinning_crane_kick_after_armor: dimensionless =
     spinning_crane_kick_initial * physical_armor_factor
-  keg_smash_initial: dimensionless := if_else(treasured_brew, 190 * 1.5, 190)
-  keg_smash_after_armor: dimensionless := keg_smash_initial * physical_armor_factor
-  special_delivery_after_armor: dimensionless := 100 * physical_armor_factor
-  niuzao_after_armor: dimensionless := 400 * physical_armor_factor
-  breath_of_fire_dot_initial: dimensionless := 66 * (1 + haste)
-  empty_keg_after_armor: dimensionless := 300 * physical_armor_factor
-  rushing_jade_wind_after_armor: dimensionless := 13.3 * 9 * physical_armor_factor
-  clear_the_cellar_after_armor: dimensionless := 200 * physical_armor_factor
-  flurry_physical_after_armor: dimensionless := 60 * physical_armor_factor
-  high_impact_after_armor: dimensionless := 100 * physical_armor_factor
+  keg_smash_initial: dimensionless = if_else(treasured_brew, 190 * 1.5, 190)
+  keg_smash_after_armor: dimensionless = keg_smash_initial * physical_armor_factor
+  special_delivery_after_armor: dimensionless = 100 * physical_armor_factor
+  niuzao_after_armor: dimensionless = 400 * physical_armor_factor
+  breath_of_fire_dot_initial: dimensionless = 66 * (1 + haste)
+  empty_keg_after_armor: dimensionless = 300 * physical_armor_factor
+  rushing_jade_wind_after_armor: dimensionless = 13.3 * 9 * physical_armor_factor
+  clear_the_cellar_after_armor: dimensionless = 200 * physical_armor_factor
+  flurry_physical_after_armor: dimensionless = 60 * physical_armor_factor
+  high_impact_after_armor: dimensionless = 100 * physical_armor_factor
 
 outputs:
   tiger_palm_coefficient "猛虎掌最终系数": dimensionless =

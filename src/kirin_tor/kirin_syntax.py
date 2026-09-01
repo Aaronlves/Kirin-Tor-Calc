@@ -22,7 +22,7 @@ from .limits import MAX_SOURCE_BYTES
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 QUOTED_STRING = r'"(?:[^"\\]|\\.)*"'
-_HEADER_RE = re.compile(r"^@(entry|plot)\s+(" + IDENTIFIER + r")$")
+_HEADER_RE = re.compile(r"^@(entry)\s+(" + IDENTIFIER + r")$")
 _SECTION_RE = re.compile(r"^(" + IDENTIFIER + r"):$$")
 _KEY_VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
 _FENCE_RE = re.compile(r"^-{3,}$")
@@ -36,7 +36,10 @@ _INPUT_RE = re.compile(
 )
 _FIELD_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
-    rf"(?P<type>{_TYPE})\s*(?P<op>:=|=)\s*(?P<value>.*)$"
+    rf"(?P<type>{_TYPE})\s*=\s*(?P<value>.*)$"
+)
+_FIELD_LITERAL_RE = re.compile(
+    r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$"
 )
 _FUNCTION_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?"
@@ -46,9 +49,6 @@ _FUNCTION_RE = re.compile(
 _OUTPUT_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
     rf"(?P<unit>{_TYPE})\s*=\s*(?P<expression>.*)$"
-)
-_INFO_RE = re.compile(
-    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*=\s*(?P<value>.+)$"
 )
 _ALIAS_RE = re.compile(rf"^(?P<alias>[^\s=]+)\s*=\s*(?P<target>{IDENTIFIER}\.{IDENTIFIER})$")
 _NAMED_BLOCK_RE = re.compile(
@@ -139,7 +139,7 @@ def _atom(value: str, path: Path, line: _Line) -> Any:
     return value
 
 
-def _info_atom(value: str, path: Path, line: _Line) -> Any:
+def _source_atom(value: str, path: Path, line: _Line) -> Any:
     try:
         decoded = json.loads(value)
     except json.JSONDecodeError:
@@ -149,7 +149,11 @@ def _info_atom(value: str, path: Path, line: _Line) -> Any:
         if item is None or isinstance(item, (str, int, bool)):
             return
         if isinstance(item, float):
-            _fail(path, "info values may not contain floating-point JSON numbers; quote exact decimals", line)
+            _fail(
+                path,
+                "source metadata may not contain floating-point JSON numbers; quote exact decimals",
+                line,
+            )
         if isinstance(item, list):
             for child in item:
                 check(child)
@@ -158,7 +162,7 @@ def _info_atom(value: str, path: Path, line: _Line) -> Any:
             for child in item.values():
                 check(child)
             return
-        _fail(path, "info value must contain only JSON text, integers, booleans, null, lists, or objects", line)
+        _fail(path, "source metadata must contain JSON-compatible exact data", line)
 
     check(decoded)
     return decoded
@@ -395,7 +399,7 @@ def _parse_document_structure(
         _fail(path, "document type declaration is missing", code_lines[0])
     header = _HEADER_RE.fullmatch(code_lines[1].text)
     if not header:
-        _fail(path, "second declaration must be '@entry ID' or '@plot ID'", code_lines[1])
+        _fail(path, "second declaration must be '@entry ID'", code_lines[1])
     if "\t" in code_lines[0].raw or "\t" in code_lines[1].raw:
         _fail(path, "tabs are not allowed; use spaces for indentation", code_lines[1])
     assert header is not None
@@ -448,7 +452,7 @@ def _parse_document_structure(
             if len(pieces) != 2:
                 _fail(path, "metadata directive requires a value", line)
             directive = pieces[0][1:]
-            key_map = {"template": "template", "game-version": "game_version", "status": "validation_status"}
+            key_map = {"game-version": "game_version", "status": "validation_status"}
             if directive not in key_map:
                 _fail(path, f"unknown directive @{directive}", line)
             key = key_map[directive]
@@ -504,14 +508,17 @@ def _parse_entry(
 ) -> Dict[str, Any]:
     allowed_sections = {
         "dimensions", "units", "domains", "inputs", "constraints", "fields",
-        "info", "functions", "tables", "outputs", "sources", "aliases", "groups", "presets",
-        "display",
+        "functions", "tables", "outputs", "sources", "aliases", "groups", "presets",
+        "display", "y",
     }
     unknown = sorted(set(sections) - allowed_sections)
     if unknown:
         line = sections[unknown[0]][0] if sections[unknown[0]] else None
         _fail(path, "unknown entry section(s): " + ", ".join(unknown), line, unknown[0])
-    allowed_top = {"template", "game_version", "validation_status"}
+    allowed_top = {
+        "game_version", "validation_status", "x", "range", "points", "preset",
+        "title", "x-label", "y-label", "export-svg", "export-csv",
+    }
     unknown_top = sorted(set(top_values) - allowed_top)
     if unknown_top:
         value, line = top_values[unknown_top[0]]
@@ -530,13 +537,14 @@ def _parse_entry(
     }
     if description is not None:
         raw["description"] = description
-    for key, (value, _line) in top_values.items():
-        raw[key] = value
+    for key in ("game_version", "validation_status"):
+        if key in top_values:
+            raw[key] = top_values[key][0]
 
     for statement in _statements(sections.get("sources", ()), path, "sources"):
         if statement.continuation:
             _fail(path, "source entries must fit on one line", statement.head, "sources")
-        raw.setdefault("sources", []).append(_info_atom(statement.head.text, path, statement.head))
+        raw.setdefault("sources", []).append(_source_atom(statement.head.text, path, statement.head))
 
     semantics: Dict[str, Any] = {}
     dimensions: Dict[str, Any] = {}
@@ -628,7 +636,7 @@ def _parse_entry(
     for statement in _statements(sections.get("fields", ()), path, "fields"):
         match = _FIELD_RE.fullmatch(statement.head.text)
         if not match:
-            _fail(path, "field must use NAME: TYPE = VALUE or NAME: TYPE := EXPRESSION", statement.head, "fields")
+            _fail(path, "field must use NAME: TYPE = VALUE_OR_EXPRESSION", statement.head, "fields")
         assert match is not None
         name = match.group("name")
         if name in raw["fields"]:
@@ -636,9 +644,11 @@ def _parse_entry(
         type_text = match.group("type")
         type_data = _type_spec(type_text, path, statement.head)
         unit = type_data.get("unit", "dimensionless")
-        if match.group("op") == "=":
-            if statement.continuation:
-                _fail(path, "fixed field values must fit on one line", statement.head, f"fields.{name}")
+        value_text = match.group("value").strip()
+        is_literal = not statement.continuation and (
+            value_text in {"true", "false"} or _FIELD_LITERAL_RE.fullmatch(value_text)
+        )
+        if is_literal:
             value = _atom(match.group("value"), path, statement.head)
             data = {"kind": "value", "value": value, "unit": unit}
             if type_data.get("value_type") == "boolean":
@@ -653,22 +663,6 @@ def _parse_entry(
         raw["fields"][name] = data
         _set_position(positions, f"fields.{name}", statement.head)
         _set_position(positions, f"fields.{name}.expression", statement.head)
-
-    for statement in _statements(sections.get("info", ()), path, "info"):
-        if statement.continuation:
-            _fail(path, "info values must fit on one line in v1", statement.head, "info")
-        match = _INFO_RE.fullmatch(statement.head.text)
-        if not match:
-            _fail(path, "info field must use NAME = JSON_VALUE", statement.head, "info")
-        assert match is not None
-        name = match.group("name")
-        if name in raw["fields"]:
-            _fail(path, f"duplicate field {name!r}", statement.head, f"fields.{name}")
-        data = {"kind": "info", "value": _info_atom(match.group("value"), path, statement.head)}
-        if match.group("label") is not None:
-            data["label"] = _decode_string(match.group("label"), path, statement.head)
-        raw["fields"][name] = data
-        _set_position(positions, f"fields.{name}", statement.head)
 
     for statement in _statements(sections.get("functions", ()), path, "functions"):
         match = _FUNCTION_RE.fullmatch(statement.head.text)
@@ -865,6 +859,57 @@ def _parse_entry(
     if presets:
         raw["presets"] = presets
 
+    chart_keys = {
+        "x", "range", "points", "preset", "title", "x-label", "y-label",
+        "export-svg", "export-csv",
+    }
+    chart_present = bool(chart_keys.intersection(top_values) or "y" in sections)
+    if chart_present:
+        required = {"x", "range", "points"}
+        missing = sorted(required - set(top_values))
+        if "y" not in sections:
+            missing.append("y")
+        if missing:
+            _fail(path, "chart configuration is missing required key(s): " + ", ".join(missing))
+        raw["x"] = top_values["x"][0].strip()
+        range_text, range_line = top_values["range"]
+        raw["range"] = list(_split_range(range_text.strip(), path, range_line))
+        points_text, points_line = top_values["points"]
+        try:
+            raw["points"] = int(points_text)
+        except ValueError:
+            _fail(path, "chart points must be an integer", points_line, "points")
+        key_map = {
+            "preset": "preset",
+            "title": "title",
+            "x-label": "x_label",
+            "y-label": "y_label",
+            "export-svg": "out",
+            "export-csv": "data_out",
+        }
+        for source, target in key_map.items():
+            if source in top_values:
+                value, line = top_values[source]
+                raw[target] = _decode_string(value, path, line)
+                _set_position(positions, target, line)
+        raw["y"] = []
+        labels: Dict[str, str] = {}
+        for statement in _statements(sections.get("y", ()), path, "y"):
+            if statement.continuation:
+                _fail(path, "chart curve declarations must fit on one line", statement.head, "y")
+            match = re.fullmatch(r'(.+?)(?:\s+as\s+("(?:[^"\\]|\\.)*"))?', statement.head.text)
+            assert match is not None
+            target = match.group(1).strip()
+            if not target:
+                _fail(path, "chart curve target may not be empty", statement.head, "y")
+            raw["y"].append(target)
+            label = match.group(2)
+            if label:
+                labels[target] = _decode_string(label, path, statement.head)
+            _set_position(positions, f"y.{len(raw['y']) - 1}", statement.head)
+        if labels:
+            raw["curve_labels"] = labels
+
     for statement in _statements(sections.get("display", ()), path, "display"):
         if statement.continuation:
             _fail(path, "display declarations must fit on one line", statement.head, "display")
@@ -892,91 +937,12 @@ def _parse_entry(
     return raw
 
 
-def _parse_plot(
-    doc_id: str,
-    description: Optional[str],
-    sections: Dict[str, Tuple[_Line, ...]],
-    top_values: Dict[str, Tuple[str, _Line]],
-    positions: Dict[str, Tuple[int, int]],
-    path: Path,
-) -> Dict[str, Any]:
-    if set(sections) - {"y"}:
-        unknown = sorted(set(sections) - {"y"})[0]
-        _fail(path, f"unknown plot section {unknown!r}", field=unknown)
-    allowed = {
-        "x", "range", "points", "preset", "title", "x-label", "y-label",
-        "export-svg", "export-csv",
-    }
-    unknown = sorted(set(top_values) - allowed)
-    if unknown:
-        key = unknown[0]
-        _fail(path, f"unknown plot key {key!r}", top_values[key][1], key)
-    required = {"x", "range", "points"}
-    missing = sorted(required - set(top_values))
-    if missing:
-        _fail(path, "plot is missing required key(s): " + ", ".join(missing))
-
-    raw: Dict[str, Any] = {
-        "schema_version": 1,
-        "id": doc_id,
-        "name": doc_id,
-        "type": "plot",
-        "x": top_values["x"][0].strip(),
-        "points": 0,
-        "y": [],
-    }
-    if description is not None:
-        raw["description"] = description
-    range_text, range_line = top_values["range"]
-    raw["range"] = list(_split_range(range_text.strip(), path, range_line))
-    points_text, points_line = top_values["points"]
-    try:
-        raw["points"] = int(points_text)
-    except ValueError:
-        _fail(path, "plot points must be an integer", points_line, "points")
-
-    key_map = {
-        "preset": "preset",
-        "title": "title",
-        "x-label": "x_label",
-        "y-label": "y_label",
-        "export-svg": "out",
-        "export-csv": "data_out",
-    }
-    for source, target in key_map.items():
-        if source in top_values:
-            value, line = top_values[source]
-            raw[target] = _decode_string(value, path, line)
-            _set_position(positions, target, line)
-
-    labels: Dict[str, str] = {}
-    for statement in _statements(sections.get("y", ()), path, "y"):
-        if statement.continuation:
-            _fail(path, "plot curve declarations must fit on one line", statement.head, "y")
-        match = re.fullmatch(r'(.+?)(?:\s+as\s+("(?:[^"\\]|\\.)*"))?', statement.head.text)
-        assert match is not None
-        target = match.group(1).strip()
-        if not target:
-            _fail(path, "plot curve target may not be empty", statement.head, "y")
-        raw["y"].append(target)
-        label = match.group(2)
-        if label:
-            labels[target] = _decode_string(label, path, statement.head)
-        _set_position(positions, f"y.{len(raw['y']) - 1}", statement.head)
-    if labels:
-        raw["curve_labels"] = labels
-    return raw
-
-
 def parse_kirin_source(
     text: str, path: Path
 ) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]]]:
     """Parse one Kirin source buffer into the current raw schema shape."""
     doc_type, doc_id, description, sections, top_values, positions = _parse_document_structure(text, path)
-    if doc_type == "entry":
-        raw = _parse_entry(doc_id, description, sections, top_values, positions, path)
-    else:
-        raw = _parse_plot(doc_id, description, sections, top_values, positions, path)
+    raw = _parse_entry(doc_id, description, sections, top_values, positions, path)
     return raw, positions
 
 
@@ -1065,57 +1031,18 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
     """Render one structured schema document as canonical Kirin v1 source."""
     doc_type = raw.get("type")
     doc_id = raw.get("id")
-    if raw.get("schema_version") != 1 or doc_type not in {"entry", "plot"}:
-        raise SchemaError("Kirin renderer requires a schema-v1 entry or plot")
+    if raw.get("schema_version") != 1 or doc_type != "entry":
+        raise SchemaError("Kirin renderer requires a schema-v1 entry")
     if not isinstance(doc_id, str):
         raise SchemaError("Kirin renderer requires a document id")
     lines = ["@kirin 1", f"@{doc_type} {doc_id}"]
-    directive_map = {
-        "template": "template",
-        "game_version": "game-version",
-        "validation_status": "status",
-    }
+    directive_map = {"game_version": "game-version", "validation_status": "status"}
     for source, directive in directive_map.items():
         if source in raw:
             lines.append(f"@{directive} {_render_atom(raw[source], text=True)}")
     lines.extend(["", f"// {str(raw.get('name', doc_id)).replace(chr(10), ' ')}"])
     if "description" in raw:
         lines.extend(["", *_description_block(str(raw["description"]))])
-
-    if doc_type == "plot":
-        lines.extend(
-            [
-                "",
-                f"x: {raw.get('x', '')}",
-                f"range: {raw.get('range', ['', ''])[0]}..{raw.get('range', ['', ''])[1]}",
-                f"points: {raw.get('points', '')}",
-                "",
-                "y:",
-            ]
-        )
-        labels = raw.get("curve_labels", {})
-        for target in raw.get("y", []):
-            suffix = f" as {_render_atom(labels[target], text=True)}" if target in labels else ""
-            lines.append(f"  {target}{suffix}")
-        plot_keys = {
-            "preset": "preset",
-            "title": "title",
-            "x_label": "x-label",
-            "y_label": "y-label",
-            "out": "export-svg",
-            "data_out": "export-csv",
-        }
-        for source, target in plot_keys.items():
-            if raw.get(source) is not None:
-                lines.append(f"{target}: {_render_atom(raw[source], text=True)}")
-        allowed = {
-            "schema_version", "id", "name", "type", "description", "x", "range", "points",
-            "y", "preset", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
-        }
-        unsupported = set(raw) - allowed
-        if unsupported:
-            raise SchemaError(f"Kirin v1 renderer cannot preserve plot key(s): {', '.join(sorted(unsupported))}")
-        return "\n".join(lines).rstrip() + "\n"
 
     if raw.get("sources"):
         lines.extend(["", "sources:"])
@@ -1158,11 +1085,9 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
             lines.append(f"  {' '.join(str(expression).split())}")
 
     fields = raw.get("fields", {})
-    ordinary_fields = {name: spec for name, spec in fields.items() if spec.get("kind") != "info"}
-    info_fields = {name: spec for name, spec in fields.items() if spec.get("kind") == "info"}
-    if ordinary_fields:
+    if fields:
         lines.extend(["", "fields:"])
-        for name, spec in ordinary_fields.items():
+        for name, spec in fields.items():
             unsupported = set(spec) - {"kind", "value", "value_type", "unit", "expression", "label"}
             if unsupported:
                 raise SchemaError(
@@ -1177,28 +1102,13 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
             elif spec.get("kind") == "expression":
                 lines.extend(
                     _render_expression(
-                        f"  {labelled_name}: {type_text} := ",
+                        f"  {labelled_name}: {type_text} = ",
                         str(spec.get("expression", "")),
                         "  ",
                     )
                 )
             else:
                 raise SchemaError(f"unknown field kind {spec.get('kind')!r}")
-    if info_fields:
-        lines.extend(["", "info:"])
-        for name, spec in info_fields.items():
-            unsupported = set(spec) - {"kind", "value", "label"}
-            if unsupported:
-                raise SchemaError(
-                    f"Kirin v1 renderer cannot preserve info field {name!r} attribute(s): {', '.join(sorted(unsupported))}"
-                )
-            labelled_name = name
-            if spec.get("label") is not None:
-                labelled_name += f" {_render_atom(spec['label'], text=True)}"
-            lines.append(
-                f"  {labelled_name} = "
-                f"{_render_atom(spec.get('value'), text=isinstance(spec.get('value'), str))}"
-            )
 
     if raw.get("functions"):
         lines.extend(["", "functions:"])
@@ -1273,10 +1183,45 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
                 declaration += f" digits {spec['digits']}"
             lines.append(declaration)
 
+    chart_keys = {"x", "range", "points", "y"}
+    if chart_keys.intersection(raw):
+        missing = sorted(chart_keys - set(raw))
+        if missing:
+            raise SchemaError(
+                "Kirin v1 renderer requires a complete chart configuration; missing: "
+                + ", ".join(missing)
+            )
+        lines.extend(
+            [
+                "",
+                f"x: {raw['x']}",
+                f"range: {raw['range'][0]}..{raw['range'][1]}",
+                f"points: {raw['points']}",
+                "",
+                "y:",
+            ]
+        )
+        labels = raw.get("curve_labels", {})
+        for target in raw.get("y", []):
+            suffix = f" as {_render_atom(labels[target], text=True)}" if target in labels else ""
+            lines.append(f"  {target}{suffix}")
+        chart_options = {
+            "preset": "preset",
+            "title": "title",
+            "x_label": "x-label",
+            "y_label": "y-label",
+            "out": "export-svg",
+            "data_out": "export-csv",
+        }
+        for source, target in chart_options.items():
+            if raw.get(source) is not None:
+                lines.append(f"{target}: {_render_atom(raw[source], text=True)}")
+
     allowed = {
-        "schema_version", "id", "name", "type", "template", "description", "sources",
+        "schema_version", "id", "name", "type", "description", "sources",
         "game_version", "validation_status", "semantics", "aliases", "inputs", "constraints", "fields",
-        "functions", "tables", "outputs", "groups", "presets",
+        "functions", "tables", "outputs", "groups", "presets", "x", "range", "points", "y",
+        "preset", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
     }
     unsupported = set(raw) - allowed
     if unsupported:

@@ -14,7 +14,7 @@ rebuildable projections.
 
 Packages are data only. Kirin never executes package scripts, binaries, Python modules, Git
 hooks, or GitHub Actions. A package may contain ordinary project files, but only its manifest and
-`.kirin` files under `entries/` and `plots/` participate in validation or calculation.
+`.kirin` files under `entries/` participate in validation or calculation.
 
 ## Core and community boundary
 
@@ -30,14 +30,12 @@ The core gives those declarations no privileged meaning.
 ## Package layout
 
 A package root contains exactly one `kirin.package.toml` and may contain recursively discovered
-Kirin sources under `entries/` and `plots/`:
+Kirin sources under `entries/`:
 
 ```text
 kirin.package.toml
 entries/
   example.kirin
-plots/
-  example-curve.kirin
 README.md
 LICENSE
 ```
@@ -195,10 +193,16 @@ kt package check [DIRECTORY]
 validation templates. `package check` validates the manifest, namespace, dependency closure,
 all Kirin sources, and all mathematical references without publishing anything.
 
+Packages may additionally ship static creation templates under `templates/entries/**/*.kirin`.
+These files may contain optional `x/y` chart configuration and are included in the Package content digest and
+immutable cache snapshot. Installation and `package check` expand and validate each template
+against the resolved dependency graph. A selected template creates one independent workspace
+source draft; no template identity or runtime inheritance is written into that document.
+
 ## Provenance and records
 
 Each loaded document retains its package source, package name, namespace, version, resolved
-commit when available, and content digest. CLI and TUI document listings expose this origin and
+commit when available, and content digest. CLI and browser-workbench document listings expose this origin and
 mark package documents read-only.
 
 Immutable calculation records continue embedding the exact participating Kirin source snapshots.

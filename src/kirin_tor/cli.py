@@ -16,7 +16,7 @@ from .application import (
     record_operation as _recorded_compute,
 )
 from .engine import Engine
-from .errors import KTError, ParameterError, UnsupportedError
+from .errors import KTError, ParameterError, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     differentiate,
@@ -45,7 +45,6 @@ from .timeout import run_with_timeout
 from .workspace import (
     Workspace,
     create_entry_template,
-    create_plot_template,
     initialize,
 )
 
@@ -56,7 +55,7 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
-new_app = typer.Typer(help="Create an entry or plot from a minimal Kirin v1 template.")
+new_app = typer.Typer(help="Create a document from a minimal Kirin v1 template.")
 app.add_typer(new_app, name="new")
 package_app = typer.Typer(help="Install, verify, and author data-only community packages.")
 app.add_typer(package_app, name="package")
@@ -97,31 +96,41 @@ def version_command() -> None:
     typer.echo(__version__)
 
 
-@app.command("tui")
-def tui_command(
+@app.command("web")
+def web_command(
     source: Optional[Path] = typer.Argument(
         None,
         help="Workspace directory or Kirin source path; defaults to the current workspace.",
     ),
+    port: int = typer.Option(0, "--port", help="Loopback port; 0 selects an available port."),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open the default browser."),
 ) -> None:
-    """Open the player calculation, chart, document, diagnostics, and runs workbench."""
+    """Start the local browser workbench and open it in the default browser."""
     def action():
-        requested = source
-        if requested is not None and requested.expanduser().is_dir():
-            root = requested.expanduser().resolve()
-            requested = None
-        elif requested is not None and requested.expanduser().is_absolute():
-            requested = requested.expanduser().resolve()
+        requested = source.expanduser().resolve() if source is not None else None
+        initial_document = None
+        if requested is not None and requested.is_dir():
+            root = requested if (requested / "kirin.workspace").is_file() else Workspace.find_root(requested)
+        elif requested is not None:
+            if not requested.is_file() or requested.suffix.lower() != ".kirin":
+                raise WorkspaceError(f"web source must be an existing .kirin file: {requested}")
             root = Workspace.find_root(requested.parent)
+            try:
+                relative = requested.relative_to(root)
+            except ValueError as exc:
+                raise WorkspaceError("web source must stay inside its workspace") from exc
+            if not relative.parts or relative.parts[0] != "entries":
+                raise WorkspaceError("web source must be inside entries/")
+            initial_document = requested
         else:
             root = Workspace.find_root()
-        try:
-            from .tui import run_tui
-        except ModuleNotFoundError as exc:
-            raise UnsupportedError(
-                "TUI dependencies are not installed; install 'kirin-tor-cli[tui]'"
-            ) from exc
-        run_tui(root, requested)
+        from .web import run_web
+        run_web(
+            root,
+            port=port,
+            open_browser=not no_open,
+            initial_document=initial_document,
+        )
 
     _execute(action)
 
@@ -359,15 +368,6 @@ def new_entry(
     _new_entry(template, entry_id)
 
 
-@new_app.command("plot")
-def new_plot(plot_id: str) -> None:
-    """Create a saved plot configuration template."""
-    def action():
-        typer.echo(str(create_plot_template(Workspace.discover(), plot_id)))
-
-    _execute(action)
-
-
 @app.command("list")
 def list_command(json_output: bool = typer.Option(False, "--json", help="Write JSON to stdout.")) -> None:
     """List loaded documents by stable id."""
@@ -381,7 +381,6 @@ def list_command(json_output: bool = typer.Option(False, "--json", help="Write J
                 "authority_id": document.authority_id,
                 "name": document.name,
                 "type": document.type,
-                "template": getattr(document, "template", None),
                 "path": path,
                 "read_only": document.read_only,
                 "package_origin": origin,
@@ -390,7 +389,7 @@ def list_command(json_output: bool = typer.Option(False, "--json", help="Write J
             {"status": "ok", "documents": items},
             json_output,
             "\n".join(
-                f"{item['id']:<20} {item['type']:<10} {(item['template'] or '-'):<12} {item['name']}"
+                f"{item['id']:<20} {item['type']:<10} {item['name']}"
                 for item in items
             ),
         )
@@ -900,7 +899,7 @@ def plot_command(
         title = x_label = y_label = None
         curve_labels = {}
         if config:
-            saved = workspace.get_plot(config)
+            saved = workspace.get_chart(config)
             chosen_x = chosen_x or saved.x
             chosen_range = chosen_range or f"{saved.range_start}:{saved.range_end}"
             chosen_points = chosen_points or saved.points
