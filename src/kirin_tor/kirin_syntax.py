@@ -63,6 +63,15 @@ _TABLE_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
     rf"(?P<input>{IDENTIFIER})\s*->\s*(?P<output>{IDENTIFIER})\s*:$"
 )
+_DISTRIBUTION_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
+    rf"(?P<unit>{IDENTIFIER})\s*:$"
+)
+_RECURRENCE_RE = _DISTRIBUTION_RE
+_RECURRENCE_NEXT_RE = re.compile(
+    rf"^next\(\s*(?P<current>{IDENTIFIER})\s*,\s*(?P<index>{IDENTIFIER})\s*\)"
+    r"\s*=\s*(?P<expression>.*)$"
+)
 
 
 @dataclass(frozen=True)
@@ -508,8 +517,8 @@ def _parse_entry(
 ) -> Dict[str, Any]:
     allowed_sections = {
         "dimensions", "units", "domains", "inputs", "constraints", "fields",
-        "functions", "tables", "outputs", "sources", "aliases", "groups", "presets",
-        "display", "y",
+        "functions", "tables", "distributions", "recurrences", "state_models", "outputs",
+        "sources", "aliases", "groups", "presets", "display", "y",
     }
     unknown = sorted(set(sections) - allowed_sections)
     if unknown:
@@ -747,6 +756,367 @@ def _parse_entry(
         _set_position(positions, f"tables.{table_id}", statement.head)
     if tables:
         raw["tables"] = tables
+
+    distributions: Dict[str, Any] = {}
+    for statement in _statements(sections.get("distributions", ()), path, "distributions"):
+        match = _DISTRIBUTION_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(
+                path,
+                'distribution must use ID ["LABEL"]: UNIT:',
+                statement.head,
+                "distributions",
+            )
+        assert match is not None
+        distribution_id = match.group("name")
+        if distribution_id in distributions:
+            _fail(
+                path,
+                f"duplicate distribution {distribution_id!r}",
+                statement.head,
+                f"distributions.{distribution_id}",
+            )
+        outcomes = []
+        for outcome in _statements(
+            statement.continuation, path, f"distributions.{distribution_id}"
+        ):
+            declaration = outcome.expression(outcome.head.text)
+            if declaration.count("@") != 1:
+                _fail(
+                    path,
+                    "distribution outcome must use VALUE @ PROBABILITY",
+                    outcome.head,
+                    f"distributions.{distribution_id}",
+                )
+            value, probability = (part.strip() for part in declaration.split("@", 1))
+            if not value or not probability:
+                _fail(
+                    path,
+                    "distribution outcome requires both a value and probability",
+                    outcome.head,
+                    f"distributions.{distribution_id}",
+                )
+            outcomes.append({"value": value, "probability": probability})
+            _set_position(
+                positions,
+                f"distributions.{distribution_id}.outcomes.{len(outcomes) - 1}",
+                outcome.head,
+            )
+        distributions[distribution_id] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else distribution_id,
+            "unit": match.group("unit"),
+            "outcomes": outcomes,
+        }
+        _set_position(positions, f"distributions.{distribution_id}", statement.head)
+    if distributions:
+        raw["distributions"] = distributions
+
+    recurrences: Dict[str, Any] = {}
+    for statement in _statements(sections.get("recurrences", ()), path, "recurrences"):
+        match = _RECURRENCE_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(
+                path,
+                'recurrence must use ID ["LABEL"]: UNIT:',
+                statement.head,
+                "recurrences",
+            )
+        assert match is not None
+        recurrence_id = match.group("name")
+        if recurrence_id in recurrences:
+            _fail(
+                path,
+                f"duplicate recurrence {recurrence_id!r}",
+                statement.head,
+                f"recurrences.{recurrence_id}",
+            )
+        recurrence: Dict[str, Any] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else recurrence_id,
+            "unit": match.group("unit"),
+        }
+        for item in _statements(
+            statement.continuation, path, f"recurrences.{recurrence_id}"
+        ):
+            text = item.head.text
+            if text.startswith("initial") and text.partition("=")[0].strip() == "initial":
+                key = "initial"
+                initial = text.partition("=")[2]
+                expression = item.expression(initial)
+                if not expression:
+                    _fail(
+                        path,
+                        "recurrence initial expression may not be empty",
+                        item.head,
+                        f"recurrences.{recurrence_id}.initial",
+                    )
+                data = {"initial": expression}
+            elif text.startswith("steps") and text.partition("=")[0].strip() == "steps":
+                key = "steps"
+                initial = text.partition("=")[2]
+                expression = item.expression(initial)
+                if not expression:
+                    _fail(
+                        path,
+                        "recurrence steps expression may not be empty",
+                        item.head,
+                        f"recurrences.{recurrence_id}.steps",
+                    )
+                data = {"steps": expression}
+            else:
+                next_match = _RECURRENCE_NEXT_RE.fullmatch(text)
+                if not next_match:
+                    _fail(
+                        path,
+                        "recurrence body requires initial = EXPR, steps = EXPR, and next(CURRENT, INDEX) = EXPR",
+                        item.head,
+                        f"recurrences.{recurrence_id}",
+                    )
+                key = "next"
+                expression = item.expression(next_match.group("expression"))
+                if not expression:
+                    _fail(
+                        path,
+                        "recurrence next expression may not be empty",
+                        item.head,
+                        f"recurrences.{recurrence_id}.next",
+                    )
+                data = {
+                    "current": next_match.group("current"),
+                    "index": next_match.group("index"),
+                    "next": expression,
+                }
+            if key in recurrence:
+                _fail(
+                    path,
+                    f"duplicate recurrence {key} declaration",
+                    item.head,
+                    f"recurrences.{recurrence_id}.{key}",
+                )
+            recurrence.update(data)
+            _set_position(
+                positions, f"recurrences.{recurrence_id}.{key}", item.head
+            )
+        missing = sorted(
+            {"initial", "steps", "current", "index", "next"} - set(recurrence)
+        )
+        if missing:
+            _fail(
+                path,
+                "recurrence is missing required declaration(s): " + ", ".join(missing),
+                statement.head,
+                f"recurrences.{recurrence_id}",
+            )
+        recurrences[recurrence_id] = recurrence
+        _set_position(positions, f"recurrences.{recurrence_id}", statement.head)
+    if recurrences:
+        raw["recurrences"] = recurrences
+
+    state_models: Dict[str, Any] = {}
+    for statement in _statements(sections.get("state_models", ()), path, "state_models"):
+        match = _NAMED_BLOCK_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(
+                path,
+                'state model must use ID ["LABEL"]:',
+                statement.head,
+                "state_models",
+            )
+        assert match is not None
+        model_id = match.group("name")
+        if model_id in state_models:
+            _fail(
+                path,
+                f"duplicate state model {model_id!r}",
+                statement.head,
+                f"state_models.{model_id}",
+            )
+        blocks = {}
+        for block in _statements(
+            statement.continuation, path, f"state_models.{model_id}"
+        ):
+            block_name = block.head.text[:-1] if block.head.text.endswith(":") else ""
+            if block_name not in {"states", "transitions", "rewards"}:
+                _fail(
+                    path,
+                    "state model blocks must be states:, transitions:, or rewards:",
+                    block.head,
+                    f"state_models.{model_id}",
+                )
+            if block_name in blocks:
+                _fail(
+                    path,
+                    f"duplicate state model block {block_name!r}",
+                    block.head,
+                    f"state_models.{model_id}.{block_name}",
+                )
+            blocks[block_name] = block
+        missing = sorted({"states", "transitions"} - set(blocks))
+        if missing:
+            _fail(
+                path,
+                "state model is missing required block(s): " + ", ".join(missing),
+                statement.head,
+                f"state_models.{model_id}",
+            )
+
+        states = []
+        for state in _statements(
+            blocks["states"].continuation,
+            path,
+            f"state_models.{model_id}.states",
+        ):
+            if state.continuation or not re.fullmatch(IDENTIFIER, state.head.text):
+                _fail(
+                    path,
+                    "state must be one plain identifier",
+                    state.head,
+                    f"state_models.{model_id}.states",
+                )
+            states.append(state.head.text)
+            _set_position(
+                positions,
+                f"state_models.{model_id}.states.{len(states) - 1}",
+                state.head,
+            )
+
+        transitions = []
+        for transition in _statements(
+            blocks["transitions"].continuation,
+            path,
+            f"state_models.{model_id}.transitions",
+        ):
+            declaration = transition.expression(transition.head.text)
+            if declaration.count("@") != 1:
+                _fail(
+                    path,
+                    "state transition must use SOURCE -> TARGET @ PROBABILITY",
+                    transition.head,
+                    f"state_models.{model_id}.transitions",
+                )
+            edge, probability = (part.strip() for part in declaration.split("@", 1))
+            if edge.count("->") != 1 or not probability:
+                _fail(
+                    path,
+                    "state transition must use SOURCE -> TARGET @ PROBABILITY",
+                    transition.head,
+                    f"state_models.{model_id}.transitions",
+                )
+            source, target = (part.strip() for part in edge.split("->", 1))
+            if not re.fullmatch(IDENTIFIER, source) or not re.fullmatch(IDENTIFIER, target):
+                _fail(
+                    path,
+                    "state transition endpoints must be identifiers",
+                    transition.head,
+                    f"state_models.{model_id}.transitions",
+                )
+            transitions.append(
+                {"source": source, "target": target, "probability": probability}
+            )
+            _set_position(
+                positions,
+                f"state_models.{model_id}.transitions.{len(transitions) - 1}",
+                transition.head,
+            )
+
+        rewards = {}
+        rewards_block = blocks.get("rewards")
+        if rewards_block is not None:
+            for reward in _statements(
+                rewards_block.continuation,
+                path,
+                f"state_models.{model_id}.rewards",
+            ):
+                reward_match = _DISTRIBUTION_RE.fullmatch(reward.head.text)
+                if not reward_match:
+                    _fail(
+                        path,
+                        'state reward must use ID ["LABEL"]: UNIT:',
+                        reward.head,
+                        f"state_models.{model_id}.rewards",
+                    )
+                assert reward_match is not None
+                reward_id = reward_match.group("name")
+                if reward_id in rewards:
+                    _fail(
+                        path,
+                        f"duplicate state reward {reward_id!r}",
+                        reward.head,
+                        f"state_models.{model_id}.rewards.{reward_id}",
+                    )
+                values = {}
+                for value_statement in _statements(
+                    reward.continuation,
+                    path,
+                    f"state_models.{model_id}.rewards.{reward_id}",
+                ):
+                    if "=" not in value_statement.head.text:
+                        _fail(
+                            path,
+                            "state reward value must use STATE = EXPRESSION",
+                            value_statement.head,
+                            f"state_models.{model_id}.rewards.{reward_id}",
+                        )
+                    state, initial = (
+                        part.strip()
+                        for part in value_statement.head.text.split("=", 1)
+                    )
+                    if not re.fullmatch(IDENTIFIER, state):
+                        _fail(
+                            path,
+                            "state reward state must be an identifier",
+                            value_statement.head,
+                            f"state_models.{model_id}.rewards.{reward_id}",
+                        )
+                    expression = value_statement.expression(initial)
+                    if not expression:
+                        _fail(
+                            path,
+                            "state reward expression may not be empty",
+                            value_statement.head,
+                            f"state_models.{model_id}.rewards.{reward_id}",
+                        )
+                    if state in values:
+                        _fail(
+                            path,
+                            f"duplicate state reward value for {state!r}",
+                            value_statement.head,
+                            f"state_models.{model_id}.rewards.{reward_id}.{state}",
+                        )
+                    values[state] = expression
+                    _set_position(
+                        positions,
+                        f"state_models.{model_id}.rewards.{reward_id}.values.{state}",
+                        value_statement.head,
+                    )
+                rewards[reward_id] = {
+                    "label": _decode_string(
+                        reward_match.group("label"), path, reward.head
+                    )
+                    if reward_match.group("label")
+                    else reward_id,
+                    "unit": reward_match.group("unit"),
+                    "values": values,
+                }
+                _set_position(
+                    positions,
+                    f"state_models.{model_id}.rewards.{reward_id}",
+                    reward.head,
+                )
+        state_models[model_id] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else model_id,
+            "states": states,
+            "transitions": transitions,
+            "rewards": rewards,
+        }
+        _set_position(positions, f"state_models.{model_id}", statement.head)
+    if state_models:
+        raw["state_models"] = state_models
 
     for statement in _statements(sections.get("outputs", ()), path, "outputs"):
         match = _OUTPUT_RE.fullmatch(statement.head.text)
@@ -1138,6 +1508,95 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
             )
             for x, y in spec.get("points", []):
                 lines.append(f"    {_render_atom(x)} = {_render_atom(y)}")
+    if raw.get("distributions"):
+        lines.extend(["", "distributions:"])
+        for name, spec in raw["distributions"].items():
+            unsupported = set(spec) - {"label", "unit", "outcomes"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve distribution {name!r} attribute(s): "
+                    + ", ".join(sorted(unsupported))
+                )
+            label = spec.get("label", name)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != name else ""
+            lines.append(
+                f"  {name}{label_suffix}: {spec.get('unit', 'dimensionless')}:"
+            )
+            outcomes = spec.get("outcomes", [])
+            if not isinstance(outcomes, list):
+                raise SchemaError(f"distribution {name!r} outcomes must be a list")
+            for outcome in outcomes:
+                if not isinstance(outcome, dict) or set(outcome) != {"value", "probability"}:
+                    raise SchemaError(
+                        f"distribution {name!r} outcomes require value and probability"
+                    )
+                lines.append(
+                    f"    {str(outcome['value']).strip()} @ {str(outcome['probability']).strip()}"
+                )
+    if raw.get("recurrences"):
+        lines.extend(["", "recurrences:"])
+        for name, spec in raw["recurrences"].items():
+            unsupported = set(spec) - {
+                "label", "unit", "initial", "steps", "current", "index", "next"
+            }
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve recurrence {name!r} attribute(s): "
+                    + ", ".join(sorted(unsupported))
+                )
+            label = spec.get("label", name)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != name else ""
+            lines.append(f"  {name}{label_suffix}: {spec.get('unit', 'dimensionless')}:")
+            lines.extend(
+                _render_expression("    initial = ", str(spec.get("initial", "")), "    ")
+            )
+            lines.extend(
+                _render_expression("    steps = ", str(spec.get("steps", "")), "    ")
+            )
+            next_prefix = f"    next({spec.get('current')}, {spec.get('index')}) = "
+            lines.extend(
+                _render_expression(next_prefix, str(spec.get("next", "")), "    ")
+            )
+    if raw.get("state_models"):
+        lines.extend(["", "state_models:"])
+        for name, spec in raw["state_models"].items():
+            unsupported = set(spec) - {"label", "states", "transitions", "rewards"}
+            if unsupported:
+                raise SchemaError(
+                    f"Kirin v1 renderer cannot preserve state model {name!r} attribute(s): "
+                    + ", ".join(sorted(unsupported))
+                )
+            label = spec.get("label", name)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != name else ""
+            lines.extend([f"  {name}{label_suffix}:", "    states:"])
+            for state in spec.get("states", []):
+                lines.append(f"      {state}")
+            lines.append("    transitions:")
+            for transition in spec.get("transitions", []):
+                lines.append(
+                    f"      {transition.get('source')} -> {transition.get('target')}"
+                    f" @ {transition.get('probability')}"
+                )
+            rewards = spec.get("rewards", {})
+            if rewards:
+                lines.append("    rewards:")
+                for reward_id, reward in rewards.items():
+                    reward_label = reward.get("label", reward_id)
+                    reward_label_suffix = (
+                        f" {_render_atom(reward_label, text=True)}"
+                        if reward_label != reward_id
+                        else ""
+                    )
+                    lines.append(
+                        f"      {reward_id}{reward_label_suffix}:"
+                        f" {reward.get('unit', 'dimensionless')}:"
+                    )
+                    for state, expression in reward.get("values", {}).items():
+                        lines.extend(
+                            _render_expression(
+                                f"        {state} = ", str(expression), "        "
+                            )
+                        )
     if raw.get("outputs"):
         lines.extend(["", "outputs:"])
         for name, spec in raw["outputs"].items():
@@ -1220,7 +1679,7 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
     allowed = {
         "schema_version", "id", "name", "type", "description", "sources",
         "game_version", "validation_status", "semantics", "aliases", "inputs", "constraints", "fields",
-        "functions", "tables", "outputs", "groups", "presets", "x", "range", "points", "y",
+        "functions", "tables", "distributions", "recurrences", "state_models", "outputs", "groups", "presets", "x", "range", "points", "y",
         "preset", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
     }
     unsupported = set(raw) - allowed

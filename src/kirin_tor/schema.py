@@ -12,10 +12,14 @@ from .errors import SchemaError, SourceLocation
 from .limits import (
     MAX_ABS_DIMENSION_EXPONENT,
     MAX_DECIMAL_EXPONENT,
+    MAX_DISTRIBUTION_OUTCOMES,
     MAX_DOMAIN_VALUES,
     MAX_ENTRY_ALIASES,
     MAX_MODEL_INPUTS,
     MAX_NUMERIC_LITERAL_LENGTH,
+    MAX_STATE_MODEL_REWARDS,
+    MAX_STATE_MODEL_STATES,
+    MAX_STATE_MODEL_TRANSITIONS,
 )
 from .units import Dimension, DomainSpec, UnitRegistry
 
@@ -27,7 +31,10 @@ NUMBER_TEXT_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|
 DOCUMENT_TYPES = {"entry"}
 DISPLAY_FORMATS = {"number", "integer", "percent", "coefficient_percent"}
 EXPRESSION_RESERVED_NAMES = {
-    "abs", "ceil", "floor", "if_else", "interpolate", "lookup", "max", "min", "piecewise", "product", "sqrt", "sum"
+    "abs", "ceil", "condition", "expectation", "expected_steps", "floor",
+    "hitting_probability", "if_else", "independent_sum", "interpolate", "lookup", "map",
+    "max", "min", "piecewise", "probability", "product", "repeat_sum", "sqrt",
+    "steady_probability", "steady_reward", "sum", "variance"
 }
 
 
@@ -202,6 +209,9 @@ class Entry(Document):
     fields: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     functions: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     tables: Dict[str, "LookupTable"] = field(default_factory=dict)
+    distributions: Dict[str, "DistributionSpec"] = field(default_factory=dict)
+    recurrences: Dict[str, "RecurrenceSpec"] = field(default_factory=dict)
+    state_models: Dict[str, "StateModelSpec"] = field(default_factory=dict)
     outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     groups: Dict[str, "OutputGroup"] = field(default_factory=dict)
     presets: Dict[str, "Preset"] = field(default_factory=dict)
@@ -259,6 +269,80 @@ class LookupTable:
     output_unit: str
     output_dimension: Dimension
     points: Tuple[Tuple[str, str], ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class DistributionOutcomeSpec:
+    value: str
+    probability: str
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class DistributionSpec:
+    id: str
+    owner_id: str
+    label: str
+    unit_name: str
+    dimension: Dimension
+    outcomes: Tuple[DistributionOutcomeSpec, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class RecurrenceSpec:
+    id: str
+    owner_id: str
+    label: str
+    unit_name: str
+    dimension: Dimension
+    initial: str
+    steps: str
+    current_name: str
+    index_name: str
+    next_expression: str
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class StateTransitionSpec:
+    source: str
+    target: str
+    probability: str
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class StateRewardSpec:
+    id: str
+    label: str
+    unit_name: str
+    dimension: Dimension
+    values: Dict[str, str]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class StateModelSpec:
+    id: str
+    owner_id: str
+    label: str
+    states: Tuple[str, ...]
+    transitions: Tuple[StateTransitionSpec, ...]
+    rewards: Dict[str, StateRewardSpec]
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
@@ -523,7 +607,8 @@ def _parse_input(
 
 TOP_KEYS = {
     "schema_version", "id", "name", "type", "description", "sources", "game_version",
-    "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables", "outputs",
+    "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables",
+    "distributions", "recurrences", "state_models", "outputs",
     "groups", "presets", "x", "range", "points", "y", "preset", "out", "data_out",
     "title", "x_label", "y_label", "curve_labels",
 }
@@ -713,6 +798,378 @@ def parse_document(
                     _location(path, doc_id, positions, f"tables.{table_id}"),
                 )
             occupied.add(table_id)
+        distributions_raw = require_mapping(
+            raw.get("distributions", {}),
+            "distributions",
+            _location(path, doc_id, positions, "distributions"),
+        )
+        distributions = {}
+        for distribution_id, distribution_raw in distributions_raw.items():
+            distribution_location = _location(
+                path, doc_id, positions, f"distributions.{distribution_id}"
+            )
+            require_identifier(distribution_id, "distribution id", distribution_location)
+            if distribution_id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {distribution_id!r}", distribution_location
+                )
+            distribution_raw = require_mapping(
+                distribution_raw,
+                f"distributions.{distribution_id}",
+                distribution_location,
+            )
+            _reject_unknown(
+                distribution_raw,
+                {"label", "unit", "outcomes"},
+                "distribution",
+                distribution_location,
+            )
+            label = require_display_label(
+                distribution_raw.get("label", distribution_id),
+                "distribution label",
+                distribution_location,
+            )
+            unit_name = require_identifier(
+                distribution_raw.get("unit", "dimensionless"),
+                "distribution unit",
+                distribution_location,
+            )
+            dimension = registry.parse_unit(unit_name, distribution_location)
+            outcomes_raw = distribution_raw.get("outcomes", [])
+            if not isinstance(outcomes_raw, list) or not outcomes_raw:
+                raise SchemaError(
+                    "distribution outcomes must be a non-empty list",
+                    distribution_location,
+                )
+            if len(outcomes_raw) > MAX_DISTRIBUTION_OUTCOMES:
+                raise SchemaError(
+                    f"distribution exceeds {MAX_DISTRIBUTION_OUTCOMES} outcomes",
+                    distribution_location,
+                )
+            outcomes = []
+            for index, outcome_raw in enumerate(outcomes_raw):
+                outcome_location = _location(
+                    path,
+                    doc_id,
+                    positions,
+                    f"distributions.{distribution_id}.outcomes.{index}",
+                )
+                outcome_raw = require_mapping(
+                    outcome_raw, "distribution outcome", outcome_location
+                )
+                _reject_unknown(
+                    outcome_raw,
+                    {"value", "probability"},
+                    "distribution outcome",
+                    outcome_location,
+                )
+                value = require_text(
+                    outcome_raw.get("value"), "distribution outcome value", outcome_location
+                )
+                probability = require_text(
+                    outcome_raw.get("probability"),
+                    "distribution outcome probability",
+                    outcome_location,
+                )
+                if not value.strip() or not probability.strip():
+                    raise SchemaError(
+                        "distribution outcome value and probability may not be empty",
+                        outcome_location,
+                    )
+                outcomes.append(
+                    DistributionOutcomeSpec(value, probability, outcome_location)
+                )
+            distributions[distribution_id] = DistributionSpec(
+                distribution_id,
+                doc_id,
+                label,
+                unit_name,
+                dimension,
+                tuple(outcomes),
+                distribution_location,
+            )
+            occupied.add(distribution_id)
+        recurrences_raw = require_mapping(
+            raw.get("recurrences", {}),
+            "recurrences",
+            _location(path, doc_id, positions, "recurrences"),
+        )
+        recurrences = {}
+        declared_entry_names = (
+            set(input_data)
+            | set(fields)
+            | set(functions)
+            | set(tables)
+            | set(distributions)
+            | set(outputs)
+            | set(aliases)
+            | set(recurrences_raw)
+            | (
+                set(raw.get("state_models", {}))
+                if isinstance(raw.get("state_models", {}), dict)
+                else set()
+            )
+        )
+        for recurrence_id, recurrence_raw in recurrences_raw.items():
+            recurrence_location = _location(
+                path, doc_id, positions, f"recurrences.{recurrence_id}"
+            )
+            require_identifier(recurrence_id, "recurrence id", recurrence_location)
+            if recurrence_id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {recurrence_id!r}", recurrence_location
+                )
+            recurrence_raw = require_mapping(
+                recurrence_raw, f"recurrences.{recurrence_id}", recurrence_location
+            )
+            _reject_unknown(
+                recurrence_raw,
+                {"label", "unit", "initial", "steps", "current", "index", "next"},
+                "recurrence",
+                recurrence_location,
+            )
+            label = require_display_label(
+                recurrence_raw.get("label", recurrence_id),
+                "recurrence label",
+                recurrence_location,
+            )
+            unit_name = require_identifier(
+                recurrence_raw.get("unit", "dimensionless"),
+                "recurrence unit",
+                recurrence_location,
+            )
+            dimension = registry.parse_unit(unit_name, recurrence_location)
+            initial = require_text(
+                recurrence_raw.get("initial"), "recurrence initial", recurrence_location
+            )
+            steps = require_text(
+                recurrence_raw.get("steps"), "recurrence steps", recurrence_location
+            )
+            current_name = require_identifier(
+                recurrence_raw.get("current"),
+                "recurrence current variable",
+                recurrence_location,
+            )
+            index_name = require_identifier(
+                recurrence_raw.get("index"),
+                "recurrence index variable",
+                recurrence_location,
+            )
+            next_expression = require_text(
+                recurrence_raw.get("next"), "recurrence next expression", recurrence_location
+            )
+            if not initial.strip() or not steps.strip() or not next_expression.strip():
+                raise SchemaError(
+                    "recurrence initial, steps, and next expression may not be empty",
+                    recurrence_location,
+                )
+            if current_name == index_name:
+                raise SchemaError(
+                    "recurrence current and index variables must be different",
+                    recurrence_location,
+                )
+            for variable in (current_name, index_name):
+                if variable in declared_entry_names or variable in EXPRESSION_RESERVED_NAMES:
+                    raise SchemaError(
+                        f"recurrence variable {variable!r} shadows a declared or reserved name",
+                        recurrence_location,
+                    )
+            recurrences[recurrence_id] = RecurrenceSpec(
+                recurrence_id,
+                doc_id,
+                label,
+                unit_name,
+                dimension,
+                initial,
+                steps,
+                current_name,
+                index_name,
+                next_expression,
+                recurrence_location,
+            )
+            occupied.add(recurrence_id)
+        state_models_raw = require_mapping(
+            raw.get("state_models", {}),
+            "state_models",
+            _location(path, doc_id, positions, "state_models"),
+        )
+        state_models = {}
+        for model_id, model_raw in state_models_raw.items():
+            model_location = _location(
+                path, doc_id, positions, f"state_models.{model_id}"
+            )
+            require_identifier(model_id, "state model id", model_location)
+            if model_id in occupied:
+                raise SchemaError(f"duplicate member name {model_id!r}", model_location)
+            model_raw = require_mapping(
+                model_raw, f"state_models.{model_id}", model_location
+            )
+            _reject_unknown(
+                model_raw,
+                {"label", "states", "transitions", "rewards"},
+                "state model",
+                model_location,
+            )
+            label = require_display_label(
+                model_raw.get("label", model_id), "state model label", model_location
+            )
+            states_raw = model_raw.get("states", [])
+            if (
+                not isinstance(states_raw, list)
+                or not states_raw
+                or not all(isinstance(state, str) for state in states_raw)
+            ):
+                raise SchemaError("state model states must be a non-empty list", model_location)
+            if len(states_raw) > MAX_STATE_MODEL_STATES:
+                raise SchemaError(
+                    f"state model exceeds {MAX_STATE_MODEL_STATES} states", model_location
+                )
+            states = []
+            for state in states_raw:
+                require_identifier(state, "state id", model_location)
+                if state in states:
+                    raise SchemaError(f"duplicate state {state!r}", model_location)
+                states.append(state)
+            state_set = set(states)
+
+            transitions_raw = model_raw.get("transitions", [])
+            if not isinstance(transitions_raw, list) or not transitions_raw:
+                raise SchemaError(
+                    "state model transitions must be a non-empty list", model_location
+                )
+            if len(transitions_raw) > MAX_STATE_MODEL_TRANSITIONS:
+                raise SchemaError(
+                    f"state model exceeds {MAX_STATE_MODEL_TRANSITIONS} transitions",
+                    model_location,
+                )
+            transitions = []
+            seen_edges = set()
+            outgoing_states = set()
+            for index, transition_raw in enumerate(transitions_raw):
+                transition_location = _location(
+                    path, doc_id, positions, f"state_models.{model_id}.transitions.{index}"
+                )
+                transition_raw = require_mapping(
+                    transition_raw, "state transition", transition_location
+                )
+                _reject_unknown(
+                    transition_raw,
+                    {"source", "target", "probability"},
+                    "state transition",
+                    transition_location,
+                )
+                source = require_identifier(
+                    transition_raw.get("source"), "transition source", transition_location
+                )
+                target = require_identifier(
+                    transition_raw.get("target"), "transition target", transition_location
+                )
+                probability = require_text(
+                    transition_raw.get("probability"),
+                    "transition probability",
+                    transition_location,
+                )
+                if source not in state_set or target not in state_set:
+                    raise SchemaError(
+                        "state transition references an undeclared state", transition_location
+                    )
+                if not probability.strip():
+                    raise SchemaError(
+                        "transition probability may not be empty", transition_location
+                    )
+                edge = (source, target)
+                if edge in seen_edges:
+                    raise SchemaError(
+                        f"duplicate state transition {source!r} -> {target!r}",
+                        transition_location,
+                    )
+                seen_edges.add(edge)
+                outgoing_states.add(source)
+                transitions.append(
+                    StateTransitionSpec(source, target, probability, transition_location)
+                )
+            missing_outgoing = sorted(state_set - outgoing_states)
+            if missing_outgoing:
+                raise SchemaError(
+                    "state(s) have no outgoing transition: " + ", ".join(missing_outgoing),
+                    model_location,
+                )
+
+            rewards_raw = require_mapping(
+                model_raw.get("rewards", {}), "state rewards", model_location
+            )
+            if len(rewards_raw) > MAX_STATE_MODEL_REWARDS:
+                raise SchemaError(
+                    f"state model exceeds {MAX_STATE_MODEL_REWARDS} rewards", model_location
+                )
+            rewards = {}
+            for reward_id, reward_raw in rewards_raw.items():
+                reward_location = _location(
+                    path, doc_id, positions, f"state_models.{model_id}.rewards.{reward_id}"
+                )
+                require_identifier(reward_id, "state reward id", reward_location)
+                reward_raw = require_mapping(
+                    reward_raw, f"state reward {reward_id}", reward_location
+                )
+                _reject_unknown(
+                    reward_raw,
+                    {"label", "unit", "values"},
+                    "state reward",
+                    reward_location,
+                )
+                reward_label = require_display_label(
+                    reward_raw.get("label", reward_id),
+                    "state reward label",
+                    reward_location,
+                )
+                unit_name = require_identifier(
+                    reward_raw.get("unit", "dimensionless"),
+                    "state reward unit",
+                    reward_location,
+                )
+                dimension = registry.parse_unit(unit_name, reward_location)
+                values_raw = require_mapping(
+                    reward_raw.get("values", {}), "state reward values", reward_location
+                )
+                unknown_states = sorted(set(values_raw) - state_set)
+                missing_states = sorted(state_set - set(values_raw))
+                if unknown_states or missing_states:
+                    details = []
+                    if unknown_states:
+                        details.append("unknown: " + ", ".join(unknown_states))
+                    if missing_states:
+                        details.append("missing: " + ", ".join(missing_states))
+                    raise SchemaError(
+                        "state reward values must cover every state (" + "; ".join(details) + ")",
+                        reward_location,
+                    )
+                values = {}
+                for state, expression in values_raw.items():
+                    values[state] = require_text(
+                        expression, "state reward expression", reward_location
+                    )
+                    if not values[state].strip():
+                        raise SchemaError(
+                            "state reward expression may not be empty", reward_location
+                        )
+                rewards[reward_id] = StateRewardSpec(
+                    reward_id,
+                    reward_label,
+                    unit_name,
+                    dimension,
+                    values,
+                    reward_location,
+                )
+            state_models[model_id] = StateModelSpec(
+                model_id,
+                doc_id,
+                label,
+                tuple(states),
+                tuple(transitions),
+                rewards,
+                model_location,
+            )
+            occupied.add(model_id)
         for section_name, section in (("fields", fields), ("functions", functions), ("outputs", outputs)):
             for member, value in section.items():
                 member_location = _location(path, doc_id, positions, f"{section_name}.{member}")
@@ -961,6 +1418,9 @@ def parse_document(
             fields=fields,
             functions=functions,
             tables=tables,
+            distributions=distributions,
+            recurrences=recurrences,
+            state_models=state_models,
             outputs=outputs,
             groups=groups,
             presets=presets,

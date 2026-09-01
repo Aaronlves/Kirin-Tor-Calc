@@ -61,6 +61,9 @@ Supported directives are `@game-version` and `@status`. Supported sections are:
 - `fields`: `NAME ["LABEL"]: TYPE = VALUE_OR_EXPRESSION`.
 - `functions`: `NAME ["LABEL"](PARAMETERS) -> UNIT = EXPRESSION`.
 - `tables`: versioned ordered lookup points, with explicit input and output units.
+- `distributions`: finite numeric outcomes written as `VALUE @ PROBABILITY`, with one declared result unit.
+- `recurrences`: bounded pure recurrences with an initial value, finite step count, and `next(CURRENT, INDEX)` expression.
+- `state_models`: finite transition systems with optional typed rewards for analytical queries.
 - `outputs`: `NAME ["LABEL"]: UNIT = EXPRESSION`.
 - `groups`: author-defined named output groups; the engine supplies no built-in categories.
 - `presets`: named input assignments belonging to this entry.
@@ -85,7 +88,7 @@ outputs:
   result "期望伤害": damage = 技能(法强, 暴击率)
 ```
 
-An alias may target an input, field, output, or function. It may not shadow a declared
+An alias may target an input, field, function, distribution, recurrence, state model, or output. It may not shadow a declared
 member or a built-in expression function, and other documents cannot reference it.
 Dependencies, parameters, presets, CLI arguments, and run results continue to use
 canonical qualified identities.
@@ -152,6 +155,115 @@ display:
 
 Group members must be local outputs and may appear in at most one group. Preset values must refer to declared inputs; use `entry.preset` outside the owning entry. `lookup(rating, key)` requires an exact table key, while `interpolate(rating, key)` linearly interpolates within the declared domain. Exact decimals need no quoting in Kirin source.
 
+## Finite discrete distributions
+
+An entry may declare a finite numeric distribution using exact scalar expressions for both
+outcomes and probabilities:
+
+```text
+inputs:
+  proc_chance: probability = 0.25
+
+fields:
+  proc_damage: damage = 100
+
+distributions:
+  proc_result "触发结果": damage:
+    0 @ 1 - proc_chance
+    proc_damage @ proc_chance
+
+outputs:
+  expected_damage: damage = expectation(proc_result)
+  damage_variance: damage_squared = variance(proc_result)
+  proc_probability: dimensionless = probability(proc_result, proc_damage)
+```
+
+Every outcome must be numeric and compatible with the distribution's declared unit. Every
+probability must be dimensionless, between zero and one, and all probabilities must add to exactly
+one after effective inputs are applied. These rules are definition-domain conditions, so invalid
+defaults, presets, or temporary overrides fail instead of being normalized silently.
+
+`expectation(DISTRIBUTION)` returns the declared distribution unit. `variance(DISTRIBUTION)`
+returns that unit squared. `probability(DISTRIBUTION, VALUE)` sums the probabilities of every
+outcome equal to `VALUE` and returns a dimensionless scalar. A distribution can be referenced as a
+local name, `ENTRY.DISTRIBUTION`, or a local alias, but it cannot be used directly as a scalar.
+
+Distribution transformations are syntax expressions:
+
+```text
+outputs:
+  doubled_mean: damage = expectation(map(proc_result, value, value * 2))
+  two_roll_mean: damage = expectation(independent_sum(proc_result, proc_result))
+  repeated_mean: damage = expectation(repeat_sum(proc_result, attempts))
+  triggered_mean: damage =
+    expectation(condition(proc_result, value, value > 0))
+```
+
+`map(DISTRIBUTION, VARIABLE, EXPRESSION)` applies a pure numeric expression to every outcome.
+`independent_sum(LEFT, RIGHT)` explicitly declares independence and convolves equal-unit results.
+`repeat_sum(DISTRIBUTION, COUNT)` explicitly declares independent repetitions; `COUNT` must be a
+constant non-negative integer or one direct integer input with finite bounds or allowed values.
+`condition(DISTRIBUTION, VARIABLE, PREDICATE)` retains matching outcomes and renormalizes them; a
+zero-probability condition is a domain error. Equivalent transformed outcomes are merged.
+
+Kirin never infers independence from names or dependency shape and never samples. One resulting
+distribution may contain at most 1,000 merged outcomes; one binary convolution may inspect at most
+10,000 outcome pairs, and a repeat count may not exceed 1,000.
+
+## Finite recurrences
+
+```text
+recurrences:
+  protected_chance "失败保护概率": dimensionless:
+    initial = base_chance
+    steps = failures
+    next(current, index) = min(current + increase, cap)
+
+outputs:
+  current_chance: dimensionless = protected_chance
+```
+
+A recurrence is a numeric member and can be referenced locally or as `ENTRY.RECURRENCE`. Its
+initial and every next value must match the declared unit. `steps` must be a constant non-negative
+integer or resolve directly to one numeric input whose integer values are statically finite. The
+validator unfolds at most 1,000 pure steps; `current` and zero-based `index` are local names only.
+There is no mutation, unbounded recursion, or event clock.
+
+## Finite analytical state models
+
+```text
+state_models:
+  proc_cycle "触发循环":
+    states:
+      ready
+      cooldown
+    transitions:
+      ready -> ready @ 1 - proc_chance
+      ready -> cooldown @ proc_chance
+      cooldown -> ready @ 1
+    rewards:
+      damage_reward "状态伤害": damage:
+        ready = hit
+        cooldown = 0
+
+outputs:
+  ready_share: dimensionless = steady_probability(proc_cycle, ready)
+  long_run_damage: damage = steady_reward(proc_cycle, damage_reward)
+  reaches_cooldown: dimensionless =
+    hitting_probability(proc_cycle, ready, cooldown)
+  steps_to_cooldown: dimensionless =
+    expected_steps(proc_cycle, ready, cooldown)
+```
+
+Every state requires an outgoing transition. Transition probabilities are dimensionless, lie in
+`0..1`, and every source row must sum exactly to one. Rewards are optional, numeric, unit-checked,
+and cover every state. The four query functions solve finite linear systems exactly. A non-unique
+steady state or singular hitting system is a domain failure, including parameter values at which
+an otherwise symbolic system becomes singular.
+
+State models are limited to 16 states, 256 transitions, and 64 named rewards. They contain no
+actions, actors, APL, mutable runtime state, event queue, timeline, or random sampling.
+
 ## Optional chart projection
 
 ```text
@@ -198,6 +310,6 @@ The Relationship Graph derives member-level edges from parsed formulas and aggre
 
 Workbench status text and common diagnostics are presented in Chinese without changing core error codes or CLI JSON. A diagnostic includes the relative source path, line and column, formal entry/field identity, a Chinese explanation, and the original technical message. When the failing line contains common full-width Chinese punctuation, the diagnostic suggests the corresponding Kirin punctuation rather than silently rewriting the source.
 
-`Ctrl+Space` opens Kirin-aware completion. Use Up/Down, Enter, and Escape to navigate, insert, and close it. Candidate indexing is deliberately tolerant of incomplete drafts and includes every on-disk document plus every in-memory buffer. Formal IDs, Chinese display labels, and entry-local aliases are searchable. Units, domains, dimensions, built-in functions, booleans, and common constraint keywords are also included.
+`Ctrl+Space` opens Kirin-aware completion. Use Up/Down, Enter, and Escape to navigate, insert, and close it. Candidate indexing is deliberately tolerant of incomplete drafts and includes every on-disk document plus every in-memory buffer. Formal IDs, Chinese display labels, entry-local aliases, finite distributions, recurrences, and state models are searchable. Units, domains, dimensions, built-in functions, booleans, and common constraint keywords are also included.
 
 Chinese snippet triggers include `条目文档`, `输入`, `别名`, `字段`, `函数`, `查表`, `输出`, `分组`, `参数方案`, `显示`, `约束`, `来源`, `长说明`, `图表`, `分段`, and `条件`. Snippets preserve the current indentation and remove the internal cursor marker on insertion.

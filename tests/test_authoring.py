@@ -46,6 +46,24 @@ inputs:
 
 functions:
   double "翻倍"(value: number[dimensionless]) -> dimensionless = value * 2
+
+distributions:
+  roll "结果分布": dimensionless:
+    0 @ 1 - crit
+    1 @ crit
+
+recurrences:
+  bounded_total "有限递推结果": dimensionless:
+    initial = 0
+    steps = 2
+    next(current, index) = current + index
+
+state_models:
+  cycle "状态循环":
+    states:
+      ready
+    transitions:
+      ready -> ready @ 1
 """
     model_source = """@kirin 1
 @entry model
@@ -61,6 +79,13 @@ outputs:
     assert build_completion_candidates(sources, model, "技能")[0].insert_text == "技能($0)"
     assert build_completion_candidates(sources, model, "输出")[0].label == "输出章节"
     assert build_completion_candidates(sources, model, "平方根")[0].insert_text == "sqrt($0)"
+    assert build_completion_candidates(sources, model, "结果分布")[0].insert_text == "base.roll"
+    assert build_completion_candidates(sources, model, "分布期望")[0].insert_text == "expectation($0)"
+    assert build_completion_candidates(sources, model, "有限分布")[0].label == "有限分布章节"
+    assert build_completion_candidates(sources, model, "有限递推结果")[0].insert_text == "base.bounded_total"
+    assert build_completion_candidates(sources, model, "状态循环")[0].insert_text == "base.cycle"
+    assert build_completion_candidates(sources, model, "稳态概率")[0].insert_text == "steady_probability(model, $0)"
+    assert build_completion_candidates(sources, model, "有限状态")[0].label == "有限状态模型章节"
     inserted, cursor = prepare_completion_insertion("piecewise(\n  $0\n)", "  ")
     assert inserted == "piecewise(\n    \n  )"
     assert inserted[:cursor].endswith("    ")

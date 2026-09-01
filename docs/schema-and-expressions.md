@@ -121,7 +121,7 @@ outputs:
   total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
 ```
 
-别名可以指向输入、字段、输出或函数，但不能遮蔽当前条目的正式成员或表达式内置函数。其他文件、参数方案、CLI 参数和运行结果仍使用正式限定身份。输入、字段、函数和输出都可以在正式 ID 后增加双引号显示标签；标签只影响 `explain`、浏览器工作台和图表呈现，不参与引用。plot 中显式的 `as "标签"` 优先于成员默认标签。
+别名可以指向输入、字段、函数、有限分布、有限递推、有限状态模型或输出，但不能遮蔽当前条目的正式成员或表达式内置函数。其他文件、参数方案、CLI 参数和运行结果仍使用正式限定身份。数学成员可以增加双引号显示标签；标签只影响 `explain`、浏览器工作台和图表呈现，不参与引用。图表曲线显式的 `as "标签"` 优先于成员默认标签。
 
 ## 5. 约束、字段、函数与输出
 
@@ -181,6 +181,60 @@ display:
 
 分组完全由作者命名，只影响浏览器工作台中的顺序和搜索；内核不预设游戏类别。参数方案只能提供已声明的输入，稳定引用为 `entry.preset`。十进制直接作为精确文本处理，不经过二进制浮点数。`lookup` 要求精确键，`interpolate` 只在表范围内做线性插值。
 
+### 6.1 有限离散概率分布
+
+```text
+distributions:
+  proc_result "触发结果": damage:
+    0 @ 1 - proc_chance
+    proc_damage @ proc_chance
+
+outputs:
+  expected_damage: damage = expectation(proc_result)
+  damage_variance: damage_squared = variance(proc_result)
+  proc_probability: dimensionless = probability(proc_result, proc_damage)
+```
+
+分布是 entry 中可复用、但不能直接充当标量的数学成员。结果和值均使用普通受限表达式，因此可以引用输入、字段、函数与其他 entry；跨 entry 分布引用写作 `entry.distribution`，并进入既有依赖、Package 权限、版本检查、运行快照与重放路径。
+
+每个结果必须是数值并符合分布声明量纲；概率必须无量纲、处于 `0..1`，且有效参数代入后总和精确等于 `1`。校验器不会静默归一化。`expectation` 返回原量纲，`variance` 返回原量纲的平方，`probability` 返回指定结果的总概率。
+
+`map(distribution, value, expression)` 映射结果；`independent_sum(left, right)` 由作者明确声明两个分布独立并执行卷积；`repeat_sum(distribution, count)` 明确声明有限次独立重复，次数可以是常量或一个具有有限整数值域的直接输入；`condition(distribution, value, predicate)` 生成条件分布，条件事件概率为零时失败。等价结果会合并，但核心绝不从名称或依赖关系推断独立性，也不进行随机采样。
+
+### 6.2 有限递推
+
+```text
+recurrences:
+  protected_chance: dimensionless:
+    initial = base_chance
+    steps = failures
+    next(current, index) = min(current + increase, cap)
+```
+
+递推是普通数值成员。初始值与每一步结果必须符合声明量纲；步数必须是非负整数常量，或直接来自一个可静态证明为有限整数值域的输入。内核将纯函数更新展开为标量表达式或有限 `Piecewise`，最多 1,000 步；不存在可变状态、无限递归或事件时钟。
+
+### 6.3 有限状态解析模型
+
+```text
+state_models:
+  proc_cycle:
+    states:
+      ready
+      cooldown
+    transitions:
+      ready -> ready @ 1 - proc_chance
+      ready -> cooldown @ proc_chance
+      cooldown -> ready @ 1
+    rewards:
+      damage_reward: damage:
+        ready = hit
+        cooldown = 0
+```
+
+每个状态必须有出边，每一行转移概率必须精确归一化。`steady_probability` 与 `steady_reward` 解析求解唯一稳态；`hitting_probability` 与 `expected_steps` 求给定起点到目标状态的到达概率和期望步数。线性系统不唯一、目标系统奇异或参数落在奇异边界时明确失败，不选择任意解。
+
+状态模型只是有限转移矩阵及奖励函数的声明式语法：没有动作、角色、APL、事件队列、战斗时间线或随机采样。
+
 ## 7. 可选图表配置
 
 ```text
@@ -230,6 +284,17 @@ sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
 product(expression, index, inclusive_lower_integer, inclusive_upper_integer)
 lookup(table, key)
 interpolate(table, key)
+expectation(distribution)
+variance(distribution)
+probability(distribution, value)
+map(distribution, variable, expression)
+independent_sum(left_distribution, right_distribution)
+repeat_sum(distribution, bounded_count)
+condition(distribution, variable, predicate)
+steady_probability(model, state)
+steady_reward(model, reward)
+hitting_probability(model, start_state, target_state)
+expected_steps(model, start_state, target_state)
 ```
 
 不允许：
@@ -291,6 +356,13 @@ interpolate(table, key)
 | 单值域允许值 | 1,000 |
 | 单次扫描点 | 10,000 |
 | 有限求和或连乘项 | 10,000 |
+| 单个有限分布结果 | 1,000 |
+| 单次分布组合结果对 | 10,000 |
+| 独立重复次数 | 1,000 |
+| 有限递推步数 | 1,000 |
+| 单个状态模型状态 | 16 |
+| 单个状态模型转移 | 256 |
+| 单个状态模型奖励 | 64 |
 | 联立方程或变量 | 8 |
 | 默认操作超时 | 10 秒 |
 | 最大可请求超时 | 300 秒 |
@@ -303,4 +375,4 @@ interpolate(table, key)
 
 文档选择器将首条非空 `//` 注释作为中文显示标题，并始终同时显示相对路径。标题不进入 schema，也不改变文档 ID、引用或运行记录。
 
-浏览器编辑器提供 `Ctrl+Space` Kirin 补全，从磁盘文档和所有内存草稿建立容错索引，可按正式 ID、中文标签或中文别名查找成员，也包含量纲、单位、值域、内置函数和结构关键字。候选只帮助插入源文本，不创建新的身份或绕过后续完整校验。中文语法片段同样只展开为普通 Kirin source；插入后立即进入既有工作区校验路径。
+浏览器编辑器提供 `Ctrl+Space` Kirin 补全，从磁盘文档和所有内存草稿建立容错索引，可按正式 ID、中文标签或中文别名查找输入、字段、函数、有限分布、递推、状态模型和输出，也包含量纲、单位、值域、内置函数和结构关键字。候选只帮助插入源文本，不创建新的身份或绕过后续完整校验。中文语法片段同样只展开为普通 Kirin source；插入后立即进入既有工作区校验路径。

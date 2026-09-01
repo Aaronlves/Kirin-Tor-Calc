@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Set
 
 import sympy as sp
+from sympy.matrices.exceptions import NonInvertibleMatrixError
 
 from .errors import (
     DependencyCycleError,
@@ -20,12 +21,22 @@ from .errors import (
     ValidationErrors,
     KTError,
 )
-from .expression import MathValue, RestrictedCompiler, merge_inputs, parse_exact_number
+from .expression import (
+    DistributionOutcome,
+    FiniteDistribution,
+    FiniteStateModel,
+    MathValue,
+    RestrictedCompiler,
+    StateRewardValue,
+    merge_inputs,
+    parse_exact_number,
+)
 from .limits import (
     MAX_DEPENDENCY_DEPTH,
     MAX_DEPENDENCY_DOCUMENTS,
     MAX_EXPANDED_NODES,
     MAX_NUMERIC_PRECISION,
+    MAX_RECURRENCE_STEPS,
     MAX_SCAN_POINTS,
 )
 from .schema import Document, Entry, InputSpec, Preset, _parse_input
@@ -51,6 +62,12 @@ class Engine:
         self._symbols: Dict[str, sp.Symbol] = {}
         self._symbol_specs: Dict[str, InputSpec] = {}
         self._member_cache: Dict[tuple[str, str], MathValue] = {}
+        self._distribution_cache: Dict[tuple[str, str], FiniteDistribution] = {}
+        self._state_model_cache: Dict[tuple[str, str], FiniteStateModel] = {}
+        self._state_steady_cache: Dict[tuple[str, str], tuple[tuple[sp.Expr, ...], sp.Expr]] = {}
+        self._state_hitting_cache: Dict[
+            tuple[str, str, str], tuple[Dict[str, sp.Expr], Dict[str, sp.Expr], sp.Expr]
+        ] = {}
         self._stack: list[str] = []
         self._constraint_entries: Set[str] = set()
 
@@ -165,6 +182,12 @@ class Engine:
         member = match.group(2)
         if member in entry.inputs:
             return entry.inputs[member].label
+        if member in entry.distributions:
+            return entry.distributions[member].label
+        if member in entry.recurrences:
+            return entry.recurrences[member].label
+        if member in entry.state_models:
+            return entry.state_models[member].label
         for collection in (entry.fields, entry.functions, entry.outputs):
             if member in collection:
                 label = collection[member].get("label")
@@ -245,6 +268,16 @@ class Engine:
                 value.dependencies.add(entry_id)
             elif member in entry.functions:
                 raise ReferenceError(f"function {entry_id}.{member} must be called with parentheses")
+            elif member in entry.distributions:
+                raise ReferenceError(
+                    f"distribution {entry_id}.{member} must be observed with expectation, variance, or probability"
+                )
+            elif member in entry.recurrences:
+                value = self._compile_recurrence(entry, member)
+            elif member in entry.state_models:
+                raise ReferenceError(
+                    f"state model {entry_id}.{member} must be queried with a state-model analytical function"
+                )
             elif member in entry.inputs:
                 spec = entry.inputs[member]
                 symbol = self.input_symbol(member, spec)
@@ -279,6 +312,561 @@ class Engine:
             )
         finally:
             self._stack.pop()
+
+    def bounded_nonnegative_integer_values(
+        self, value: MathValue, context: str, maximum_allowed: int
+    ) -> list[int]:
+        if value.is_boolean or not value.dimension.is_dimensionless:
+            raise ExpressionError(f"{context} must be a dimensionless integer")
+        if not value.expr.free_symbols:
+            if not value.expr.is_Integer:
+                raise ExpressionError(f"{context} must be an integer")
+            candidates = [int(value.expr)]
+        else:
+            if not isinstance(value.expr, sp.Symbol):
+                raise ExpressionError(
+                    f"{context} must be a constant or direct bounded integer input"
+                )
+            spec = next(
+                (
+                    spec
+                    for key, spec in value.inputs.items()
+                    if self.input_symbol(key, spec) == value.expr
+                ),
+                None,
+            )
+            if spec is None:
+                raise ExpressionError(
+                    f"{context} must resolve to one declared bounded integer input"
+                )
+            if spec.allowed_values:
+                parsed = [parse_exact_number(str(item)) for item in spec.allowed_values]
+                if any(not item.is_Integer for item in parsed):
+                    raise ExpressionError(
+                        f"{context} allowed values must all be integers"
+                    )
+                candidates = sorted({int(item) for item in parsed})
+            else:
+                if not spec.integer or spec.minimum is None or spec.maximum is None:
+                    raise ExpressionError(
+                        f"{context} requires finite integer bounds or finite allowed values"
+                    )
+                minimum = parse_exact_number(spec.minimum)
+                maximum = parse_exact_number(spec.maximum)
+                if not minimum.is_Integer or not maximum.is_Integer:
+                    raise ExpressionError(f"{context} bounds must be integers")
+                if int(maximum) - int(minimum) > maximum_allowed:
+                    raise ExpressionError(
+                        f"{context} domain exceeds {maximum_allowed} values"
+                    )
+                candidates = list(range(int(minimum), int(maximum) + 1))
+        if not candidates or min(candidates) < 0 or max(candidates) > maximum_allowed:
+            raise ExpressionError(
+                f"{context} must be between 0 and {maximum_allowed}"
+            )
+        return candidates
+
+    def _compile_recurrence(self, entry: Entry, recurrence_name: str) -> MathValue:
+        recurrence = entry.recurrences[recurrence_name]
+        initial = self._compile_entry_expression(
+            entry,
+            recurrence.initial,
+            f"recurrences.{recurrence_name}.initial",
+            apply_constraints=True,
+        )
+        steps = self._compile_entry_expression(
+            entry,
+            recurrence.steps,
+            f"recurrences.{recurrence_name}.steps",
+            apply_constraints=True,
+        )
+        if initial.is_boolean:
+            raise ExpressionError(
+                "recurrence initial value must be numeric", recurrence.location
+            )
+        self._require_declared_dimension(
+            initial.dimension,
+            recurrence.dimension,
+            entry,
+            f"recurrences.{recurrence_name}.initial",
+            initial.expr,
+        )
+        if initial.expr == 0:
+            initial.dimension = recurrence.dimension
+        candidates = self.bounded_nonnegative_integer_values(
+            steps, "recurrence steps", MAX_RECURRENCE_STEPS
+        )
+        initial_conditions = list(initial.conditions)
+        values = [
+            MathValue(
+                initial.expr,
+                initial.dimension,
+                [],
+                dict(initial.inputs),
+                set(initial.dependencies),
+            )
+        ]
+        step_conditions = []
+        for index in range(max(candidates)):
+            current = values[-1]
+            compiler = RestrictedCompiler(
+                self,
+                entry,
+                local_values={
+                    recurrence.current_name: current,
+                    recurrence.index_name: MathValue(sp.Integer(index)),
+                },
+                location=entry.location(f"recurrences.{recurrence_name}.next"),
+            )
+            next_value = compiler.compile(recurrence.next_expression)
+            next_value = self._apply_entry_constraints(entry, next_value, compiler)
+            if next_value.is_boolean:
+                raise ExpressionError(
+                    "recurrence next expression must be numeric", recurrence.location
+                )
+            self._require_declared_dimension(
+                next_value.dimension,
+                recurrence.dimension,
+                entry,
+                f"recurrences.{recurrence_name}.next",
+                next_value.expr,
+            )
+            if next_value.expr == 0:
+                next_value.dimension = recurrence.dimension
+            self._check_expanded_size(next_value.expr)
+            step_conditions.append(list(next_value.conditions))
+            values.append(
+                MathValue(
+                    next_value.expr,
+                    next_value.dimension,
+                    [],
+                    dict(next_value.inputs),
+                    set(next_value.dependencies),
+                )
+            )
+
+        conditions = [*steps.conditions, *initial_conditions]
+        inputs = dict(steps.inputs)
+        dependencies = set(steps.dependencies) | {entry.id}
+        if len(candidates) == 1 and not steps.expr.free_symbols:
+            selected = values[candidates[0]]
+            for conditions_for_step in step_conditions[: candidates[0]]:
+                conditions.extend(conditions_for_step)
+            inputs = merge_inputs(inputs, selected.inputs)
+            dependencies.update(selected.dependencies)
+            return MathValue(
+                selected.expr,
+                recurrence.dimension,
+                conditions,
+                inputs,
+                dependencies,
+            )
+
+        active_conditions = [
+            sp.Eq(steps.expr, candidate, evaluate=False) for candidate in candidates
+        ]
+        conditions.append(sp.Or(*active_conditions))
+        for step_number, conditions_for_step in enumerate(step_conditions, 1):
+            active_step = sp.Ge(steps.expr, step_number, evaluate=False)
+            conditions.extend(
+                sp.Implies(active_step, condition)
+                for condition in conditions_for_step
+            )
+        branches = []
+        for candidate, active in zip(candidates, active_conditions):
+            candidate_value = values[candidate]
+            branches.append((candidate_value.expr, active))
+            inputs = merge_inputs(inputs, candidate_value.inputs)
+            dependencies.update(candidate_value.dependencies)
+        expr = sp.Piecewise(*branches[:-1], (branches[-1][0], True))
+        return MathValue(
+            expr,
+            recurrence.dimension,
+            conditions,
+            inputs,
+            dependencies,
+        )
+
+    def resolve_distribution(
+        self, entry_id: str, distribution_name: str
+    ) -> FiniteDistribution:
+        key = (entry_id, distribution_name)
+        if key in self._distribution_cache:
+            return self._distribution_cache[key].copy()
+        entry = self.workspace.get_entry(entry_id)
+        distribution = entry.distributions.get(distribution_name)
+        if distribution is None:
+            raise ReferenceError(
+                f"entry {entry_id!r} has no distribution {distribution_name!r}"
+            )
+        stack_key = f"{entry_id}.{distribution_name}<distribution>"
+        if stack_key in self._stack:
+            start = self._stack.index(stack_key)
+            path = self._stack[start:] + [stack_key]
+            raise DependencyCycleError("dependency cycle: " + " -> ".join(path))
+        if len(self._stack) >= MAX_DEPENDENCY_DEPTH:
+            raise ExpressionError(
+                f"dependency expansion exceeds depth {MAX_DEPENDENCY_DEPTH}: "
+                + " -> ".join([*self._stack, stack_key])
+            )
+        self._stack.append(stack_key)
+        try:
+            outcomes = []
+            conditions = []
+            inputs: Dict[str, InputSpec] = {}
+            dependencies: Set[str] = {entry.id}
+            probabilities = []
+            for index, outcome_spec in enumerate(distribution.outcomes):
+                value = self._compile_entry_expression(
+                    entry,
+                    outcome_spec.value,
+                    f"distributions.{distribution_name}.outcomes.{index}.value",
+                    apply_constraints=True,
+                )
+                probability = self._compile_entry_expression(
+                    entry,
+                    outcome_spec.probability,
+                    f"distributions.{distribution_name}.outcomes.{index}.probability",
+                    apply_constraints=True,
+                )
+                if value.is_boolean:
+                    raise ExpressionError(
+                        "distribution outcomes must be numeric", outcome_spec.location
+                    )
+                if probability.is_boolean:
+                    raise ExpressionError(
+                        "distribution probabilities must be numeric", outcome_spec.location
+                    )
+                if not probability.dimension.is_dimensionless:
+                    raise UnitError(
+                        "distribution probabilities must be dimensionless",
+                        outcome_spec.location,
+                    )
+                self._require_declared_dimension(
+                    value.dimension,
+                    distribution.dimension,
+                    entry,
+                    f"distributions.{distribution_name}.outcomes.{index}.value",
+                    value.expr,
+                )
+                if value.expr == 0:
+                    value.dimension = distribution.dimension
+                conditions.extend(value.conditions)
+                conditions.extend(probability.conditions)
+                conditions.extend(
+                    [
+                        sp.Ge(probability.expr, 0, evaluate=False),
+                        sp.Le(probability.expr, 1, evaluate=False),
+                    ]
+                )
+                inputs = merge_inputs(inputs, value.inputs, probability.inputs)
+                dependencies.update(value.dependencies)
+                dependencies.update(probability.dependencies)
+                probabilities.append(probability.expr)
+                outcomes.append(DistributionOutcome(value, probability))
+                self._check_expanded_size(value.expr)
+                self._check_expanded_size(probability.expr)
+            conditions.append(sp.Eq(sp.Add(*probabilities), 1, evaluate=False))
+            resolved = FiniteDistribution(
+                tuple(outcomes),
+                distribution.dimension,
+                conditions,
+                inputs,
+                dependencies,
+            )
+            self.check_conditions(conditions)
+            self._check_package_dependency_scope(
+                entry,
+                MathValue(sp.Integer(0), dependencies=dependencies),
+                distribution.location or entry.location(f"distributions.{distribution_name}"),
+            )
+            self._check_dependency_count(
+                MathValue(sp.Integer(0), dependencies=dependencies)
+            )
+            self._distribution_cache[key] = resolved
+            return resolved.copy()
+        finally:
+            self._stack.pop()
+
+    def resolve_state_model(self, entry_id: str, model_name: str) -> FiniteStateModel:
+        key = (entry_id, model_name)
+        if key in self._state_model_cache:
+            return self._state_model_cache[key]
+        entry = self.workspace.get_entry(entry_id)
+        spec = entry.state_models.get(model_name)
+        if spec is None:
+            raise ReferenceError(f"entry {entry_id!r} has no state model {model_name!r}")
+        stack_key = f"{entry_id}.{model_name}<state_model>"
+        if stack_key in self._stack:
+            start = self._stack.index(stack_key)
+            path = self._stack[start:] + [stack_key]
+            raise DependencyCycleError("dependency cycle: " + " -> ".join(path))
+        if len(self._stack) >= MAX_DEPENDENCY_DEPTH:
+            raise ExpressionError(
+                f"dependency expansion exceeds depth {MAX_DEPENDENCY_DEPTH}: "
+                + " -> ".join([*self._stack, stack_key])
+            )
+        self._stack.append(stack_key)
+        try:
+            state_indexes = {state: index for index, state in enumerate(spec.states)}
+            size = len(spec.states)
+            transition_rows = [
+                [MathValue(sp.Integer(0)) for _target in spec.states]
+                for _source in spec.states
+            ]
+            conditions = []
+            inputs: Dict[str, InputSpec] = {}
+            dependencies: Set[str] = {entry.id}
+            for index, transition_spec in enumerate(spec.transitions):
+                probability = self._compile_entry_expression(
+                    entry,
+                    transition_spec.probability,
+                    f"state_models.{model_name}.transitions.{index}.probability",
+                    apply_constraints=True,
+                )
+                if probability.is_boolean or not probability.dimension.is_dimensionless:
+                    raise UnitError(
+                        "state transition probabilities must be numeric and dimensionless",
+                        transition_spec.location,
+                    )
+                conditions.extend(probability.conditions)
+                conditions.extend(
+                    [
+                        sp.Ge(probability.expr, 0, evaluate=False),
+                        sp.Le(probability.expr, 1, evaluate=False),
+                    ]
+                )
+                inputs = merge_inputs(inputs, probability.inputs)
+                dependencies.update(probability.dependencies)
+                transition_rows[state_indexes[transition_spec.source]][
+                    state_indexes[transition_spec.target]
+                ] = probability
+                self._check_expanded_size(probability.expr)
+            for row in transition_rows:
+                conditions.append(
+                    sp.Eq(sp.Add(*(probability.expr for probability in row)), 1, evaluate=False)
+                )
+
+            rewards = {}
+            for reward_id, reward_spec in spec.rewards.items():
+                values = {}
+                reward_conditions = []
+                reward_inputs: Dict[str, InputSpec] = {}
+                reward_dependencies: Set[str] = {entry.id}
+                for state in spec.states:
+                    value = self._compile_entry_expression(
+                        entry,
+                        reward_spec.values[state],
+                        f"state_models.{model_name}.rewards.{reward_id}.values.{state}",
+                        apply_constraints=True,
+                    )
+                    if value.is_boolean:
+                        raise ExpressionError(
+                            "state reward values must be numeric", reward_spec.location
+                        )
+                    self._require_declared_dimension(
+                        value.dimension,
+                        reward_spec.dimension,
+                        entry,
+                        f"state_models.{model_name}.rewards.{reward_id}.values.{state}",
+                        value.expr,
+                    )
+                    if value.expr == 0:
+                        value.dimension = reward_spec.dimension
+                    reward_conditions.extend(value.conditions)
+                    reward_inputs = merge_inputs(reward_inputs, value.inputs)
+                    reward_dependencies.update(value.dependencies)
+                    values[state] = value
+                    self._check_expanded_size(value.expr)
+                rewards[reward_id] = StateRewardValue(
+                    reward_id,
+                    reward_spec.dimension,
+                    values,
+                    tuple(reward_conditions),
+                    reward_inputs,
+                    frozenset(reward_dependencies),
+                )
+
+            model = FiniteStateModel(
+                model_name,
+                entry_id,
+                spec.states,
+                tuple(tuple(row) for row in transition_rows),
+                rewards,
+                tuple(conditions),
+                inputs,
+                frozenset(dependencies),
+            )
+            self.check_conditions(conditions)
+            all_dependencies = set(dependencies)
+            for reward in rewards.values():
+                all_dependencies.update(reward.dependencies)
+            self._check_package_dependency_scope(
+                entry,
+                MathValue(sp.Integer(0), dependencies=all_dependencies),
+                spec.location or entry.location(f"state_models.{model_name}"),
+            )
+            self._check_dependency_count(
+                MathValue(sp.Integer(0), dependencies=all_dependencies)
+            )
+            self._state_model_cache[key] = model
+            return model
+        finally:
+            self._stack.pop()
+
+    def _state_model_matrix(self, model: FiniteStateModel) -> sp.Matrix:
+        return sp.Matrix(
+            [
+                [probability.expr for probability in row]
+                for row in model.transitions
+            ]
+        )
+
+    def _solve_unique_linear_system(
+        self, matrix: sp.Matrix, vector: sp.Matrix, context: str
+    ) -> tuple[tuple[sp.Expr, ...], sp.Expr]:
+        determinant = sp.factor(matrix.det())
+        if determinant == 0:
+            raise DomainError(f"{context} is not uniquely determined")
+        try:
+            solution = matrix.inv() * vector
+        except NonInvertibleMatrixError as exc:
+            raise DomainError(f"{context} could not be solved uniquely") from exc
+        values = tuple(sp.simplify(value) for value in solution)
+        for value in values:
+            self._check_expanded_size(value)
+        return values, determinant
+
+    def _state_model_steady_solution(
+        self, model: FiniteStateModel
+    ) -> tuple[tuple[sp.Expr, ...], sp.Expr]:
+        key = (model.owner_id, model.id)
+        if key in self._state_steady_cache:
+            return self._state_steady_cache[key]
+        size = len(model.states)
+        stationary = self._state_model_matrix(model).T - sp.eye(size)
+        rows = [list(stationary.row(index)) for index in range(size - 1)]
+        rows.append([sp.Integer(1)] * size)
+        matrix = sp.Matrix(rows)
+        vector = sp.Matrix([sp.Integer(0)] * (size - 1) + [sp.Integer(1)])
+        result = self._solve_unique_linear_system(
+            matrix, vector, f"state model {model.owner_id}.{model.id} steady state"
+        )
+        self._state_steady_cache[key] = result
+        return result
+
+    def _state_model_result(
+        self,
+        model: FiniteStateModel,
+        expr: sp.Expr,
+        dimension: Dimension,
+        determinant: Optional[sp.Expr] = None,
+    ) -> MathValue:
+        conditions = list(model.conditions)
+        if determinant is not None and determinant.free_symbols:
+            conditions.append(sp.Ne(determinant, 0, evaluate=False))
+        simplified = sp.simplify(expr)
+        self._check_expanded_size(simplified)
+        return MathValue(
+            simplified,
+            dimension,
+            conditions,
+            dict(model.inputs),
+            set(model.dependencies),
+        )
+
+    def state_model_steady_probability(
+        self, model: FiniteStateModel, state: str
+    ) -> MathValue:
+        solution, determinant = self._state_model_steady_solution(model)
+        return self._state_model_result(
+            model,
+            solution[model.states.index(state)],
+            DIMENSIONLESS,
+            determinant,
+        )
+
+    def state_model_steady_reward(
+        self, model: FiniteStateModel, reward_id: str
+    ) -> MathValue:
+        solution, determinant = self._state_model_steady_solution(model)
+        reward = model.rewards[reward_id]
+        expr = sp.Add(
+            *(
+                solution[index] * reward.values[state].expr
+                for index, state in enumerate(model.states)
+            )
+        )
+        result = self._state_model_result(
+            model, expr, reward.dimension, determinant
+        )
+        result.conditions.extend(reward.conditions)
+        result.inputs = merge_inputs(result.inputs, reward.inputs)
+        result.dependencies.update(reward.dependencies)
+        return result
+
+    def _state_model_hitting_solutions(
+        self, model: FiniteStateModel, target: str
+    ) -> tuple[Dict[str, sp.Expr], Dict[str, sp.Expr], sp.Expr]:
+        key = (model.owner_id, model.id, target)
+        if key in self._state_hitting_cache:
+            return self._state_hitting_cache[key]
+        transient_states = [state for state in model.states if state != target]
+        if not transient_states:
+            result = ({target: sp.Integer(1)}, {target: sp.Integer(0)}, sp.Integer(1))
+            self._state_hitting_cache[key] = result
+            return result
+        indexes = {state: index for index, state in enumerate(model.states)}
+        transition = self._state_model_matrix(model)
+        transient_indexes = [indexes[state] for state in transient_states]
+        q = transition.extract(transient_indexes, transient_indexes)
+        matrix = sp.eye(len(transient_states)) - q
+        target_index = indexes[target]
+        hit_vector = sp.Matrix(
+            [transition[index, target_index] for index in transient_indexes]
+        )
+        hit_values, determinant = self._solve_unique_linear_system(
+            matrix,
+            hit_vector,
+            f"hitting probability for {model.owner_id}.{model.id}.{target}",
+        )
+        step_values, step_determinant = self._solve_unique_linear_system(
+            matrix,
+            sp.Matrix([sp.Integer(1)] * len(transient_states)),
+            f"expected steps for {model.owner_id}.{model.id}.{target}",
+        )
+        determinant = sp.factor(determinant * step_determinant)
+        hitting = {target: sp.Integer(1)}
+        steps = {target: sp.Integer(0)}
+        hitting.update(zip(transient_states, hit_values))
+        steps.update(zip(transient_states, step_values))
+        result = hitting, steps, determinant
+        self._state_hitting_cache[key] = result
+        return result
+
+    def state_model_hitting_probability(
+        self, model: FiniteStateModel, start: str, target: str
+    ) -> MathValue:
+        if start == target:
+            return self._state_model_result(
+                model, sp.Integer(1), DIMENSIONLESS
+            )
+        hitting, _steps, determinant = self._state_model_hitting_solutions(model, target)
+        return self._state_model_result(
+            model, hitting[start], DIMENSIONLESS, determinant
+        )
+
+    def state_model_expected_steps(
+        self, model: FiniteStateModel, start: str, target: str
+    ) -> MathValue:
+        if start == target:
+            return self._state_model_result(
+                model, sp.Integer(0), DIMENSIONLESS
+            )
+        _hitting, steps, determinant = self._state_model_hitting_solutions(model, target)
+        return self._state_model_result(
+            model, steps[start], DIMENSIONLESS, determinant
+        )
 
     def call_function(self, entry_id: str, function_name: str, args: Sequence[MathValue]) -> MathValue:
         entry = self.workspace.get_entry(entry_id)
@@ -707,6 +1295,70 @@ class Engine:
                         exc.location = entry.location(f"constraints.{index}")
                     raise
 
+    def _validate_distribution_values(
+        self, distribution: FiniteDistribution, preset: Optional[Preset] = None
+    ) -> None:
+        available = {
+            key: spec.default
+            for key, spec in distribution.inputs.items()
+            if spec.default is not None
+        }
+        if preset is not None:
+            all_inputs = {
+                spec.key: spec
+                for entry in self.workspace.entries.values()
+                for spec in entry.inputs.values()
+            }
+            for raw_name, raw_value in preset.values.items():
+                key = self.resolve_input_key(raw_name, all_inputs)
+                if key in distribution.inputs:
+                    available[key] = raw_value
+        if set(distribution.inputs) <= set(available):
+            substitutions = {
+                self.input_symbol(key, spec): self._parse_parameter_value(spec, available[key])
+                for key, spec in distribution.inputs.items()
+            }
+            self.check_conditions(
+                [condition.subs(substitutions) for condition in distribution.conditions]
+            )
+
+    def _validate_math_value_defaults(self, value: MathValue) -> None:
+        available = {
+            key: spec.default
+            for key, spec in value.inputs.items()
+            if spec.default is not None
+        }
+        if not set(value.inputs) <= set(available):
+            return
+        substitutions = {
+            self.input_symbol(key, spec): self._parse_parameter_value(spec, available[key])
+            for key, spec in value.inputs.items()
+        }
+        self.check_conditions(
+            [condition.subs(substitutions) for condition in value.conditions]
+        )
+
+    def _validate_state_model_values(self, model: FiniteStateModel) -> None:
+        def validate_conditions(inputs, conditions):
+            available = {
+                key: spec.default
+                for key, spec in inputs.items()
+                if spec.default is not None
+            }
+            if not set(inputs) <= set(available):
+                return
+            substitutions = {
+                self.input_symbol(key, spec): self._parse_parameter_value(spec, available[key])
+                for key, spec in inputs.items()
+            }
+            self.check_conditions(
+                [condition.subs(substitutions) for condition in conditions]
+            )
+
+        validate_conditions(model.inputs, model.conditions)
+        for reward in model.rewards.values():
+            validate_conditions(reward.inputs, reward.conditions)
+
     def validate_all(self) -> dict:
         checked = []
         errors = []
@@ -733,6 +1385,32 @@ class Engine:
                             entry.location(f"aliases.{alias}"),
                         )
                         return
+                    if target_member in target_entry.distributions:
+                        distribution = self.resolve_distribution(
+                            target_entry_id, target_member
+                        )
+                        self._check_package_dependency_scope(
+                            entry,
+                            MathValue(
+                                sp.Integer(0),
+                                dependencies=set(distribution.dependencies),
+                            ),
+                            entry.location(f"aliases.{alias}"),
+                        )
+                        return
+                    if target_member in target_entry.state_models:
+                        model = self.resolve_state_model(target_entry_id, target_member)
+                        dependencies = set(model.dependencies)
+                        for reward in model.rewards.values():
+                            dependencies.update(reward.dependencies)
+                        self._check_package_dependency_scope(
+                            entry,
+                            MathValue(
+                                sp.Integer(0), dependencies=dependencies
+                            ),
+                            entry.location(f"aliases.{alias}"),
+                        )
+                        return
                     value = self.resolve_member(target_entry_id, target_member)
                     self._check_package_dependency_scope(
                         entry, value, entry.location(f"aliases.{alias}")
@@ -753,6 +1431,34 @@ class Engine:
                 capture(spec.key, validate_spec)
             for member in entry.fields:
                 capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
+            for recurrence_name in entry.recurrences:
+                def validate_recurrence(entry=entry, recurrence_name=recurrence_name):
+                    value = self.resolve_member(entry.id, recurrence_name)
+                    self._validate_math_value_defaults(value)
+
+                capture(
+                    f"{entry.id}.{recurrence_name}<recurrence>",
+                    validate_recurrence,
+                )
+            for model_name in entry.state_models:
+                def validate_state_model(entry=entry, model_name=model_name):
+                    model = self.resolve_state_model(entry.id, model_name)
+                    self._validate_state_model_values(model)
+
+                capture(
+                    f"{entry.id}.{model_name}<state_model>", validate_state_model
+                )
+            for distribution_name in entry.distributions:
+                def validate_distribution(
+                    entry=entry, distribution_name=distribution_name
+                ):
+                    distribution = self.resolve_distribution(entry.id, distribution_name)
+                    self._validate_distribution_values(distribution)
+
+                capture(
+                    f"{entry.id}.{distribution_name}<distribution>",
+                    validate_distribution,
+                )
             for member in entry.outputs:
                 def validate_output(entry=entry, member=member):
                     value = self.resolve_member(entry.id, member)
@@ -813,6 +1519,11 @@ class Engine:
                     self._check_constraint(spec, self._parse_parameter_value(spec, text))
                 for entry in self.workspace.entries.values():
                     self._validate_entry_constraint_values(entry, preset)
+                    for distribution_name in entry.distributions:
+                        self._validate_distribution_values(
+                            self.resolve_distribution(entry.id, distribution_name),
+                            preset,
+                        )
                 owner = self.workspace.get_entry(preset.owner_id)
                 self._check_package_dependency_scope(
                     owner,

@@ -17,6 +17,9 @@ from .limits import (
     MAX_AST_DEPTH,
     MAX_AST_NODES,
     MAX_DIRECT_DEPENDENCIES,
+    MAX_DISTRIBUTION_COMBINATION_PAIRS,
+    MAX_DISTRIBUTION_OUTCOMES,
+    MAX_DISTRIBUTION_REPETITIONS,
     MAX_DECIMAL_EXPONENT,
     MAX_EXPRESSION_LENGTH,
     MAX_NUMERIC_LITERAL_LENGTH,
@@ -100,6 +103,72 @@ class MathValue:
             set(self.dependencies),
             self.is_boolean,
         )
+
+
+@dataclass(frozen=True)
+class DistributionOutcome:
+    value: MathValue
+    probability: MathValue
+
+
+@dataclass
+class FiniteDistribution:
+    outcomes: tuple[DistributionOutcome, ...]
+    dimension: Dimension
+    conditions: list = field(default_factory=list)
+    inputs: Dict[str, InputSpec] = field(default_factory=dict)
+    dependencies: Set[str] = field(default_factory=set)
+
+    def copy(self) -> "FiniteDistribution":
+        return FiniteDistribution(
+            tuple(
+                DistributionOutcome(
+                    MathValue(
+                        outcome.value.expr,
+                        outcome.value.dimension,
+                        list(outcome.value.conditions),
+                        dict(outcome.value.inputs),
+                        set(outcome.value.dependencies),
+                        outcome.value.is_boolean,
+                    ),
+                    MathValue(
+                        outcome.probability.expr,
+                        outcome.probability.dimension,
+                        list(outcome.probability.conditions),
+                        dict(outcome.probability.inputs),
+                        set(outcome.probability.dependencies),
+                        outcome.probability.is_boolean,
+                    ),
+                )
+                for outcome in self.outcomes
+            ),
+            self.dimension,
+            list(self.conditions),
+            dict(self.inputs),
+            set(self.dependencies),
+        )
+
+
+@dataclass(frozen=True)
+class StateRewardValue:
+    id: str
+    dimension: Dimension
+    values: Mapping[str, MathValue]
+    conditions: tuple
+    inputs: Mapping[str, InputSpec]
+    dependencies: frozenset[str]
+
+
+@dataclass(frozen=True)
+class FiniteStateModel:
+    id: str
+    owner_id: str
+    states: tuple[str, ...]
+    transitions: tuple[tuple[MathValue, ...], ...]
+    rewards: Mapping[str, StateRewardValue]
+    conditions: tuple
+    inputs: Mapping[str, InputSpec]
+    dependencies: frozenset[str]
 
 
 ALLOWED_NODES = {
@@ -269,8 +338,18 @@ class RestrictedCompiler:
                     dependencies={self.entry.id},
                     is_boolean=spec.value_type == "boolean",
                 )
-            if name in self.entry.fields or name in self.entry.outputs:
+            if name in self.entry.fields or name in self.entry.recurrences or name in self.entry.outputs:
                 return self.engine.resolve_member(self.entry.id, name)
+            if name in self.entry.distributions:
+                raise ExpressionError(
+                    f"distribution {name!r} must be observed with expectation, variance, or probability",
+                    self.location,
+                )
+            if name in self.entry.state_models:
+                raise ExpressionError(
+                    f"state model {name!r} must be queried with a state-model analytical function",
+                    self.location,
+                )
             if name in self.entry.aliases:
                 entry_id, member = self.entry.aliases[name].split(".", 1)
                 return self.engine.resolve_member(entry_id, member)
@@ -406,6 +485,15 @@ class RestrictedCompiler:
             return self.engine.call_function(entry_id, function_name, args)
         if name in {"lookup", "interpolate"}:
             return self._table_call(node, interpolate=name == "interpolate")
+        if name in {"expectation", "variance", "probability"}:
+            return self._distribution_call(node, name)
+        if name in {
+            "steady_probability",
+            "steady_reward",
+            "hitting_probability",
+            "expected_steps",
+        }:
+            return self._state_model_call(node, name)
         if name in {"sum", "product"}:
             return self._finite_aggregate(node, name)
         if name in {"if_else", "piecewise"}:
@@ -413,6 +501,459 @@ class RestrictedCompiler:
             return self._piecewise(name, args)
         args = [self._build(arg) for arg in node.args]
         return self._builtin(name, args)
+
+    def _state_model_reference(self, node: ast.AST) -> FiniteStateModel:
+        if isinstance(node, ast.Name):
+            if self.entry is None:
+                raise ExpressionError(
+                    f"local state model {node.id!r} requires an entry context",
+                    self.location,
+                )
+            if node.id in self.entry.aliases:
+                entry_id, model_name = self.entry.aliases[node.id].split(".", 1)
+            else:
+                entry_id, model_name = self.entry.id, node.id
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            entry_id, model_name = node.value.id, node.attr
+        else:
+            raise ExpressionError(
+                "state model must be a local name or ENTRY.STATE_MODEL", self.location
+            )
+        return self.engine.resolve_state_model(entry_id, model_name)
+
+    def _state_model_identifier(
+        self, node: ast.AST, label: str, allowed: Iterable[str]
+    ) -> str:
+        if not isinstance(node, ast.Name):
+            raise ExpressionError(f"{label} must be a plain identifier", self.location)
+        if node.id not in set(allowed):
+            raise ExpressionError(f"unknown {label} {node.id!r}", self.location)
+        return node.id
+
+    def _state_model_call(self, node: ast.Call, operation: str) -> MathValue:
+        if node.keywords:
+            raise ExpressionError("keyword arguments are not allowed", self.location)
+        expected = 2 if operation in {"steady_probability", "steady_reward"} else 3
+        if len(node.args) != expected:
+            signatures = {
+                "steady_probability": "steady_probability(MODEL, STATE)",
+                "steady_reward": "steady_reward(MODEL, REWARD)",
+                "hitting_probability": "hitting_probability(MODEL, START, TARGET)",
+                "expected_steps": "expected_steps(MODEL, START, TARGET)",
+            }
+            raise ExpressionError(
+                f"{operation} expects {signatures[operation]}", self.location
+            )
+        model = self._state_model_reference(node.args[0])
+        if operation == "steady_reward":
+            reward = self._state_model_identifier(
+                node.args[1], "state reward", model.rewards
+            )
+            return self.engine.state_model_steady_reward(model, reward)
+        if operation == "steady_probability":
+            state = self._state_model_identifier(node.args[1], "state", model.states)
+            return self.engine.state_model_steady_probability(model, state)
+        start = self._state_model_identifier(node.args[1], "state", model.states)
+        target = self._state_model_identifier(node.args[2], "state", model.states)
+        if operation == "hitting_probability":
+            return self.engine.state_model_hitting_probability(model, start, target)
+        return self.engine.state_model_expected_steps(model, start, target)
+
+    def _distribution_reference(self, node: ast.AST) -> FiniteDistribution:
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise ExpressionError(
+                    "distribution transformations must use named functions",
+                    self.location,
+                )
+            operations = {
+                "map",
+                "independent_sum",
+                "repeat_sum",
+                "condition",
+            }
+            if node.func.id not in operations:
+                raise ExpressionError(
+                    f"function {node.func.id!r} does not produce a distribution",
+                    self.location,
+                )
+            return self._distribution_operation(node, node.func.id)
+        if isinstance(node, ast.Name):
+            if self.entry is None:
+                raise ExpressionError(
+                    f"local distribution {node.id!r} requires an entry context",
+                    self.location,
+                )
+            if node.id in self.entry.aliases:
+                entry_id, distribution_name = self.entry.aliases[node.id].split(".", 1)
+            else:
+                entry_id, distribution_name = self.entry.id, node.id
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            entry_id, distribution_name = node.value.id, node.attr
+        else:
+            raise ExpressionError(
+                "distribution must be a local name or ENTRY.DISTRIBUTION",
+                self.location,
+            )
+        return self.engine.resolve_distribution(entry_id, distribution_name)
+
+    def _distribution_bound_expression(
+        self,
+        variable_node: ast.AST,
+        expression_node: ast.AST,
+        value: MathValue,
+        operation: str,
+    ) -> MathValue:
+        if not isinstance(variable_node, ast.Name):
+            raise ExpressionError(
+                f"{operation} variable must be a plain identifier", self.location
+            )
+        variable = variable_node.id
+        entry_names = set()
+        if self.entry is not None:
+            entry_names = (
+                set(self.entry.inputs)
+                | set(self.entry.fields)
+                | set(self.entry.functions)
+                | set(self.entry.tables)
+                | set(self.entry.distributions)
+                | set(self.entry.recurrences)
+                | set(self.entry.state_models)
+                | set(self.entry.outputs)
+                | set(self.entry.aliases)
+            )
+        if variable in self.local_values or variable in entry_names:
+            raise ExpressionError(
+                f"{operation} variable {variable!r} shadows a declared name",
+                self.location,
+            )
+        source = ast.get_source_segment(self.source, expression_node)
+        if source is None:
+            raise ExpressionError(
+                f"could not preserve {operation} expression text", self.location
+            )
+        local_values = dict(self.local_values)
+        local_values[variable] = value
+        return RestrictedCompiler(
+            self.engine,
+            self.entry,
+            local_values=local_values,
+            location=self.location,
+        ).compile(source)
+
+    def _merged_distribution(
+        self,
+        outcomes: Iterable[DistributionOutcome],
+        dimension: Dimension,
+        conditions: list,
+        inputs: Mapping[str, InputSpec],
+        dependencies: Set[str],
+        operation: str,
+    ) -> FiniteDistribution:
+        merged: Dict[str, DistributionOutcome] = {}
+        for outcome in outcomes:
+            simplified_value = sp.simplify(outcome.value.expr)
+            key = sp.srepr(simplified_value)
+            if key in merged:
+                previous = merged[key]
+                probability = MathValue(
+                    sp.simplify(
+                        previous.probability.expr + outcome.probability.expr
+                    ),
+                    DIMENSIONLESS,
+                )
+                merged[key] = DistributionOutcome(previous.value, probability)
+            else:
+                merged[key] = DistributionOutcome(
+                    outcome.value.with_expr(simplified_value), outcome.probability
+                )
+            if len(merged) > MAX_DISTRIBUTION_OUTCOMES:
+                raise ExpressionError(
+                    f"{operation} exceeds {MAX_DISTRIBUTION_OUTCOMES} finite outcomes",
+                    self.location,
+                )
+        return FiniteDistribution(
+            tuple(merged.values()),
+            dimension,
+            conditions,
+            dict(inputs),
+            set(dependencies),
+        )
+
+    def _independent_sum(
+        self, left: FiniteDistribution, right: FiniteDistribution
+    ) -> FiniteDistribution:
+        require_same(
+            [left.dimension, right.dimension],
+            "independent_sum distributions",
+        )
+        pair_count = len(left.outcomes) * len(right.outcomes)
+        if pair_count > MAX_DISTRIBUTION_COMBINATION_PAIRS:
+            raise ExpressionError(
+                "independent_sum would combine "
+                f"{pair_count} outcome pairs; limit is {MAX_DISTRIBUTION_COMBINATION_PAIRS}",
+                self.location,
+            )
+        outcomes = []
+        for left_outcome in left.outcomes:
+            for right_outcome in right.outcomes:
+                outcomes.append(
+                    DistributionOutcome(
+                        MathValue(
+                            left_outcome.value.expr + right_outcome.value.expr,
+                            left.dimension,
+                        ),
+                        MathValue(
+                            left_outcome.probability.expr
+                            * right_outcome.probability.expr,
+                            DIMENSIONLESS,
+                        ),
+                    )
+                )
+        return self._merged_distribution(
+            outcomes,
+            left.dimension,
+            [*left.conditions, *right.conditions],
+            merge_inputs(left.inputs, right.inputs),
+            set(left.dependencies) | set(right.dependencies),
+            "independent_sum",
+        )
+
+    def _distribution_operation(
+        self, node: ast.Call, operation: str
+    ) -> FiniteDistribution:
+        if node.keywords:
+            raise ExpressionError("keyword arguments are not allowed", self.location)
+        if operation == "independent_sum":
+            if len(node.args) != 2:
+                raise ExpressionError(
+                    "independent_sum expects two distributions", self.location
+                )
+            return self._independent_sum(
+                self._distribution_reference(node.args[0]),
+                self._distribution_reference(node.args[1]),
+            )
+        if operation == "repeat_sum":
+            if len(node.args) != 2:
+                raise ExpressionError(
+                    "repeat_sum expects a distribution and bounded count",
+                    self.location,
+                )
+            base = self._distribution_reference(node.args[0])
+            count = self._build(node.args[1])
+            self._require_numeric(count, "repeat_sum count")
+            require_same([count.dimension, DIMENSIONLESS], "repeat_sum count")
+            candidates = self.engine.bounded_nonnegative_integer_values(
+                count, "repeat_sum count", MAX_DISTRIBUTION_REPETITIONS
+            )
+            result = FiniteDistribution(
+                (
+                    DistributionOutcome(
+                        MathValue(sp.Integer(0), base.dimension),
+                        MathValue(sp.Integer(1)),
+                    ),
+                ),
+                base.dimension,
+                list(count.conditions),
+                dict(count.inputs),
+                set(count.dependencies),
+            )
+            results = {0: result}
+            for repetition in range(1, max(candidates) + 1):
+                result = self._independent_sum(result, base)
+                if repetition in candidates:
+                    results[repetition] = result
+            if len(candidates) == 1 and not count.expr.free_symbols:
+                return results[candidates[0]]
+            conditions = [*count.conditions, *base.conditions]
+            inputs = merge_inputs(count.inputs, base.inputs)
+            dependencies = set(count.dependencies) | set(base.dependencies)
+            selected_outcomes = []
+            active_conditions = []
+            selected_outcome_count = sum(
+                len(results[candidate].outcomes) for candidate in candidates
+            )
+            if selected_outcome_count > MAX_DISTRIBUTION_COMBINATION_PAIRS:
+                raise ExpressionError(
+                    "repeat_sum bounded count would combine "
+                    f"{selected_outcome_count} conditional outcomes; limit is "
+                    f"{MAX_DISTRIBUTION_COMBINATION_PAIRS}",
+                    self.location,
+                )
+            for candidate in candidates:
+                active = sp.Eq(count.expr, candidate, evaluate=False)
+                active_conditions.append(active)
+                for outcome in results[candidate].outcomes:
+                    selected_outcomes.append(
+                        DistributionOutcome(
+                            outcome.value,
+                            MathValue(
+                                outcome.probability.expr
+                                * sp.Piecewise((1, active), (0, True)),
+                                DIMENSIONLESS,
+                            ),
+                        )
+                    )
+            conditions.append(sp.Or(*active_conditions))
+            return self._merged_distribution(
+                selected_outcomes,
+                base.dimension,
+                conditions,
+                inputs,
+                dependencies,
+                "repeat_sum",
+            )
+        if operation == "map":
+            if len(node.args) != 3:
+                raise ExpressionError(
+                    "map expects map(DISTRIBUTION, VARIABLE, EXPRESSION)",
+                    self.location,
+                )
+            base = self._distribution_reference(node.args[0])
+            mapped = []
+            mapped_values = []
+            conditions = list(base.conditions)
+            inputs = dict(base.inputs)
+            dependencies = set(base.dependencies)
+            for outcome in base.outcomes:
+                value = self._distribution_bound_expression(
+                    node.args[1], node.args[2], outcome.value, "map"
+                )
+                self._require_numeric(value, "map result")
+                mapped_values.append(value)
+                conditions.extend(value.conditions)
+                inputs = merge_inputs(inputs, value.inputs)
+                dependencies.update(value.dependencies)
+                mapped.append(DistributionOutcome(value, outcome.probability))
+            dimension = compatible_value_dimension(mapped_values, "map results")
+            for outcome in mapped:
+                if outcome.value.expr == 0:
+                    outcome.value.dimension = dimension
+            return self._merged_distribution(
+                mapped,
+                dimension,
+                conditions,
+                inputs,
+                dependencies,
+                "map",
+            )
+        if operation == "condition":
+            if len(node.args) != 3:
+                raise ExpressionError(
+                    "condition expects condition(DISTRIBUTION, VARIABLE, PREDICATE)",
+                    self.location,
+                )
+            base = self._distribution_reference(node.args[0])
+            weighted = []
+            active_probabilities = []
+            conditions = list(base.conditions)
+            inputs = dict(base.inputs)
+            dependencies = set(base.dependencies)
+            for outcome in base.outcomes:
+                predicate = self._distribution_bound_expression(
+                    node.args[1], node.args[2], outcome.value, "condition"
+                )
+                self._require_boolean(predicate, "condition predicate")
+                conditions.extend(predicate.conditions)
+                inputs = merge_inputs(inputs, predicate.inputs)
+                dependencies.update(predicate.dependencies)
+                active = sp.Piecewise((1, predicate.expr), (0, True))
+                active_probability = outcome.probability.expr * active
+                active_probabilities.append(active_probability)
+                weighted.append((outcome, active_probability))
+            normalization = sp.simplify(sp.Add(*active_probabilities))
+            conditions.append(sp.Ne(normalization, 0, evaluate=False))
+            outcomes = [
+                DistributionOutcome(
+                    outcome.value,
+                    MathValue(
+                        sp.simplify(active_probability / normalization),
+                        DIMENSIONLESS,
+                    ),
+                )
+                for outcome, active_probability in weighted
+            ]
+            return self._merged_distribution(
+                outcomes,
+                base.dimension,
+                conditions,
+                inputs,
+                dependencies,
+                "condition",
+            )
+        raise ExpressionError(
+            f"unsupported distribution operation {operation!r}", self.location
+        )
+
+    def _distribution_call(self, node: ast.Call, name: str) -> MathValue:
+        expected_arguments = 2 if name == "probability" else 1
+        if len(node.args) != expected_arguments:
+            signature = (
+                "probability(DISTRIBUTION, VALUE)"
+                if name == "probability"
+                else f"{name}(DISTRIBUTION)"
+            )
+            raise ExpressionError(f"{name} expects {signature}", self.location)
+        distribution = self._distribution_reference(node.args[0])
+        conditions = list(distribution.conditions)
+        inputs = dict(distribution.inputs)
+        dependencies = set(distribution.dependencies)
+        expectation_expr = sp.Add(
+            *(
+                outcome.value.expr * outcome.probability.expr
+                for outcome in distribution.outcomes
+            )
+        )
+        if name == "expectation":
+            return MathValue(
+                expectation_expr,
+                distribution.dimension,
+                conditions,
+                inputs,
+                dependencies,
+            )
+        if name == "variance":
+            variance_expr = sp.Add(
+                *(
+                    (outcome.value.expr - expectation_expr) ** 2
+                    * outcome.probability.expr
+                    for outcome in distribution.outcomes
+                )
+            )
+            return MathValue(
+                variance_expr,
+                distribution.dimension.power(Fraction(2)),
+                conditions,
+                inputs,
+                dependencies,
+            )
+
+        target = self._build(node.args[1])
+        self._require_numeric(target, "probability target")
+        compatible_value_dimension(
+            [MathValue(sp.Integer(1), distribution.dimension), target],
+            "probability target",
+        )
+        conditions.extend(target.conditions)
+        inputs = merge_inputs(inputs, target.inputs)
+        dependencies.update(target.dependencies)
+        matching_probability = sp.Add(
+            *(
+                outcome.probability.expr
+                * sp.Piecewise(
+                    (1, sp.Eq(outcome.value.expr, target.expr)),
+                    (0, True),
+                )
+                for outcome in distribution.outcomes
+            )
+        )
+        return MathValue(
+            matching_probability,
+            DIMENSIONLESS,
+            conditions,
+            inputs,
+            dependencies,
+        )
 
     def _table_call(self, node: ast.Call, *, interpolate: bool) -> MathValue:
         name = "interpolate" if interpolate else "lookup"

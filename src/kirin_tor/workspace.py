@@ -186,6 +186,28 @@ class Workspace:
             for name, table in document.tables.items():
                 check(document, "unit", table.input_unit, f"tables.{name}")
                 check(document, "unit", table.output_unit, f"tables.{name}")
+            for name, distribution in document.distributions.items():
+                check(
+                    document,
+                    "unit",
+                    distribution.unit_name,
+                    f"distributions.{name}",
+                )
+            for name, recurrence in document.recurrences.items():
+                check(
+                    document,
+                    "unit",
+                    recurrence.unit_name,
+                    f"recurrences.{name}",
+                )
+            for model_name, model in document.state_models.items():
+                for reward_name, reward in model.rewards.items():
+                    check(
+                        document,
+                        "unit",
+                        reward.unit_name,
+                        f"state_models.{model_name}.rewards.{reward_name}",
+                    )
             for name, data in document.outputs.items():
                 check(document, "unit", data.get("unit", "dimensionless"), f"outputs.{name}")
             units = document.semantics.get("units", {})

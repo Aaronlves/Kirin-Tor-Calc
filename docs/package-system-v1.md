@@ -19,8 +19,9 @@ hooks, or GitHub Actions. A package may contain ordinary project files, but only
 ## Core and community boundary
 
 The installed mathematical core owns exact numbers, booleans, `dimensionless`, arithmetic,
-dimension algebra, unit conversion, constraints, functions, piecewise expressions, tables, and
-the general document grammar. It may also provide uncontroversial game-neutral vocabulary such
+dimension algebra, unit conversion, constraints, functions, piecewise expressions, tables,
+finite discrete distributions, bounded recurrences, finite analytical state models, and the
+general document grammar. It may also provide uncontroversial game-neutral vocabulary such
 as probability, non-negative integers, and physical time units.
 
 Names such as damage, healing, attack power, armor, mana, rage, cooldown rules, critical-strike

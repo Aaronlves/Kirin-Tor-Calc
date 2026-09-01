@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added syntax-defined finite discrete distributions with exact expectation, variance, outcome probability, mapping, explicit independent convolution/repetition, and conditioning; validation enforces units, exact normalization, non-empty conditions, finite bounds, and no sampling or implicit independence.
+- Added syntax-defined finite pure recurrences with constant or statically bounded integer step counts, unit preservation, cycle rejection, and a 1,000-step limit.
+- Added syntax-defined finite analytical state models with exact transition-row validation, optional typed rewards, unique steady-state probabilities/rewards, hitting probabilities, and expected-step queries; singular systems fail explicitly and no event timeline is executed.
+
 - Added the v1 data-only community Package protocol with strict TOML manifests, exact dependency versions, namespace ownership, transactional workspace requirements, deterministic JSON lockfiles, and content-addressed read-only caches.
 - Added direct GitHub release resolution pinned to full commits, bounded safe archive extraction, canonical content hashes, offline verification, explicit restore/update/remove commands, and immutable local-package snapshots.
 - Added `kt package new` and `kt package check` author workflows with a GitHub Actions template; community repositories remain the source authority and package code or hooks are never executed.

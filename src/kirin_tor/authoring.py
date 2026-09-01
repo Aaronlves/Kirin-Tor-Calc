@@ -42,6 +42,9 @@ _KIND_LABELS = {
     "fields": "字段",
     "functions": "函数",
     "tables": "查表",
+    "distributions": "有限分布",
+    "recurrences": "有限递推",
+    "state_models": "有限状态模型",
     "outputs": "输出",
     "alias": "别名",
     "dimensions": "量纲",
@@ -80,6 +83,27 @@ SNIPPETS = (
         "查表",
         "tables",
         'tables:\n  table_name "显示名": dimensionless -> dimensionless:\n    1 = $0',
+        14,
+    ),
+    _snippet(
+        "有限分布章节",
+        "有限分布",
+        "distributions",
+        'distributions:\n  result_distribution "显示名": dimensionless:\n    0 @ 1 - probability_value\n    1 @ $0',
+        14,
+    ),
+    _snippet(
+        "有限递推章节",
+        "有限递推",
+        "recurrences",
+        'recurrences:\n  recurrence_name "显示名": dimensionless:\n    initial = 0\n    steps = bounded_count\n    next(current, index) = $0',
+        14,
+    ),
+    _snippet(
+        "有限状态模型章节",
+        "有限状态",
+        "state_models",
+        "state_models:\n  model_name:\n    states:\n      first\n      second\n    transitions:\n      first -> second @ probability_value\n      second -> first @ $0",
         14,
     ),
     _snippet("输出章节", "输出", "outputs", 'outputs:\n  result "显示名": dimensionless = $0', 14),
@@ -152,6 +176,94 @@ BUILTIN_COMPLETIONS = (
         ("interpolate", "插值", "线性插值"),
         24,
     ),
+    CompletionCandidate(
+        "分布期望",
+        "内置函数 · expectation",
+        "expectation($0)",
+        "builtin",
+        ("expectation", "期望", "分布期望"),
+        24,
+    ),
+    CompletionCandidate(
+        "分布方差",
+        "内置函数 · variance",
+        "variance($0)",
+        "builtin",
+        ("variance", "方差", "分布方差"),
+        24,
+    ),
+    CompletionCandidate(
+        "结果概率",
+        "内置函数 · probability",
+        "probability(distribution, $0)",
+        "builtin",
+        ("probability", "概率", "结果概率"),
+        24,
+    ),
+    CompletionCandidate(
+        "映射分布",
+        "分布函数 · map",
+        "map(distribution, value, $0)",
+        "builtin",
+        ("map", "映射", "分布映射"),
+        24,
+    ),
+    CompletionCandidate(
+        "独立分布求和",
+        "分布函数 · independent_sum",
+        "independent_sum(first_distribution, $0)",
+        "builtin",
+        ("independent_sum", "独立", "卷积"),
+        24,
+    ),
+    CompletionCandidate(
+        "独立重复求和",
+        "分布函数 · repeat_sum",
+        "repeat_sum(distribution, $0)",
+        "builtin",
+        ("repeat_sum", "重复试验", "重复求和"),
+        24,
+    ),
+    CompletionCandidate(
+        "条件分布",
+        "分布函数 · condition",
+        "condition(distribution, value, $0)",
+        "builtin",
+        ("condition", "条件分布", "条件化"),
+        24,
+    ),
+    CompletionCandidate(
+        "稳态概率",
+        "状态模型函数 · steady_probability",
+        "steady_probability(model, $0)",
+        "builtin",
+        ("steady_probability", "稳态概率"),
+        24,
+    ),
+    CompletionCandidate(
+        "稳态奖励",
+        "状态模型函数 · steady_reward",
+        "steady_reward(model, $0)",
+        "builtin",
+        ("steady_reward", "稳态奖励", "长期期望"),
+        24,
+    ),
+    CompletionCandidate(
+        "到达概率",
+        "状态模型函数 · hitting_probability",
+        "hitting_probability(model, start, $0)",
+        "builtin",
+        ("hitting_probability", "到达概率", "吸收概率"),
+        24,
+    ),
+    CompletionCandidate(
+        "期望步数",
+        "状态模型函数 · expected_steps",
+        "expected_steps(model, start, $0)",
+        "builtin",
+        ("expected_steps", "期望步数", "到达步数"),
+        24,
+    ),
     CompletionCandidate("布尔真", "关键字 · true", "true", "keyword", ("true", "真"), 26),
     CompletionCandidate("布尔假", "关键字 · false", "false", "keyword", ("false", "假"), 26),
     CompletionCandidate(
@@ -198,6 +310,7 @@ def _index_source(
 ) -> Tuple[Optional[str], List[_Member], Dict[str, str], List[Tuple[str, str]]]:
     entry_id = None
     section = None
+    section_member_indent = None
     members: List[_Member] = []
     aliases: Dict[str, str] = {}
     semantics: List[Tuple[str, str]] = []
@@ -221,6 +334,7 @@ def _index_source(
         if indent == 0:
             section_match = _SECTION_RE.fullmatch(stripped)
             section = section_match.group(1) if section_match else None
+            section_member_indent = None
             continue
         if entry_id is None:
             continue
@@ -240,13 +354,23 @@ def _index_source(
             if match and valid:
                 semantics.append((match.group("name"), section))
             continue
-        if section not in {"inputs", "fields", "functions", "tables", "outputs"}:
+        if section not in {
+            "inputs", "fields", "functions", "tables", "distributions", "recurrences",
+            "state_models", "outputs"
+        }:
+            continue
+        if section_member_indent is None:
+            section_member_indent = indent
+        if indent != section_member_indent:
             continue
         match = _MEMBER_RE.match(line)
         tail = line[match.end() :].lstrip() if match else ""
         if match and (
             (section == "functions" and tail.startswith("("))
-            or (section == "tables" and tail.startswith(":"))
+            or (
+                section in {"tables", "distributions", "recurrences", "state_models"}
+                and tail.startswith(":")
+            )
             or (section in {"inputs", "fields", "outputs"} and tail.startswith(":"))
         ):
             members.append(
