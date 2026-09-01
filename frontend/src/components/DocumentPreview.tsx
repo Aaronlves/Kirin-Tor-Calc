@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Box, Button, Checkbox, Code, Group, Modal, ScrollArea, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
-import { FileOutput, Maximize2, Save } from "lucide-react";
+import { Crosshair, FileOutput, Maximize2, Save } from "lucide-react";
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
@@ -20,11 +20,19 @@ function displayedValue(result: OperationResult): string {
   return "—";
 }
 
-export function DocumentPreview({ controller, document, source }: { controller: WorkbenchController; document: DocumentItem; source: string }) {
+interface DocumentPreviewProps {
+  controller: WorkbenchController;
+  document: DocumentItem;
+  source: string;
+  onNavigateToSource(line?: number | null, column?: number | null): void;
+}
+
+export function DocumentPreview({ controller, document, source, onNavigateToSource }: DocumentPreviewProps) {
   const entryId = documentId(source);
   const entryTargets = useMemo(() => entryId ? controller.workspaceIndex.targets.filter((target) => target.value.startsWith(`${entryId}.`)) : [], [controller.workspaceIndex.targets, entryId]);
   const entryTargetSignature = entryTargets.map((item) => item.value).join("\u0000");
-  const hasChart = Boolean(entryId && controller.workspaceIndex.charts.some((item) => item.value === entryId));
+  const chart = entryId ? controller.workspaceIndex.charts.find((item) => item.value === entryId) : undefined;
+  const hasChart = Boolean(chart);
   const [mode, setMode] = useState<"result" | "chart">("result");
   const [target, setTarget] = useState<string | null>(entryTargets[0]?.value ?? null);
   const [result, setResult] = useState<OperationResult | null>(null);
@@ -137,8 +145,8 @@ export function DocumentPreview({ controller, document, source }: { controller: 
           {mode === "result" && relevantInputs.length > 0 && <Box className="preview-inputs"><Text className="result-label">相关输入</Text>{relevantInputs.map((input) => <Group key={input.value} justify="space-between" wrap="nowrap" mt={7}><span><strong>{input.label}</strong><small>{input.value}</small></span><Code>{String(input.default ?? "—")}</Code></Group>)}</Box>}
           {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
-          {result && mode === "result" && <Stack gap="md" className="document-result-preview"><Box><Text className="result-label">{selectedTarget?.label || target}</Text><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
-          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}><Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
+          {result && mode === "result" && <Stack gap="md" className="document-result-preview"><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
+          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}>{chart?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(chart.line, chart.column)}>定位图表源码</Button>}<Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
           {exportResult && <Box className="export-success"><Save size={16} /><span><strong>图表已导出</strong><small>{String(exportResult.out || "已使用文档声明的输出路径")}</small></span></Box>}
         </Stack>
       </ScrollArea>

@@ -25,6 +25,7 @@ import {
   Braces,
   CircleAlert,
   CircleCheck,
+  Crosshair,
   FileCode2,
   FileDown,
   FilePlus2,
@@ -50,6 +51,7 @@ import { EmptyState, LoadingState, TechnicalResult } from "../components/ui";
 interface DocumentsViewProps {
   controller: WorkbenchController;
   focusMode: DocumentFocusMode;
+  onFocusModeChange(mode: DocumentFocusMode): void;
 }
 
 function diagnosticPath(item: DiagnosticItem, workspace?: string): string {
@@ -73,7 +75,7 @@ function sourceEntryId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
 }
 
-export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
+export function DocumentsView({ controller, focusMode, onFocusModeChange }: DocumentsViewProps) {
   const [filter, setFilter] = useState("");
   const [newDocumentOpened, setNewDocumentOpened] = useState(false);
   const [templateDrawerOpened, setTemplateDrawerOpened] = useState(false);
@@ -104,6 +106,7 @@ export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
     [controller.workspaceIndex.targets, currentEntryId],
   );
   const currentExplainTargetSignature = currentExplainTargets.map((item) => item.value).join("\u0000");
+  const selectedExplainTarget = currentExplainTargets.find((item) => item.value === explainTarget);
   const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
 
   useEffect(() => {
@@ -192,7 +195,13 @@ export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
     });
   }, [controller.bootstrapData?.workspace, controller.validationItems, current]);
 
+  const navigateToSource = (key: string, line?: number | null, column?: number | null) => {
+    onFocusModeChange("split");
+    window.dispatchEvent(new CustomEvent("kirin:navigate-source", { detail: { key, line, column } }));
+  };
+
   const openDiagnostic = async (item: DiagnosticItem) => {
+    onFocusModeChange("split");
     const path = diagnosticPath(item, controller.bootstrapData?.workspace);
     const match = controller.documents.find((document) => document.path === path || path.endsWith(document.path));
     if (match) await controller.openDocument(match.key);
@@ -411,10 +420,10 @@ export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
               <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="preview" className="inspector-content">
-              {current ? <DocumentPreview controller={controller} document={current} source={currentText} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
+              {current ? <DocumentPreview controller={controller} document={current} source={currentText} onNavigateToSource={(line, column) => navigateToSource(current.key, line, column)} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
             </Tabs.Panel>
             <Tabs.Panel value="relationships" className="inspector-content">
-              {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}
+              {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}
             </Tabs.Panel>
             <Tabs.Panel value="diagnostics" className="inspector-content">
               <ScrollArea h="100%" type="auto">
@@ -460,7 +469,7 @@ export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
                       label: `${item.group_label || "未分组"} / ${item.label}`,
                     }))}
                   />}
-                  {currentExplainTargets.length === 1 && <Box><Text className="result-label">当前结果</Text><Code>{currentExplainTargets[0].value}</Code></Box>}
+                  {selectedExplainTarget && <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">当前结果</Text><Code>{selectedExplainTarget.value}</Code></Box>{current && selectedExplainTarget.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => navigateToSource(current.key, selectedExplainTarget.line, selectedExplainTarget.column)}>定位公式源码</Button>}</Group>}
                   {currentExplainTargets.length === 0 && <EmptyState title="这个文档没有结果输出" description="定义 output 后，表达式和依赖会自动出现在这里。" />}
                   {explaining && <LoadingState label="正在解释公式…" />}
                   {explainResult && (

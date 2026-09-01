@@ -12,6 +12,7 @@ interface DocumentRelationshipPreviewProps {
   controller: WorkbenchController;
   documentKey: string;
   source: string;
+  onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
 }
 
 function entryId(source: string): string | null {
@@ -40,7 +41,7 @@ function project(graph: RelationshipGraphResult, documentId: string, depth: numb
   };
 }
 
-export function DocumentRelationshipPreview({ controller, documentKey, source }: DocumentRelationshipPreviewProps) {
+export function DocumentRelationshipPreview({ controller, documentKey, source, onNavigateToSource }: DocumentRelationshipPreviewProps) {
   const documentId = entryId(source);
   const [graph, setGraph] = useState<RelationshipGraphResult | null>(null);
   const [depth, setDepth] = useState("1");
@@ -110,7 +111,7 @@ export function DocumentRelationshipPreview({ controller, documentKey, source }:
           disabled={!selectedDocumentKey}
           onClick={() => {
             if (!selectedDocumentKey) return;
-            window.dispatchEvent(new CustomEvent("kirin:navigate-source", { detail: { key: selectedDocumentKey, line: selected.line, column: selected.column } }));
+            onNavigateToSource(selectedDocumentKey, selected.line, selected.column);
           }}
         >
           <Crosshair size={14} />

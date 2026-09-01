@@ -25,6 +25,8 @@ The document inspector is read-only: Preview and Formula derive automatically fr
 
 Diagnostics live beside the document editor rather than in a duplicate top-level page. They retain stable codes and source locations, add Chinese author-facing explanations, and navigate back to the failing document and position. Formula expansion appears in the same document context.
 
+Preview results, chart definitions, formula explanations, diagnostics, and relationship nodes expose source navigation when their validated projection carries a source coordinate. Navigation restores Split focus mode, opens the authoritative `.kirin` document when necessary, and focuses the defining line instead of creating an editable projection.
+
 CodeMirror has an explicit accessible name and visible focus outline. Canvas relationship graphs and calculation charts expose a collapsible keyboard-readable node or data list. Generated charts can be expanded into a full-window preview without creating another editable surface.
 
 ## Interface system

@@ -111,6 +111,41 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".formula-result")).toContainText("2200*combo.crit + 2200");
   });
 
+  test("结果、图表、公式与局部关系都能返回源码位置", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    const focusChoice = (label: string) => page.locator(".document-focus-switch .mantine-SegmentedControl-label").filter({ hasText: label });
+    const activeLine = page.locator(".cm-activeLine");
+
+    await page.getByRole("tab", { name: "预览", exact: true }).click();
+    await expect(page.getByRole("button", { name: "定位结果源码" })).toBeVisible();
+    await focusChoice("仅预览").click();
+    await page.getByRole("button", { name: "定位结果源码" }).click();
+    await expect(page.getByRole("radio", { name: "分栏" })).toBeChecked();
+    await expect(activeLine).toContainText('total "组合期望伤害"');
+
+    await focusChoice("仅预览").click();
+    await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
+    await expect(page.getByRole("button", { name: "定位图表源码" })).toBeVisible();
+    await page.getByRole("button", { name: "定位图表源码" }).click();
+    await expect(activeLine).toContainText("x: combo.crit");
+
+    await focusChoice("仅预览").click();
+    await page.getByRole("tab", { name: "公式", exact: true }).click();
+    await expect(page.getByRole("button", { name: "定位公式源码" })).toBeVisible();
+    await page.getByRole("button", { name: "定位公式源码" }).click();
+    await expect(activeLine).toContainText('total "组合期望伤害"');
+
+    await focusChoice("仅预览").click();
+    await page.getByRole("tab", { name: "关系", exact: true }).click();
+    const localGraph = page.locator(".local-graph-stage .canvas-data-fallback");
+    await localGraph.locator("summary").click();
+    await localGraph.getByRole("button").filter({ hasText: "combo.total" }).click();
+    await page.locator(".local-graph-selection").click();
+    await expect(page.getByRole("radio", { name: "分栏" })).toBeChecked();
+    await expect(activeLine).toContainText('total "组合期望伤害"');
+  });
+
   test("诊断项跳转到编辑器中的错误位置", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);

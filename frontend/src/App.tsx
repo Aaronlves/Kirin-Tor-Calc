@@ -28,6 +28,7 @@ export function App() {
     const document = controller.documents.find((item) => path === item.path || path.endsWith(item.path));
     if (!document) return;
     setActiveView("documents");
+    setDocumentFocusMode("split");
     await controller.openDocument(document.key);
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("kirin:navigate-source", {
       detail: { key: document.key, line, column },
@@ -45,7 +46,7 @@ export function App() {
         controller={controller}
       >
         <Suspense fallback={<LoadingState label="正在打开工作区工具…" />}>
-          {activeView === "documents" && <DocumentsView controller={controller} focusMode={documentFocusMode} />}
+          {activeView === "documents" && <DocumentsView controller={controller} focusMode={documentFocusMode} onFocusModeChange={setDocumentFocusMode} />}
           {activeView === "graph" && <GraphView controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
         </Suspense>
       </WorkspaceShell>

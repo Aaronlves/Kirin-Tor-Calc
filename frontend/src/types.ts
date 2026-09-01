@@ -58,6 +58,8 @@ export interface TargetItem {
   group_label?: string;
   unit?: string;
   inputs?: string[];
+  line?: number | null;
+  column?: number | null;
   [key: string]: unknown;
 }
 
@@ -81,6 +83,8 @@ export interface PresetItem {
 export interface ChartItem {
   value: string;
   label: string;
+  line?: number | null;
+  column?: number | null;
   [key: string]: unknown;
 }
 

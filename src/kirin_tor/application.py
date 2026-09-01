@@ -33,6 +33,8 @@ class TargetOption:
     package_name: Optional[str] = None
     package_version: Optional[str] = None
     package_source: Optional[str] = None
+    line: Optional[int] = None
+    column: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -54,11 +56,19 @@ class NamedOption:
 
 
 @dataclass(frozen=True)
+class ChartOption:
+    value: str
+    label: str
+    line: Optional[int] = None
+    column: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class WorkspaceIndex:
     targets: Tuple[TargetOption, ...]
     inputs: Tuple[InputOption, ...]
     presets: Tuple[NamedOption, ...]
-    charts: Tuple[NamedOption, ...]
+    charts: Tuple[ChartOption, ...]
     document_ids: Tuple[str, ...]
 
 @dataclass(frozen=True)
@@ -181,6 +191,9 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
             qualified = f"{entry.id}.{name}"
             resolved = engine.resolve_target(qualified)
             group = group_by_output.get(name)
+            position = entry.positions.get(f"outputs.{name}") or entry.positions.get(
+                f"outputs.{name}.expression"
+            )
             targets.append(
                 TargetOption(
                     qualified,
@@ -195,21 +208,30 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                     entry.package_origin.name if entry.package_origin else None,
                     entry.package_origin.version if entry.package_origin else None,
                     entry.package_origin.source if entry.package_origin else None,
+                    position[0] if position else None,
+                    position[1] if position else None,
                 )
             )
     presets = tuple(
         NamedOption(reference, preset.label)
         for reference, preset in sorted(workspace.presets.items())
     )
-    charts = tuple(
-        NamedOption(document.id, document.name)
-        for document in sorted(workspace.charts.values(), key=lambda item: item.id)
-    )
+    charts = []
+    for document in sorted(workspace.charts.values(), key=lambda item: item.id):
+        position = document.positions.get("x") or document.positions.get("display")
+        charts.append(
+            ChartOption(
+                document.id,
+                document.name,
+                position[0] if position else None,
+                position[1] if position else None,
+            )
+        )
     return WorkspaceIndex(
         tuple(targets),
         tuple(inputs),
         presets,
-        charts,
+        tuple(charts),
         tuple(sorted(workspace.documents)),
     )
 

@@ -71,10 +71,13 @@ def test_player_override_text_and_workspace_index(example_workspace: Path) -> No
         item.value == "combo.total"
         and item.label == "组合期望伤害"
         and item.inputs == ("combo.crit",)
+        and item.line == 20
+        and item.column == 3
         for item in index.targets
     )
     assert any(item.value == "combo.crit" and item.label == "暴击率" for item in index.inputs)
     assert any(item.value == "presets.baseline" for item in index.presets)
+    assert any(item.value == "combo" and item.line == 29 for item in index.charts)
     assert parse_player_override_text("暴击率=25%", index.inputs) == {"combo.crit": "1/4"}
     assert parse_player_override_text(
         "暴击率=25%，aoe_pattern.targets=4；aoe_pattern.talent_enabled=false",
