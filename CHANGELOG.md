@@ -2,37 +2,29 @@
 
 ## Unreleased
 
-- Added syntax-defined finite discrete distributions with exact expectation, variance, outcome probability, mapping, explicit independent convolution/repetition, and conditioning; validation enforces units, exact normalization, non-empty conditions, finite bounds, and no sampling or implicit independence.
-- Added syntax-defined finite pure recurrences with constant or statically bounded integer step counts, unit preservation, cycle rejection, and a 1,000-step limit.
-- Added syntax-defined finite analytical state models with exact transition-row validation, optional typed rewards, unique steady-state probabilities/rewards, hitting probabilities, and expected-step queries; singular systems fail explicitly and no event timeline is executed.
+## 0.3.0rc1 — 2026-09-01 (pre-release)
 
-- Added the v1 data-only community Package protocol with strict TOML manifests, exact dependency versions, namespace ownership, transactional workspace requirements, deterministic JSON lockfiles, and content-addressed read-only caches.
-- Added direct GitHub release resolution pinned to full commits, bounded safe archive extraction, canonical content hashes, offline verification, explicit restore/update/remove commands, and immutable local-package snapshots.
-- Added `kt package new` and `kt package check` author workflows with a GitHub Actions template; community repositories remain the source authority and package code or hooks are never executed.
-- Added workspace-defined and Package-distributed static Entry creation templates with optional chart configuration; Package templates are content-hashed, cached read-only, and validated before installation.
-- Made new workspaces entirely game-neutral, removed the bundled WoW starter, and moved probability, integer/count domains, and physical time units into the game-neutral mathematical core.
-- Added package provenance to CLI/browser views and immutable run snapshots, enforced declared package dependency and semantic boundaries, and preserved replay after package removal.
-- Allowed data-only Package functions to transform workspace-supplied arguments without treating caller provenance as Package read authority; direct or undeclared Package reads remain rejected.
+- Made `.kirin` v1 documents the sole editable workspace authority and reduced the public source model to `entry`; named presets, output groups, chart configuration, semantics, aliases, labels, and provenance now live in or derive from ordinary source documents.
+- Made new workspaces game-neutral, removed privileged built-in game data, and retained probability, bounded integer/count domains, and physical time as neutral mathematical vocabulary.
+- Added exact finite discrete distributions, pure bounded recurrences, and finite analytical state models with explicit normalization, unit, uniqueness, singularity, and computation limits; no sampling, implicit independence, or event timeline is inferred.
+- Added versioned lookup/interpolation, finite products, exact scaled units, structured source metadata, dependency-version checks, player display formats, two-axis grids, and finite multi-variable system solving.
+- Added the data-only community Package v1 protocol with strict manifests, exact dependency versions, namespace ownership, deterministic lockfiles, content-addressed read-only caches, bounded GitHub release extraction, offline verification, and immutable local snapshots.
+- Added Package authoring and lifecycle commands, static workspace/Package creation templates, package provenance in CLI/browser projections and run snapshots, and replay that remains possible after Package removal; Package code and hooks are never executed.
+- Replaced the Textual interface with the loopback-only `kt web` browser workbench and removed Textual/Plotext dependencies, terminal rendering, animations, narrow-layout logic, and obsolete TUI tests.
+- Consolidated the browser around authoritative Documents and a derived Relationship Graph; Runs and Packages are workspace tools, while calculations, scans, transforms, solving, comparison, export, and replay continue through shared CLI/browser application services.
+- Added multi-document in-memory drafts, debounced full-workspace validation, atomic Save All, external-change comparison, bounded restart-safe draft recovery, and read-only result, chart, formula, diagnostic, and relationship projections.
+- Added Editor/Split/Preview focus modes, automatic source-default previews, expanded chart views, explicit SVG/PNG/CSV export, and bidirectional navigation between source and derived projections without adding editable form state to the inspector.
+- Added Chinese-aware syntax highlighting, completion, structural snippets, labels, aliases, diagnostics, deterministic full-width punctuation fixes, safe whitespace formatting, document outlines, folding, find/replace, line navigation, and workspace document/symbol quick opening.
+- Added tolerant symbol and reference indexing for incomplete drafts, hover and parameter information, definition navigation, alias-aware reference listing, validated formal-member rename, and undo history retained across document switches.
+- Added member/document dependency graphs derived only from validated expression references, including local direction/depth exploration, current-document marking, connection counts, keyboard-readable fallbacks, and source traceability.
+- Added immutable run-record provenance, definition snapshots, implementation/environment fingerprints, artifact hashes, failure replay, plot regeneration, multi-variant comparison records, and environment-drift reporting.
+- Added a Brewmaster workbook reproduction covering damage, defense/healing, and 1–20 target AOE comparisons, plus a tested game-mechanic capability audit; these examples retain their source/version boundaries and are not presented as current official game data.
 
-- Added the author-facing `.kirin` v1 source format as the sole workspace authority for entries, optional chart configurations, dimensions, units, and domains.
-- Added the `kirin.workspace` marker plus the `.kirin` WoW starter package and examples.
-- Switched `kt new` templates to `.kirin` and added in-memory workspace overlays for unsaved editor validation.
-- Replaced the Textual TUI with the loopback-only `kt web` browser workbench and removed Textual/Plotext dependencies, terminal rendering, animations, narrow-layout logic, and TUI tests.
-- Added multi-document draft buffers, live workspace diagnostics, atomic validated saves, external-change detection, graphical SVG/heatmap previews, and SVG/PNG/CSV export in the browser.
-- Added entry-local Unicode aliases and presentation-only member labels, including default labels in explanations and generated charts.
-- Added Chinese browser status and diagnostics with source locations and full-width punctuation suggestions; document selection shows the first `//` title alongside its path.
-- Added `Ctrl+Space` completion for workspace members, Chinese labels and aliases, semantics, built-ins, and Chinese structural snippets.
-- Built Documents, Calculate, Charts, Math, Runs, and Packages views while retaining structured documents as the only writable definition authority; diagnostics and formula previews remain in document context.
-- Added canonical in-memory document drafts, unsaved-change decisions, multi-variant comparisons, player-label and percentage overrides, ad-hoc scan tables, chart-configured Entry drafts, aggregated diagnostic navigation, formula explanation, comparison run records, and replay.
-- Added target-specific input guidance, baseline input solving, multi-variant comparison, dynamic chart tables, browser export coverage, and a tested World of Warcraft-style expected/equivalent mechanics capability audit.
-- Added a Kirin Tor purple/gold/mana graphical theme without display-only animation controls.
-- Moved template construction, override parsing, workspace indexes, comparison orchestration, artifact boundaries, and run recording into shared CLI/browser application services.
-- Added a real Brewmaster workbook reproduction example for its damage, defense, and 1–20 target AOE/DPC/DPE tables, with regression checks against cached workbook values and real SVG/CSV export coverage.
-- Reduced the public source model to `entry`; named parameter presets and optional chart configuration live inside entries, and output grouping is entirely author-defined.
-- Added structured source/version metadata, dependency version checks, versioned lookup tables, interpolation, finite products, exact scaled units, player display formats, two-axis grids, and finite multi-variable system solving.
-- Added searchable author groups, text-first temporary parameters, saved multi-curve Entry chart loading, two-input browser heatmaps, linked-equation solving, workspace-directory launch, and full Workbench-service regression coverage.
-- Removed persisted `@template` metadata and `info:` fields, and unified constant and derived field declarations under `=`.
-- Replaced the defense table's fixed dodge input with a 16-step finite expectation reproduced from the workbook's dodge sheet.
+Breaking changes:
+
+- YAML and the Textual authoring workflow are no longer parallel authorities; `.kirin` is the only editable definition format.
+- New workspaces no longer install a privileged WoW starter, and persisted `@template` metadata and `info:` fields are removed.
+- The browser inspector no longer accepts temporary calculation fields; experiments must be authored as source defaults or named presets.
 
 ## 0.2.0 — 2026-09-01
 
