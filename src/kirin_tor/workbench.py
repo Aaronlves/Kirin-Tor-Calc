@@ -32,6 +32,7 @@ from .authoring import (
     format_kirin_source,
     rename_authoring_symbol,
 )
+from .community_discovery import discover_community
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
 from .errors import KTError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
@@ -1270,8 +1271,14 @@ class Workbench:
             raise ParameterError(f"unknown workbench operation: {operation}")
 
     def package_action(self, action: str, payload: Optional[Mapping[str, object]] = None) -> dict:
+        payload = dict(payload or {})
+        if action == "discover":
+            return discover_community(
+                "package",
+                query=payload.get("query", ""),
+                page=payload.get("page", 1),
+            )
         with self._lock:
-            payload = dict(payload or {})
             if action == "list":
                 return package_summary(PackageResolver(PackageStoreManager(self.root)).load_locked_workspace())
             if action == "add":
@@ -1302,8 +1309,14 @@ class Workbench:
             raise ParameterError(f"unknown package action: {action}")
 
     def plugin_action(self, action: str, payload: Optional[Mapping[str, object]] = None) -> dict:
+        payload = dict(payload or {})
+        if action == "discover":
+            return discover_community(
+                "plugin",
+                query=payload.get("query", ""),
+                page=payload.get("page", 1),
+            )
         with self._lock:
-            payload = dict(payload or {})
             if action == "list":
                 return self.plugins.summary()
             if action == "add_path":

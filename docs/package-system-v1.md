@@ -141,6 +141,25 @@ validated workspace. Running package update or restore is required to accept cha
 Aliases are local presentation handles used by package-management commands. They do not change
 Kirin document IDs or source identities.
 
+## Community discovery
+
+Public Package repositories may add the GitHub topic `kirin-tor-package`. The workbench's
+explicit **Discover Package** action searches that topic and reads `kirin.package.toml` from each
+candidate repository's current default branch. GitHub normalizes topic names to lower case.
+
+Topic membership is a self-declaration, not an official listing or correctness review. The
+discovery surface shows only candidates whose manifest is strict, uses the current Kirin feature
+line, and declares only GitHub dependencies. Repositories with missing, invalid, or incompatible
+manifests are counted but not presented as compatible Packages. Repository activity, stars,
+forks, and license are independent descriptive signals and never form a trust score.
+
+Discovery is an explicitly requested, read-only network projection. It does not write discovery
+results, user data, Package requirements, the lockfile, or the content store. It does not download
+Package source archives or execute repository content. A displayed manifest blob SHA identifies
+only the manifest inspected for that transient result; it is not a Package release identity or
+content digest. Installation remains a separate user action that supplies an exact version and
+passes through the ordinary tag, commit, manifest, graph, and canonical-content validation below.
+
 ## GitHub resolution
 
 The normalized public source spelling is `github:OWNER/REPOSITORY`. V1 accepts public GitHub

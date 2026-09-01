@@ -1,1 +1,0 @@
-import{E as e,S as t,h as n}from"./createLucideIcon-DBpTY6AY.js";import{t as r}from"./InputBase-C_0htdG3.js";var i=e(),a=n(e=>{let n=t([`Input`,`InputWrapper`,`TextInput`],null,e);return(0,i.jsx)(r,{component:`input`,...n,__staticSelector:`TextInput`})});a.classes=r.classes,a.displayName=`@mantine/core/TextInput`;export{a as t};

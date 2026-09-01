@@ -65,6 +65,10 @@ class PluginError(KTError):
     code = "plugin_error"
 
 
+class DiscoveryError(KTError):
+    code = "discovery_error"
+
+
 class SchemaError(KTError):
     code = "schema_error"
 

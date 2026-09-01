@@ -90,6 +90,47 @@ export interface PluginSummary {
   };
 }
 
+export interface CommunityDiscoveryCandidate {
+  kind: "plugin" | "package";
+  topic: string;
+  repository: string;
+  source: string;
+  repository_url: string;
+  repository_description: string;
+  default_branch: string;
+  manifest_sha: string;
+  updated_at: string;
+  stars: number;
+  forks: number;
+  id?: string;
+  name: string;
+  version: string;
+  api?: string;
+  namespace?: string;
+  requires_kirin?: string;
+  description: string;
+  license: string;
+  game?: string;
+  game_version?: string;
+}
+
+export interface CommunityDiscoveryResult {
+  status: "ok";
+  kind: "plugin" | "package";
+  topic: string;
+  query: string;
+  page: number;
+  per_page: number;
+  total_repositories: number;
+  inspected_repositories: number;
+  skipped_repositories: number;
+  has_previous: boolean;
+  has_next: boolean;
+  checked_at: string;
+  items: CommunityDiscoveryCandidate[];
+  notice: string;
+}
+
 export interface PackageReference {
   name: string;
   version: string;

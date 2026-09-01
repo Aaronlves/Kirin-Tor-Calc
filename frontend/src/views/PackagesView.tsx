@@ -22,6 +22,7 @@ import {
   ArchiveRestore,
   Box as PackageIcon,
   Check,
+  Compass,
   Download,
   FolderInput,
   PackageCheck,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 
 import { errorMessage, request } from "../api";
+import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { InstalledPackage, OperationResult } from "../types";
 import { EmptyState, Surface, TechnicalResult } from "../components/ui";
@@ -59,6 +61,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
   const [packageVersion, setPackageVersion] = useState("1.0.0");
   const [checkDirectory, setCheckDirectory] = useState("");
   const [workspacePath, setWorkspacePath] = useState("");
+  const [discoverOpened, setDiscoverOpened] = useState(false);
 
   const packages = controller.bootstrapData?.packages ?? [];
 
@@ -127,6 +130,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
           <Text c="dimmed" fz="sm" mt={5}>每个 Package 都以精确版本和内容哈希锁定；模板只在创建文档时展开。</Text>
         </Box>
         <Group gap="xs">
+          <Button variant="default" size="xs" leftSection={<Compass size={14} />} onClick={() => setDiscoverOpened(true)}>发现 Package</Button>
           <Button variant="default" size="xs" leftSection={<Wrench size={14} />} onClick={() => setAuthorToolsOpened(true)}>作者工具</Button>
           <Button size="xs" leftSection={<Plus size={14} />} onClick={() => setInstallOpened(true)}>安装 Package</Button>
         </Group>
@@ -250,6 +254,10 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
             </Stack>
           </Tabs.Panel>
         </Tabs>
+      </Drawer>
+
+      <Drawer opened={discoverOpened} onClose={() => setDiscoverOpened(false)} position="right" size="xl" title="发现社区 Packages">
+        <CommunityDiscoveryPanel kind="package" />
       </Drawer>
     </div>
   );

@@ -73,6 +73,82 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     expect(disabled.ok()).toBeTruthy();
   });
 
+  test("topic 发现只展示兼容 manifest 与仓库链接", async ({ page }) => {
+    const discovery = (kind: "plugin" | "package") => ({
+      status: "ok",
+      kind,
+      topic: kind === "plugin" ? "kirin-tor-plugin" : "kirin-tor-package",
+      query: "",
+      page: 1,
+      per_page: 12,
+      total_repositories: 1,
+      inspected_repositories: 1,
+      skipped_repositories: 0,
+      has_previous: false,
+      has_next: false,
+      checked_at: "2026-09-02T00:00:00Z",
+      notice: "Topic 与兼容 manifest 仅用于发现；结果未经审核，也不会安装、批准或启用内容。",
+      items: [{
+        kind,
+        topic: kind === "plugin" ? "kirin-tor-plugin" : "kirin-tor-package",
+        repository: `community/${kind}-example`,
+        source: `github:community/${kind}-example`,
+        repository_url: `https://github.com/community/${kind}-example`,
+        repository_description: "Fixture repository",
+        default_branch: "main",
+        manifest_sha: "a".repeat(40),
+        updated_at: "2026-09-01T00:00:00Z",
+        stars: 3,
+        forks: 1,
+        name: kind === "plugin" ? "Community Browser" : "community.example",
+        version: "1.0.0",
+        description: "A read-only discovery fixture.",
+        license: "MIT",
+        ...(kind === "plugin"
+          ? { id: "community.example-browser", api: "1" }
+          : { namespace: "community_example", requires_kirin: "0.3" }),
+      }],
+    });
+    for (const kind of ["plugin", "package"] as const) {
+      await page.route(`**/api/${kind}`, async (route) => {
+        const request = route.request();
+        const body = request.method() === "POST" ? request.postDataJSON() : null;
+        if (body?.action === "discover") {
+          await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(discovery(kind)) });
+        } else {
+          await route.continue();
+        }
+      });
+    }
+
+    await openWorkbench(page);
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("Workbench Plugins");
+    await page.getByText("打开 Workbench Plugins", { exact: true }).click();
+    await page.getByRole("button", { name: "发现社区插件" }).click();
+    let drawer = page.getByRole("dialog", { name: "发现社区 Workbench Plugins" });
+    await expect(drawer.getByText("Community Browser", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("kirin-tor-plugin", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("未审核", { exact: true })).toBeVisible();
+    await expect(drawer.getByRole("link", { name: "在 GitHub 查看" })).toHaveAttribute("href", "https://github.com/community/plugin-example");
+    await expect(drawer.getByRole("button", { name: /安装/ })).toHaveCount(0);
+    await drawer.locator(".mantine-Drawer-close").click();
+    await expect(drawer).toBeHidden();
+    const pluginManager = page.getByRole("dialog", { name: "Workbench Plugins" });
+    await pluginManager.locator(".mantine-Drawer-close").click();
+    await expect(pluginManager).toBeHidden();
+
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("Package 管理");
+    await page.getByText("打开 Package 管理", { exact: true }).click();
+    await page.getByRole("button", { name: "发现 Package" }).click();
+    drawer = page.getByRole("dialog", { name: "发现社区 Packages" });
+    await expect(drawer.getByText("community.example", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("kirin-tor-package", { exact: true })).toBeVisible();
+    await expect(drawer.getByText("namespace community_example", { exact: true })).toBeVisible();
+    await expect(drawer.getByRole("link", { name: "在 GitHub 查看" })).toHaveAttribute("href", "https://github.com/community/package-example");
+  });
+
   test("三种文档专注模式切换并记住选择", async ({ page }) => {
     await page.setViewportSize({ width: 1120, height: 800 });
     await openWorkbench(page);

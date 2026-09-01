@@ -16,6 +16,28 @@ Protocol v1 supports explicitly selected local directories. It does not define a
 remote installer, signature authority, native executable plugin, mathematical backend plugin,
 or unrestricted main-page JavaScript extension.
 
+## Community discovery
+
+Public Workbench Plugin repositories may add the GitHub topic `kirin-tor-plugin`. The
+workbench's explicit **Discover community plugins** action searches that topic and reads
+`kirin.plugin.json` from each candidate repository's current default branch. GitHub normalizes
+topic names to lower case.
+
+Topic membership is a community self-declaration, not an official listing, security audit, or
+compatibility promise. Before display, Kirin strictly checks the current manifest schema, Plugin
+API version, identifiers, contribution declarations, permissions, targets, profiles, and the
+structural safety of entry paths. It does not download or validate the referenced static assets
+during discovery. Repositories with missing, invalid, or incompatible manifests are counted but
+not presented as compatible Plugins.
+
+Discovery is an explicitly requested, read-only network projection. Results stay in the current
+browser view and are not written to the workspace, Plugin requirements, Plugin lock, approval
+registry, or content store. A displayed manifest blob SHA identifies only the manifest inspected
+for that transient result; it is not the installed bundle's canonical content digest. The surface
+offers a link to the public repository but no remote install action. Discovery never installs,
+approves, enables, downloads, or executes Plugin content; Protocol v1 installation remains the
+explicit local-directory flow defined below.
+
 ## Authority and trust boundary
 
 - Local `.kirin` source remains the only editable definition authority.

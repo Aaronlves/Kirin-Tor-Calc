@@ -141,6 +141,8 @@ Kirin source v1 使用一个 `entry` 文档模型。正式 ID 保持 ASCII；中
 
 社区 Package 是独立维护、只含数据的 GitHub 仓库或本地开发目录。Kirin Tor 不执行其中的 Python、安装脚本、Git hook 或其他代码。
 
+公开仓库可添加 GitHub topic `kirin-tor-package`，从工作台的只读发现抽屉中被找到。Topic 只是社区自声明；发现不会安装内容，安装仍需用户明确指定来源与精确版本。
+
 创建并检查 Package：
 
 ```bash
@@ -167,6 +169,8 @@ kt package verify
 ## Workbench Extension Plugins
 
 Workbench Plugin 可以为验证后的文档增加游戏化呈现器，也可以注册顶层页面、工作区工具、声明式命令和布局 Profile。插件不会改变 Kirin 语法或数学结果；`.kirin`、验证器、Save All、Package 解析和运行记录仍由官方工作台控制。
+
+公开仓库可添加 GitHub topic `kirin-tor-plugin`，从工作台的只读发现抽屉中被找到。只有当前协议可解析的 manifest 会显示；发现不会下载、安装、批准、启用或执行插件。
 
 协议 v1 只安装作者明确选择的本地目录快照：
 

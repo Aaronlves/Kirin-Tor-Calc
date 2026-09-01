@@ -6,6 +6,12 @@
 
 Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 
+The Package and Workbench Plugin management surfaces include explicit read-only community
+discovery drawers. They query the fixed GitHub topics `kirin-tor-package` and
+`kirin-tor-plugin` through the authenticated local Python adapter, show only current-protocol
+manifests, and provide repository links without remote installation. Topic membership remains a
+self-declaration; discovery writes no workspace, lock, approval, store, or personal-data record.
+
 The server binds only to a loopback address. Each process creates a random session token, transfers it to browser session storage on first load, and removes it from the visible URL. API requests require that token and an allowed local Host and Origin. Responses disable caching, framing, referrer forwarding, MIME sniffing, inline scripts, and cross-origin connections. Runtime-generated CSS is allowed because CodeMirror mounts its base and theme styles dynamically; executable scripts remain same-origin packaged assets.
 
 The workbench keeps the following authority boundary:

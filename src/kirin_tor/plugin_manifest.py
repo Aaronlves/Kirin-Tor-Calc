@@ -111,7 +111,14 @@ def _contribution_id(value: Any, plugin_id: str, label: str, path: Path) -> str:
     return identifier
 
 
-def _entry_path(value: Any, label: str, root: Path, path: Path) -> str:
+def _entry_path(
+    value: Any,
+    label: str,
+    root: Path,
+    path: Path,
+    *,
+    check_exists: bool = True,
+) -> str:
     entry = _text(value, label, path)
     if "\\" in entry:
         raise PluginError(f"{label} must use forward slashes", _location(path, label))
@@ -120,13 +127,14 @@ def _entry_path(value: Any, label: str, root: Path, path: Path) -> str:
         raise PluginError(f"{label} must stay under web/", _location(path, label))
     if pure.suffix.lower() != ".html":
         raise PluginError(f"{label} must identify an .html file", _location(path, label))
-    candidate = root.joinpath(*pure.parts)
-    if candidate.is_symlink() or not candidate.is_file():
-        raise PluginError(f"{label} does not identify a regular file: {entry}", _location(path, label))
-    try:
-        candidate.resolve().relative_to(root)
-    except ValueError as exc:
-        raise PluginError(f"{label} leaves the plugin root", _location(path, label)) from exc
+    if check_exists:
+        candidate = root.joinpath(*pure.parts)
+        if candidate.is_symlink() or not candidate.is_file():
+            raise PluginError(f"{label} does not identify a regular file: {entry}", _location(path, label))
+        try:
+            candidate.resolve().relative_to(root)
+        except ValueError as exc:
+            raise PluginError(f"{label} leaves the plugin root", _location(path, label)) from exc
     return pure.as_posix()
 
 
@@ -275,7 +283,14 @@ class PluginManifest:
 
 
 def _surface(
-    raw: Any, *, kind: str, plugin_id: str, root: Path, path: Path, index: int
+    raw: Any,
+    *,
+    kind: str,
+    plugin_id: str,
+    root: Path,
+    path: Path,
+    index: int,
+    check_entries: bool,
 ) -> SurfaceContribution:
     label = f"contributes.{kind}s.{index}"
     data = _mapping(raw, label, path)
@@ -286,7 +301,13 @@ def _surface(
     identifier = _contribution_id(data.get("id"), plugin_id, f"{label}.id", path)
     title = _text(data.get("title"), f"{label}.title", path)
     description = _optional_text(data.get("description"), f"{label}.description", path)
-    entry = _entry_path(data.get("entry"), f"{label}.entry", root, path)
+    entry = _entry_path(
+        data.get("entry"),
+        f"{label}.entry",
+        root,
+        path,
+        check_exists=check_entries,
+    )
     permissions = _permissions(data.get("permissions", []), f"{label}.permissions", path)
     if kind != "renderer":
         return SurfaceContribution(kind, identifier, title, entry, permissions, description=description)
@@ -371,7 +392,7 @@ def _profile(raw: Any, plugin_id: str, path: Path, index: int) -> ProfileContrib
     )
 
 
-def load_plugin_manifest(root: Path) -> PluginManifest:
+def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginManifest:
     root = root.expanduser().resolve()
     path = root / PLUGIN_MANIFEST
     if path.is_symlink() or not path.is_file():
@@ -418,15 +439,39 @@ def load_plugin_manifest(root: Path) -> PluginManifest:
         raise PluginError(f"plugin exceeds {MAX_PLUGIN_CONTRIBUTIONS} contributions", _location(path))
     contributions = PluginContributions(
         renderers=tuple(
-            _surface(item, kind="renderer", plugin_id=plugin_id, root=root, path=path, index=index)
+            _surface(
+                item,
+                kind="renderer",
+                plugin_id=plugin_id,
+                root=root,
+                path=path,
+                index=index,
+                check_entries=check_entries,
+            )
             for index, item in enumerate(raw_groups["renderers"])
         ),
         views=tuple(
-            _surface(item, kind="view", plugin_id=plugin_id, root=root, path=path, index=index)
+            _surface(
+                item,
+                kind="view",
+                plugin_id=plugin_id,
+                root=root,
+                path=path,
+                index=index,
+                check_entries=check_entries,
+            )
             for index, item in enumerate(raw_groups["views"])
         ),
         tools=tuple(
-            _surface(item, kind="tool", plugin_id=plugin_id, root=root, path=path, index=index)
+            _surface(
+                item,
+                kind="tool",
+                plugin_id=plugin_id,
+                root=root,
+                path=path,
+                index=index,
+                check_entries=check_entries,
+            )
             for index, item in enumerate(raw_groups["tools"])
         ),
         commands=tuple(

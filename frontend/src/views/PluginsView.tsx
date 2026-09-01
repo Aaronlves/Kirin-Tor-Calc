@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Alert, Badge, Box, Button, Code, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Box, Button, Code, Drawer, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { CircleAlert, Plug, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
+import { CircleAlert, Compass, Plug, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../api";
+import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { InstalledPlugin } from "../types";
 
@@ -29,6 +30,7 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
   const [alias, setAlias] = useState("");
   const [path, setPath] = useState("");
   const [running, setRunning] = useState<string | null>(null);
+  const [discoverOpened, setDiscoverOpened] = useState(false);
   const summary = controller.pluginSummary;
 
   const act = async (action: string, payload: Record<string, unknown>, success: string) => {
@@ -58,10 +60,13 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
 
   return (
     <Stack gap="lg" p="lg">
-      <Box>
-        <Group gap="sm"><Plug size={20} /><Title order={3}>Workbench Plugins</Title></Group>
-        <Text c="dimmed" fz="sm" mt={5}>安装经过内容摘要锁定的本地 UI 插件；插件在无同源权限的沙箱 iframe 中运行。</Text>
-      </Box>
+      <Group justify="space-between" align="flex-start">
+        <Box>
+          <Group gap="sm"><Plug size={20} /><Title order={3}>Workbench Plugins</Title></Group>
+          <Text c="dimmed" fz="sm" mt={5}>安装经过内容摘要锁定的本地 UI 插件；插件在无同源权限的沙箱 iframe 中运行。</Text>
+        </Box>
+        <Button variant="default" size="xs" leftSection={<Compass size={14} />} onClick={() => setDiscoverOpened(true)}>发现社区插件</Button>
+      </Group>
 
       {summary.safe_mode && <Alert color="orange" icon={<ShieldOff size={17} />} title="工作台处于安全模式">
         插件配置仍可检查和修改，但本次服务不会激活贡献或提供插件资源。退出后使用普通 <Code>kt web</Code> 重新启动。
@@ -151,6 +156,10 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
           <Badge variant="outline">{counts.profiles} 个 Profile</Badge>
         </Group>
       </Box>
+
+      <Drawer opened={discoverOpened} onClose={() => setDiscoverOpened(false)} position="right" size="xl" title="发现社区 Workbench Plugins">
+        <CommunityDiscoveryPanel kind="plugin" />
+      </Drawer>
     </Stack>
   );
 }
