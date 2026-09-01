@@ -1,0 +1,21 @@
+@kirin 1
+@plot aoe_dpc_curves
+
+// 第 6 张表中的代表性 DPC 曲线
+
+x: aoe_table.targets
+range: 1..20
+points: 20
+
+y:
+  aoe_table.blackout_kick_dpc as "幻灭踢"
+  aoe_table.tiger_palm_dpc as "猛虎掌"
+  aoe_table.breath_of_fire_dpc as "火焰之息"
+  aoe_table.keg_smash_dpc as "醉酿投"
+  aoe_table.empty_keg_smash_dpc as "空酒桶醉酿投"
+
+title: "技能 DPC 与目标数"
+x-label: "目标数"
+y-label: "攻强百分比系数总值"
+export-svg: "results/aoe-dpc.svg"
+export-csv: "results/aoe-dpc.csv"

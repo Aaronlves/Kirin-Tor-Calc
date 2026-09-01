@@ -14,6 +14,7 @@
 - Added target-specific input guidance, baseline input solving, multi-variant comparison curves, dynamic chart tables, real TUI export coverage, player acceptance notes, and a tested World of Warcraft-style expected/equivalent mechanics capability audit.
 - Added a Kirin Tor purple/gold/mana theme, cached one-shot chart reveal frames, reduced/off motion settings, and compact terminal layouts.
 - Moved template construction, override parsing, workspace indexes, comparison orchestration, artifact boundaries, and run recording into shared CLI/TUI application services.
+- Added a real Brewmaster workbook reproduction example for its damage, defense, and 1–20 target AOE/DPC/DPE tables, with regression checks against cached workbook values and real SVG/CSV export coverage.
 
 ## 0.2.0 — 2026-09-01
 

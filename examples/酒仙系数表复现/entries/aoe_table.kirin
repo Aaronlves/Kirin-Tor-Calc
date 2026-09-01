@@ -1,0 +1,264 @@
+@kirin 1
+@entry aoe_table
+@template model
+@game-version 12.0.1.65617
+@status workbook_reproduction
+
+// 第 6 张表：技能 AOE 总值表
+
+---
+复现第 6 张表的技能 AOE 系数、DPC、爆发期 DPC 与 DPE。
+每个输出都是攻强百分比系数总值；横轴限制为 1 至 20 个目标。
+---
+
+sources:
+  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第6张表 技能aoe总值表，A1:W64"}
+
+inputs:
+  targets "目标数": target_count = 8
+
+functions:
+  soft_cap_5(base: number[dimensionless], n: target_count) -> dimensionless =
+    if_else(n > 5, 5 * sqrt(n / 5) * base, n * base)
+  soft_cap_8(base: number[dimensionless], n: target_count) -> dimensionless =
+    if_else(n > 8, 8 * sqrt(n / 8) * base, n * base)
+  secondary_falloff(base: number[dimensionless], n: target_count) -> dimensionless =
+    base + (n - 1) / sqrt(n) * base
+  one_target(base: number[dimensionless], n: target_count) -> dimensionless = base * n / n
+  uncapped(base: number[dimensionless], n: target_count) -> dimensionless = n * base
+  hard_cap_3(base: number[dimensionless], n: target_count) -> dimensionless =
+    min(n, 3) * base
+  hard_chain_4(base: number[dimensionless], n: target_count) -> dimensionless =
+    if_else(n == 1, base, base * (1 + 0.8 + 0.8 ** 2 + 0.8 ** 3))
+  five_ticks(base: number[dimensionless], n: target_count) -> dimensionless = 5 * base
+  keg_smash_aoe(base: number[dimensionless], n: target_count) -> dimensionless =
+    if_else(
+    n > 5,
+    5 * sqrt(n / 5) / n * (n + 1.25) * base,
+    (n + 1.25) * base
+    )
+  niuzao_aoe(base: number[dimensionless], n: target_count) -> dimensionless =
+    if_else(
+    n > 8,
+    base + 8 * sqrt(n / 8) / n * (n - 1) * base,
+    n * base
+    )
+  blackout_moh_scaling(n: target_count) -> dimensionless =
+    1 + if_else(
+    n > 5,
+    0.25 * (0.44 + 0.54 / (2 ** ((n - 5) / 5))) * n,
+    0.25 * n
+    )
+  tiger_moh_scaling(n: target_count) -> dimensionless =
+    1 + if_else(n > 5, 0.25 * sqrt(n * 5), 0.25 * n)
+
+  tiger_palm_aoe(n: target_count) -> dimensionless =
+    one_target(
+    damage_table.tiger_palm_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  blackout_kick_aoe(n: target_count) -> dimensionless =
+    hard_cap_3(
+    damage_table.blackout_kick_coefficient *
+    (1 + defense_table.crit_rate * if_else(damage_table.shadopan, 1.3, 1)),
+    n
+    )
+  spinning_crane_kick_aoe(n: target_count) -> dimensionless =
+    soft_cap_5(
+    damage_table.spinning_crane_kick_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  keg_smash_total(n: target_count) -> dimensionless =
+    keg_smash_aoe(
+    damage_table.keg_smash_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  exploding_keg_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.exploding_keg_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  chi_burst_aoe(n: target_count) -> dimensionless =
+    soft_cap_5(
+    damage_table.chi_burst_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  special_delivery_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.special_delivery_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  niuzao_total(n: target_count) -> dimensionless =
+    niuzao_aoe(
+    damage_table.niuzao_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  breath_of_fire_direct_aoe(n: target_count) -> dimensionless =
+    secondary_falloff(
+    damage_table.breath_of_fire_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  dragonfire_tick_aoe(n: target_count) -> dimensionless =
+    secondary_falloff(
+    damage_table.dragonfire_tick_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  breath_of_fire_dot_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.breath_of_fire_dot_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  empty_keg_aoe(n: target_count) -> dimensionless =
+    hard_chain_4(
+    damage_table.empty_keg_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  rushing_jade_wind_aoe(n: target_count) -> dimensionless =
+    soft_cap_5(
+    damage_table.rushing_jade_wind_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  season_two_set_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.season_two_set_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  crackling_jade_lightning_aoe(n: target_count) -> dimensionless =
+    one_target(
+    damage_table.crackling_jade_lightning_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  fuel_on_the_fire_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.fuel_on_the_fire_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  clear_the_cellar_aoe(n: target_count) -> dimensionless =
+    five_ticks(
+    damage_table.clear_the_cellar_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  flurry_normal_aoe(n: target_count) -> dimensionless =
+    soft_cap_8(
+    damage_table.flurry_normal_coefficient * (1 + defense_table.crit_rate + 0.15),
+    n
+    )
+  flurry_physical_aoe(n: target_count) -> dimensionless =
+    one_target(
+    damage_table.flurry_physical_coefficient * (1 + defense_table.crit_rate + 0.15),
+    n
+    )
+  high_impact_aoe(n: target_count) -> dimensionless =
+    uncapped(
+    damage_table.high_impact_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+  harmonic_surge_aoe(n: target_count) -> dimensionless =
+    soft_cap_5(
+    damage_table.harmonic_surge_coefficient * (1 + defense_table.crit_rate),
+    n
+    )
+
+  blackout_kick_dpc_value(n: target_count) -> dimensionless =
+    blackout_kick_aoe(1) *
+    (min(max(n - 1, 0), 2) +
+    if_else(damage_table.master_of_harmony, blackout_moh_scaling(n), 1))
+  tiger_palm_dpc_value(n: target_count) -> dimensionless =
+    tiger_palm_aoe(1) *
+    if_else(damage_table.master_of_harmony, tiger_moh_scaling(n), 1)
+  counter_tiger_palm_dpc_value(n: target_count) -> dimensionless =
+    2 * tiger_palm_dpc_value(n)
+  blackout_tiger_palm_dpc_value(n: target_count) -> dimensionless =
+    tiger_palm_dpc_value(n) * if_else(damage_table.master_of_harmony, 2.5, 2)
+  blackout_counter_tiger_palm_dpc_value(n: target_count) -> dimensionless =
+    2 * blackout_tiger_palm_dpc_value(n)
+  breath_of_fire_dpc_value(n: target_count) -> dimensionless =
+    (breath_of_fire_direct_aoe(n) + 2 * dragonfire_tick_aoe(n) +
+    breath_of_fire_dot_aoe(n) / 4) *
+    if_else(damage_table.master_of_harmony, 1.15, 1)
+  keg_smash_dpc_value(n: target_count) -> dimensionless =
+    keg_smash_total(n) +
+    if_else(damage_table.season_one_set, season_two_set_aoe(n), 0) +
+    if_else(damage_table.master_of_harmony, harmonic_surge_aoe(n), 0)
+  empty_keg_smash_dpc_value(n: target_count) -> dimensionless =
+    keg_smash_total(n) + empty_keg_aoe(n) +
+    if_else(damage_table.season_one_set, season_two_set_aoe(n), 0) +
+    if_else(damage_table.master_of_harmony, harmonic_surge_aoe(n), 0)
+  burst_breath_of_fire_dpc_value(n: target_count) -> dimensionless =
+    breath_of_fire_dpc_value(n) +
+    if_else(
+    damage_table.shadopan,
+    flurry_physical_aoe(1) * 9 + flurry_normal_aoe(n) * 9,
+    0
+    )
+
+outputs:
+  tiger_palm_total "猛虎掌AOE总系数": dimensionless = tiger_palm_aoe(targets)
+  blackout_kick_total "幻灭踢AOE总系数": dimensionless = blackout_kick_aoe(targets)
+  spinning_crane_kick_total "神鹤引项踢AOE总系数": dimensionless =
+    spinning_crane_kick_aoe(targets)
+  keg_smash_aoe_total "醉酿投AOE总系数": dimensionless = keg_smash_total(targets)
+  exploding_keg_total "爆炸酒桶AOE总系数": dimensionless = exploding_keg_aoe(targets)
+  chi_burst_total "真气爆裂AOE总系数": dimensionless = chi_burst_aoe(targets)
+  special_delivery_total "特别快递AOE总系数": dimensionless =
+    special_delivery_aoe(targets)
+  niuzao_aoe_total "玄牛伴身AOE总系数": dimensionless = niuzao_total(targets)
+  breath_of_fire_direct_total "火焰之息直伤AOE总系数": dimensionless =
+    breath_of_fire_direct_aoe(targets)
+  dragonfire_tick_total "单次龙焰酒AOE总系数": dimensionless =
+    dragonfire_tick_aoe(targets)
+  breath_of_fire_dot_total "火焰之息DOT总系数": dimensionless =
+    breath_of_fire_dot_aoe(targets)
+  empty_keg_total "空酒桶AOE总系数": dimensionless = empty_keg_aoe(targets)
+  rushing_jade_wind_total "碧玉疾风AOE总系数": dimensionless =
+    rushing_jade_wind_aoe(targets)
+  season_two_set_total "S2套装AOE总系数": dimensionless =
+    season_two_set_aoe(targets)
+  crackling_jade_lightning_total "碎玉闪电AOE总系数": dimensionless =
+    crackling_jade_lightning_aoe(targets)
+  fuel_on_the_fire_total "火上浇油AOE总系数": dimensionless =
+    fuel_on_the_fire_aoe(targets)
+  clear_the_cellar_total "清空酒窖AOE总系数": dimensionless =
+    clear_the_cellar_aoe(targets)
+  flurry_normal_total "疾风乱打N总系数": dimensionless = flurry_normal_aoe(targets)
+  flurry_physical_total "疾风乱打P总系数": dimensionless =
+    flurry_physical_aoe(targets)
+  high_impact_total "拳劲贯体AOE总系数": dimensionless = high_impact_aoe(targets)
+  harmonic_surge_total "和谐涌动AOE总系数": dimensionless =
+    harmonic_surge_aoe(targets)
+
+  blackout_kick_dpc "幻灭踢DPC": dimensionless = blackout_kick_dpc_value(targets)
+  tiger_palm_dpc "猛虎掌DPC": dimensionless = tiger_palm_dpc_value(targets)
+  counter_tiger_palm_dpc "反击猛虎掌DPC": dimensionless =
+    counter_tiger_palm_dpc_value(targets)
+  blackout_tiger_palm_dpc "幻灭猛虎掌DPC": dimensionless =
+    blackout_tiger_palm_dpc_value(targets)
+  blackout_counter_tiger_palm_dpc "幻灭反击猛虎掌DPC": dimensionless =
+    blackout_counter_tiger_palm_dpc_value(targets)
+  breath_of_fire_dpc "火焰之息DPC": dimensionless =
+    breath_of_fire_dpc_value(targets)
+  keg_smash_dpc "醉酿投DPC": dimensionless = keg_smash_dpc_value(targets)
+  empty_keg_smash_dpc "空酒桶醉酿投DPC": dimensionless =
+    empty_keg_smash_dpc_value(targets)
+
+  burst_blackout_kick_dpc "爆发期幻灭踢DPC": dimensionless =
+    blackout_kick_dpc_value(targets) + niuzao_total(targets)
+  burst_tiger_palm_dpc "爆发期猛虎掌DPC": dimensionless = tiger_palm_dpc_value(targets)
+  burst_counter_tiger_palm_dpc "爆发期反击猛虎掌DPC": dimensionless =
+    counter_tiger_palm_dpc_value(targets)
+  burst_blackout_tiger_palm_dpc "爆发期幻灭猛虎掌DPC": dimensionless =
+    blackout_tiger_palm_dpc_value(targets)
+  burst_blackout_counter_tiger_palm_dpc "爆发期幻灭反击猛虎掌DPC": dimensionless =
+    blackout_counter_tiger_palm_dpc_value(targets)
+  burst_breath_of_fire_dpc "爆发期火焰之息DPC": dimensionless =
+    burst_breath_of_fire_dpc_value(targets)
+  burst_keg_smash_dpc "爆发期醉酿投DPC": dimensionless =
+    keg_smash_dpc_value(targets)
+  burst_empty_keg_smash_dpc "爆发期空酒桶醉酿投DPC": dimensionless =
+    empty_keg_smash_dpc_value(targets)
+
+  counter_tiger_palm_dpe "反击猛虎掌DPE": dimensionless =
+    counter_tiger_palm_dpc_value(targets) / 25
+  blackout_counter_tiger_palm_dpe "幻灭反击猛虎掌DPE": dimensionless =
+    blackout_counter_tiger_palm_dpc_value(targets) / 25
+  keg_smash_dpe "醉酿投DPE": dimensionless = keg_smash_dpc_value(targets) / 35
