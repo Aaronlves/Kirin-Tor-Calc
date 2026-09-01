@@ -1,9 +1,10 @@
 # Kirin Tor Web Workbench frontend
 
-This directory contains the next React/TypeScript frontend. During the staged
-migration, `src/kirin_tor/web_assets/` remains the runtime frontend served by
-`kt web`; a frontend build is isolated in `frontend/dist/` until all views are
-ported and the server asset switch is verified.
+This directory contains the current React/TypeScript source for the browser
+workbench. Vite writes a production build to `frontend/dist/`; the checked-in
+copy under `src/kirin_tor/web_assets/` is the packaged runtime served by
+`kt web`. The two directories must remain byte-for-byte identical after a
+frontend change.
 
 ```bash
 cd frontend
@@ -16,20 +17,22 @@ npm run test:bundle
 ```
 
 The Vite build uses `/assets/` as its public base and emits JavaScript and CSS
-at the root of `dist/`. That layout matches the local Python server's existing
-`/assets/<file>` routing and lets the final build replace the legacy assets
-without changing the user-facing `kt web` command.
+at the root of `dist/`. That layout matches the local Python server's
+`/assets/<file>` routing. After a production build, synchronize the complete
+contents of `frontend/dist/` into `src/kirin_tor/web_assets/`; do not edit the
+generated runtime assets by hand. Verify synchronization with:
 
-The Playwright suite builds the current frontend, serves it against a disposable copy of the
-fictional example workspace, and covers document switching, completion insertion, read-only
-automatic result, chart, and formula projections, chart expansion, diagnostic navigation,
-source traceability, persisted document focus modes, find/replace, symbol outlines, cross-document
-definition and reference navigation, validated rename, parameter hints, safe formatting, directional
-local-graph exploration, keyboard graph navigation, searchable and contextual syntax-reference examples,
-workspace search/replace, change review, document duplication, creation validation, draft-session recovery,
-empty-workspace tutorial viewing and draft copying, and external-change recovery. Chromium, Firefox, and WebKit run the functional suite; axe-core checks key
-surfaces and Chromium/WebKit keep layout screenshots. The server uses a disposable copy of the example
-workspace, so tests never write to the checked-in example itself.
+```bash
+cd ..
+diff -qr frontend/dist src/kirin_tor/web_assets
+```
+
+The Playwright suite builds the frontend and serves it against disposable
+workspaces. It covers the main authoring, projection, navigation, recovery,
+workspace-search, document-lifecycle, syntax-reference, tutorial, graph, and
+conflict flows. Chromium, Firefox, and WebKit run the functional suite;
+axe-core checks key surfaces and Chromium/WebKit retain layout screenshots.
+Tests never write to the checked-in repository example.
 
 `npm run test:bundle` enforces explicit entry, largest-chunk, total-JavaScript, and total-CSS byte budgets.
 CI also compares `frontend/dist/` byte-for-byte with `src/kirin_tor/web_assets/` and runs the synthetic

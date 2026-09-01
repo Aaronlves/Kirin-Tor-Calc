@@ -115,9 +115,8 @@ with `NAMESPACE_`. Examples for namespace `community_example` are
 
 The package loader rejects two different resolved packages that claim the same namespace. It
 also rejects duplicate document IDs and conflicting mathematical declarations across the final
-package graph. There is no implicit local override of package content. A future source-language
-version may add lexical package-qualified references; v1 chooses explicit exported prefixes so
-existing formulas, plots, records, and editor tooling keep one stable grammar.
+package graph. There is no implicit local override of package content. V1 uses explicit exported
+prefixes so formulas, plots, records, and editor tooling keep one stable grammar.
 
 ## Workspace requirements
 
@@ -222,8 +221,8 @@ possible after the package is removed or its remote repository becomes unavailab
 
 New workspaces are always game-neutral and no longer accept a built-in game starter selection.
 The legacy `initial-package` workspace line remains readable for existing workspaces but has no
-runtime authority. The previously bundled WoW starter is not part of the mathematical core and is
-removed from new installations. Repository examples may exercise game-mechanic capabilities, but
+runtime authority. The previously bundled game-specific starter is removed from new installations.
+Repository examples may exercise game-mechanic capabilities, but
 they remain outside both wheel and source-distribution payloads; reusable game-specific content
 belongs in independently versioned community packages.
 
