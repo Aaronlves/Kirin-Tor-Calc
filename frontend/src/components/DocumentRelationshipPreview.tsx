@@ -12,6 +12,7 @@ interface DocumentRelationshipPreviewProps {
   controller: WorkbenchController;
   documentKey: string;
   source: string;
+  activeSymbolId?: string | null;
   onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
 }
 
@@ -43,7 +44,7 @@ function project(graph: RelationshipGraphResult, documentId: string, depth: numb
   };
 }
 
-export function DocumentRelationshipPreview({ controller, documentKey, source, onNavigateToSource }: DocumentRelationshipPreviewProps) {
+export function DocumentRelationshipPreview({ controller, documentKey, source, activeSymbolId = null, onNavigateToSource }: DocumentRelationshipPreviewProps) {
   const documentId = entryId(source);
   const [graph, setGraph] = useState<RelationshipGraphResult | null>(null);
   const [depth, setDepth] = useState("1");
@@ -93,6 +94,10 @@ export function DocumentRelationshipPreview({ controller, documentKey, source, o
   useEffect(() => {
     setSelectedId(null);
   }, [documentKey]);
+
+  useEffect(() => {
+    if (activeSymbolId && projection.nodes.some((node) => node.id === activeSymbolId)) setSelectedId(activeSymbolId);
+  }, [activeSymbolId, projection.nodes]);
 
   if (!documentId) return <EmptyState title="文档声明无效" description="修复 @entry 文档头后，局部关系投影会在这里出现。" />;
   if (loading && !graph) return <LoadingState label="正在构建当前文档关系…" />;

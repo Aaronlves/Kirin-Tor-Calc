@@ -192,6 +192,12 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 result = self.server.workbench.completions(
                     str(payload.get("key", "")), str(payload.get("prefix", "")), overlays
                 )
+            elif parsed.path == "/api/authoring":
+                result = self.server.workbench.authoring_action(
+                    str(payload.get("action", "")), payload.get("payload"), overlays
+                )
+            elif parsed.path == "/api/recovery":
+                result = self.server.workbench.save_recovery(payload.get("drafts"))
             elif parsed.path == "/api/operation":
                 result = self.server.workbench.execute(
                     str(payload.get("operation", "")), payload.get("payload"), overlays

@@ -10,6 +10,7 @@ import {
   Group,
   Menu,
   Modal,
+  Popover,
   ScrollArea,
   Select,
   Stack,
@@ -32,18 +33,21 @@ import {
   FileText,
   GitCompare,
   Eye,
+  ListTree,
   MoreHorizontal,
   Network,
   PackageOpen,
   Save,
   Search,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
 
-import { errorMessage } from "../api";
+import { errorMessage, request } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
-import type { DiagnosticItem, DocumentFocusMode, DocumentItem, OperationResult, TemplateItem } from "../types";
-import { CodeEditor, type CodeEditorHandle } from "../components/CodeEditor";
+import { documentOutline, referencesFor, symbolFor, type AuthoringTarget } from "../authoring";
+import type { AuthoringLocation, DiagnosticItem, DocumentFocusMode, DocumentItem, DocumentPayload, OperationResult, TemplateItem } from "../types";
+import { CodeEditor, type CodeEditorHandle, type EditorCursorContext } from "../components/CodeEditor";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentRelationshipPreview } from "../components/DocumentRelationshipPreview";
 import { EmptyState, LoadingState, TechnicalResult } from "../components/ui";
@@ -75,6 +79,8 @@ function sourceEntryId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
 }
 
+const fullWidthSyntax: Record<string, string> = { "：": ":", "，": ",", "（": "(", "）": ")", "＝": "=", "％": "%" };
+
 export function DocumentsView({ controller, focusMode, onFocusModeChange }: DocumentsViewProps) {
   const [filter, setFilter] = useState("");
   const [newDocumentOpened, setNewDocumentOpened] = useState(false);
@@ -91,6 +97,13 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [explaining, setExplaining] = useState(false);
   const [pendingLocation, setPendingLocation] = useState<{ line?: number; column?: number } | null>(null);
   const [conflictOpened, setConflictOpened] = useState(false);
+  const [outlineOpened, setOutlineOpened] = useState(false);
+  const [outlineFilter, setOutlineFilter] = useState("");
+  const [referenceTarget, setReferenceTarget] = useState<AuthoringTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<AuthoringTarget | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [cursorContext, setCursorContext] = useState<EditorCursorContext>({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null });
   const editorRef = useRef<CodeEditorHandle>(null);
 
   const current = controller.currentDocument;
@@ -108,6 +121,22 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const currentExplainTargetSignature = currentExplainTargets.map((item) => item.value).join("\u0000");
   const selectedExplainTarget = currentExplainTargets.find((item) => item.value === explainTarget);
   const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
+  const currentOutline = useMemo(
+    () => current ? documentOutline(controller.authoringIndex, current.key) : [],
+    [controller.authoringIndex, current],
+  );
+  const filteredOutline = useMemo(() => {
+    const query = outlineFilter.trim().toLocaleLowerCase();
+    return currentOutline.filter((item) => !query || `${item.label} ${item.name} ${item.id} ${item.kind}`.toLocaleLowerCase().includes(query));
+  }, [currentOutline, outlineFilter]);
+  const activeSymbolId = cursorContext.containerSymbolId ?? cursorContext.symbolId;
+  const callSymbol = symbolFor(controller.authoringIndex, cursorContext.callSymbolId)
+    ?? controller.authoringIndex.builtins.find((item) => item.id === cursorContext.callSymbolId)
+    ?? null;
+  const referenceLocations = referenceTarget ? [
+    ...(referenceTarget.symbol ? [{ symbol_id: referenceTarget.id, text: "定义", location: referenceTarget.symbol.definition, via_alias: false }] : []),
+    ...referencesFor(controller.authoringIndex, referenceTarget.id),
+  ] : [];
 
   useEffect(() => {
     if (controller.externalConflict) setConflictOpened(true);
@@ -124,6 +153,19 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         : currentExplainTargets[0]?.value ?? null
     ));
   }, [current?.key, currentExplainTargetSignature]);
+
+  useEffect(() => {
+    setCursorContext({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null });
+    setOutlineFilter("");
+    setReferenceTarget(null);
+    setRenameTarget(null);
+  }, [current?.key]);
+
+  useEffect(() => {
+    if (activeSymbolId && currentExplainTargets.some((item) => item.value === activeSymbolId)) {
+      setExplainTarget(activeSymbolId);
+    }
+  }, [activeSymbolId, currentExplainTargetSignature]);
 
   useEffect(() => {
     if (inspectorTab !== "formula" || !explainTarget || controller.validation?.status !== "ok") {
@@ -206,6 +248,48 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     const match = controller.documents.find((document) => document.path === path || path.endsWith(document.path));
     if (match) await controller.openDocument(match.key);
     setPendingLocation({ line: item.location?.line, column: item.location?.column });
+  };
+
+  const navigateToLocation = (location: AuthoringLocation) => {
+    navigateToSource(location.key, location.line, location.column);
+  };
+
+  const openRename = (target: AuthoringTarget) => {
+    if (!target.symbol?.renameable) return;
+    setRenameTarget(target);
+    setRenameName(target.symbol.name);
+  };
+
+  const handleRename = async () => {
+    if (!renameTarget?.symbol || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(renameName) || renaming) return;
+    setRenaming(true);
+    try {
+      await controller.renameSymbol(renameTarget.symbol.id, renameName);
+      setRenameTarget(null);
+    } catch (error) {
+      notifications.show({ color: "red", title: "无法重命名", message: errorMessage(error), autoClose: false });
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const fixDiagnostic = async (item: DiagnosticItem) => {
+    const path = diagnosticPath(item, controller.bootstrapData?.workspace);
+    const document = controller.documents.find((candidate) => candidate.path === path || path.endsWith(candidate.path));
+    if (!document || document.read_only) return;
+    const opened = Object.prototype.hasOwnProperty.call(controller.buffers, document.key)
+      ? null
+      : await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(document.key)}`);
+    await controller.openDocument(document.key);
+    const source = controller.buffers[document.key] ?? opened?.text ?? "";
+    const lines = source.split("\n");
+    const lineIndex = Math.max(0, Math.min(lines.length - 1, (item.location?.line ?? 1) - 1));
+    const fixed = Array.from(lines[lineIndex]).map((character) => fullWidthSyntax[character] ?? character).join("");
+    if (fixed === lines[lineIndex]) return;
+    lines[lineIndex] = fixed;
+    controller.updateBuffer(document.key, lines.join("\n"));
+    await controller.openDocument(document.key);
+    setPendingLocation({ line: lineIndex + 1, column: item.location?.column });
   };
 
   const handleCreateDocument = async () => {
@@ -344,6 +428,41 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                     </Box>
                   </Group>
                   <Group gap={4} wrap="nowrap">
+                    <Popover opened={outlineOpened} onChange={setOutlineOpened} position="bottom-end" width={330} withinPortal>
+                      <Popover.Target>
+                        <Tooltip label="文档符号大纲 · ⌘⇧O">
+                          <ActionIcon variant="subtle" color="gray" aria-label="文档符号大纲" onClick={() => setOutlineOpened((opened) => !opened)}>
+                            <ListTree size={15} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Popover.Target>
+                      <Popover.Dropdown className="outline-popover">
+                        <TextInput
+                          size="xs"
+                          autoFocus
+                          value={outlineFilter}
+                          onChange={(event) => setOutlineFilter(event.currentTarget.value)}
+                          placeholder="搜索当前文档符号"
+                          leftSection={<Search size={13} />}
+                        />
+                        <ScrollArea h={320} mt="xs" type="auto">
+                          <div className="outline-list" role="list" aria-label="当前文档符号">
+                            {filteredOutline.map((item) => (
+                              <div role="listitem" key={item.id}>
+                                <button
+                                  type="button"
+                                  style={{ paddingLeft: 9 + item.outline_level * 14 }}
+                                  onClick={() => { setOutlineOpened(false); navigateToLocation(item.definition); }}
+                                >
+                                  <strong>{item.label}</strong>
+                                  <small>{item.kind} · 第 {item.definition.line} 行</small>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </Popover.Dropdown>
+                    </Popover>
                     {controller.externalConflict && (
                       <Tooltip label="比较外部修改">
                         <ActionIcon variant="subtle" color="orange" aria-label="比较外部修改" onClick={() => setConflictOpened(true)}>
@@ -369,6 +488,13 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       <Menu.Dropdown>
                         <Menu.Label>文档操作</Menu.Label>
                         <Menu.Item
+                          leftSection={<WandSparkles size={14} />}
+                          disabled={current.read_only}
+                          onClick={() => { void controller.formatDocument(current.key).catch((error) => notifications.show({ color: "red", title: "无法格式化", message: errorMessage(error) })); }}
+                        >
+                          格式化文档 <span className="menu-shortcut">⌘⇧F</span>
+                        </Menu.Item>
+                        <Menu.Item
                           leftSection={<BookTemplate size={14} />}
                           disabled={current.read_only || currentDirty}
                           onClick={() => setSaveTemplateOpened(true)}
@@ -384,20 +510,28 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 <CodeEditor
                   key={current.key}
                   ref={editorRef}
+                  documentKey={current.key}
                   value={currentText}
                   ariaLabel={`Kirin 源码：${current.title}`}
                   readOnly={current.read_only}
                   diagnostics={currentDiagnostics}
+                  authoring={controller.authoringIndex}
                   onChange={(text) => controller.updateBuffer(current.key, text)}
                   onComplete={(prefix) => controller.completions(current.key, prefix)}
                   onSave={() => { void controller.saveAll(); }}
+                  onNavigate={navigateToLocation}
+                  onShowReferences={setReferenceTarget}
+                  onRename={openRename}
+                  onCursorContext={setCursorContext}
+                  onFormat={() => { if (!current.read_only) void controller.formatDocument(current.key); }}
+                  onOpenOutline={() => setOutlineOpened(true)}
                 />
               </div>
               <div className="editor-statusbar">
                 <span>{currentDiagnostics.length ? `${currentDiagnostics.length} 个当前文档问题` : "当前文档有效"}</span>
-                <span>Kirin 文档</span>
+                <span className="editor-signature-hint">{callSymbol?.signature ? `${callSymbol.signature}${cursorContext.activeParameter ? ` · 参数 ${cursorContext.activeParameter}` : ""}` : "Kirin 文档"}</span>
                 <span>UTF-8</span>
-                {!current.read_only && <span>补全 ⌃Space</span>}
+                {!current.read_only && <span>补全 ⌃Space · 定义 F12 · 引用 ⇧F12 · 改名 F2</span>}
               </div>
             </>
           ) : (
@@ -420,10 +554,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="preview" className="inspector-content">
-              {current ? <DocumentPreview controller={controller} document={current} source={currentText} onNavigateToSource={(line, column) => navigateToSource(current.key, line, column)} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
+              {current ? <DocumentPreview controller={controller} document={current} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={(line, column) => navigateToSource(current.key, line, column)} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
             </Tabs.Panel>
             <Tabs.Panel value="relationships" className="inspector-content">
-              {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}
+              {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}
             </Tabs.Panel>
             <Tabs.Panel value="diagnostics" className="inspector-content">
               <ScrollArea h="100%" type="auto">
@@ -431,14 +565,18 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   <Stack gap={0}>
                     {controller.validationItems.map((item, index) => {
                       const path = diagnosticPath(item, controller.bootstrapData?.workspace);
+                      const canFix = item.location?.line && Object.keys(fullWidthSyntax).some((character) => (controller.buffers[controller.documents.find((document) => document.path === path || path.endsWith(document.path))?.key ?? ""] ?? "").split("\n")[(item.location?.line ?? 1) - 1]?.includes(character));
                       return (
-                        <button className="diagnostic-row" type="button" key={`${path}-${item.location?.line}-${index}`} onClick={() => { void openDiagnostic(item); }}>
-                          <span className="diagnostic-severity"><CircleAlert size={15} /></span>
-                          <span>
-                            <strong>{item.author_message || item.message || "校验错误"}</strong>
-                            <small>{path}{item.location?.line ? `:${item.location.line}` : ""} · {item.code || "error"}</small>
-                          </span>
-                        </button>
+                        <div className="diagnostic-row-wrap" key={`${path}-${item.location?.line}-${index}`}>
+                          <button className="diagnostic-row" type="button" onClick={() => { void openDiagnostic(item); }}>
+                            <span className="diagnostic-severity"><CircleAlert size={15} /></span>
+                            <span>
+                              <strong>{item.author_message || item.message || "校验错误"}</strong>
+                              <small>{path}{item.location?.line ? `:${item.location.line}` : ""} · {item.code || "error"}</small>
+                            </span>
+                          </button>
+                          {canFix && <Button variant="subtle" color="gray" size="compact-xs" onClick={() => { void fixDiagnostic(item); }}>修复全角符号</Button>}
+                        </div>
                       );
                     })}
                   </Stack>
@@ -616,6 +754,57 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setDeleteTemplate(null)}>取消</Button>
             <Button className="danger-button" leftSection={<Trash2 size={14} />} onClick={() => { void handleDeleteTemplate(); }}>删除模板</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Drawer
+        opened={Boolean(referenceTarget)}
+        onClose={() => setReferenceTarget(null)}
+        position="right"
+        size="md"
+        title={referenceTarget ? `定义与引用 · ${referenceTarget.id}` : "定义与引用"}
+      >
+        <Stack gap="sm">
+          <Text c="dimmed" fz="xs">引用来自当前内存草稿的只读符号投影；点击位置会返回对应 `.kirin` 源码。</Text>
+          <div className="reference-list" role="list" aria-label="符号定义与引用">
+            {referenceLocations.map((item, index) => (
+              <div role="listitem" key={`${item.location.key}-${item.location.line}-${item.location.column}-${index}`}>
+                <button
+                  type="button"
+                  onClick={() => { setReferenceTarget(null); navigateToLocation(item.location); }}
+                >
+                  <Crosshair size={14} />
+                  <span>
+                    <strong>{index === 0 && referenceTarget?.symbol ? "定义" : item.via_alias ? `别名引用 · ${item.text}` : `引用 · ${item.text}`}</strong>
+                    <small>{item.location.path}:{item.location.line}:{item.location.column}{item.location.read_only ? " · 只读" : ""}</small>
+                  </span>
+                </button>
+              </div>
+            ))}
+          </div>
+          {!referenceLocations.length && <EmptyState title="没有引用位置" description="内置函数和未解析名称没有工作区定义位置。" />}
+        </Stack>
+      </Drawer>
+
+      <Modal opened={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} title="安全重命名符号" centered>
+        <Stack gap="md">
+          <Box>
+            <Text fw={650} fz="sm">{renameTarget?.symbol?.id}</Text>
+            <Text c="dimmed" fz="xs" mt={3}>定义、同文档短名称和跨文档正式引用会一起更新；中文别名保持不变。所有变化先进入内存草稿，并在应用前执行完整工作区校验。</Text>
+          </Box>
+          <TextInput
+            label="新的正式名称"
+            value={renameName}
+            onChange={(event) => setRenameName(event.currentTarget.value)}
+            error={renameName && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(renameName) ? "必须是 ASCII 标识符" : null}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") { event.preventDefault(); void handleRename(); }
+            }}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setRenameTarget(null)}>取消</Button>
+            <Button loading={renaming} disabled={!/^[A-Za-z_][A-Za-z0-9_]*$/.test(renameName)} onClick={() => { void handleRename(); }}>重命名草稿</Button>
           </Group>
         </Stack>
       </Modal>

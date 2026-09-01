@@ -73,7 +73,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mantine-Tabs-tab[data-active]::before { border-color: var(--kt-accent); }
 .mantine-Table-th { color: var(--kt-muted); font-size: 11px; font-weight: 600; letter-spacing: .02em; }
 .mantine-Table-tr { border-color: var(--kt-line-soft); }
-.mantine-Button-root:focus-visible, .mantine-ActionIcon-root:focus-visible, .mantine-NavLink-root:focus-visible, .document-list-row:focus-visible, .diagnostic-row:focus-visible, .local-graph-selection:focus-visible, .disclosure-trigger:focus-visible, .canvas-data-fallback summary:focus-visible, .relationship-node-list button:focus-visible, .chart-data-list li:focus-visible { position: relative; z-index: 2; outline: 2px solid var(--kt-accent); outline-offset: 2px; }
+.mantine-Button-root:focus-visible, .mantine-ActionIcon-root:focus-visible, .mantine-NavLink-root:focus-visible, .document-list-row:focus-visible, .diagnostic-row:focus-visible, .local-graph-selection:focus-visible, .disclosure-trigger:focus-visible, .canvas-data-fallback summary:focus-visible, .relationship-node-list button:focus-visible, .chart-data-list li:focus-visible, .outline-list button:focus-visible, .reference-list button:focus-visible { position: relative; z-index: 2; outline: 2px solid var(--kt-accent); outline-offset: 2px; }
 
 .workbench-shell { display: grid; width: 100vw; height: 100dvh; grid-template-columns: var(--kt-navigation-width) minmax(0,1fr); grid-template-rows: var(--kt-header-height) minmax(0,1fr); overflow: hidden; background: var(--kt-bg); }
 .workbench-shell.is-compact { --kt-navigation-width: 64px; }
@@ -164,6 +164,21 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .editor-stage, .code-editor { min-height: 0; height: 100%; overflow: hidden; }
 .code-editor .cm-content, .code-editor .cm-line { color: #eeeae1; }
 .editor-statusbar { display: flex; height: 28px; min-height: 28px; align-items: center; justify-content: flex-end; gap: var(--kt-space-3); padding: 0 var(--kt-space-3); border-top: 1px solid var(--kt-line-soft); background: var(--kt-panel); color: var(--kt-muted-quiet); font: 10px var(--mantine-font-family-monospace); }
+.editor-signature-hint { min-width: 0; flex: 1; overflow: hidden; color: var(--kt-text-subtle); text-overflow: ellipsis; white-space: nowrap; }
+.menu-shortcut { margin-left: 12px; color: var(--kt-muted-quiet); font: 10px var(--mantine-font-family-monospace); }
+.outline-popover { border-color: var(--kt-line); border-radius: 0; background: #171714; }
+.outline-list, .reference-list { display: grid; }
+.outline-list button, .reference-list button { display: grid; width: 100%; min-height: 42px; align-items: center; gap: 2px; padding-block: 6px; padding-right: 9px; border: 0; border-bottom: 1px solid var(--kt-line-soft); background: transparent; color: var(--kt-text); cursor: pointer; text-align: left; }
+.outline-list button:hover, .reference-list button:hover { background: var(--kt-panel-hover); }
+.outline-list strong, .outline-list small, .reference-list strong, .reference-list small { display: block; }
+.outline-list strong, .reference-list strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.outline-list small, .reference-list small { color: var(--kt-muted); font: 10px var(--mantine-font-family-monospace); }
+.reference-list button { grid-template-columns: 20px minmax(0,1fr); padding: 9px; }
+.kirin-hover-card { display: grid; min-width: 220px; max-width: 420px; gap: 5px; padding: 9px 10px; }
+.kirin-hover-card strong { color: var(--kt-text); font-size: 12px; }
+.kirin-hover-card small { color: var(--kt-muted); font-size: 10px; }
+.kirin-hover-card code { padding: 5px 6px; border: 1px solid var(--kt-line-soft); background: #11110f; color: #d9d4ca; font-size: 10px; white-space: pre-wrap; }
+.kirin-hover-card button { justify-self: start; padding: 3px 0; border: 0; background: transparent; color: var(--kt-accent); cursor: pointer; font-size: 10px; }
 .inspector-panel { grid-column: 3; overflow: hidden; }
 .inspector-tabs { display: grid; height: 100%; grid-template-rows: auto minmax(0,1fr); }
 .inspector-tabs .mantine-Tabs-list { height: var(--kt-toolbar-height); min-height: var(--kt-toolbar-height); align-items: center; gap: var(--kt-space-1); padding: var(--kt-space-2); border-bottom: 1px solid var(--kt-line-soft); background: var(--kt-panel-raised); }
@@ -173,7 +188,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .inspector-tabs .mantine-Tabs-tab[data-active] { border-color: #4b352d; background: var(--kt-accent-muted); color: var(--kt-text); }
 .inspector-tabs .mantine-Tabs-tab[data-active]::before { display: none; }
 .inspector-content { min-height: 0; height: 100%; }
-.diagnostic-row { display: grid; width: 100%; grid-template-columns: 24px minmax(0,1fr); gap: 6px; padding: 12px 10px; border: 0; border-bottom: 1px solid var(--kt-line-soft); background: transparent; color: var(--kt-text); cursor: pointer; text-align: left; }
+.diagnostic-row-wrap { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; border-bottom: 1px solid var(--kt-line-soft); }
+.diagnostic-row { display: grid; width: 100%; grid-template-columns: 24px minmax(0,1fr); gap: 6px; padding: 12px 10px; border: 0; background: transparent; color: var(--kt-text); cursor: pointer; text-align: left; }
+.diagnostic-row-wrap > .mantine-Button-root { margin-right: 8px; }
 .diagnostic-row:hover { background: #211918; }
 .diagnostic-severity { color: var(--kt-error); }
 .diagnostic-row strong, .diagnostic-row small { display: block; }
@@ -181,6 +198,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .diagnostic-row small { margin-top: 5px; color: var(--kt-muted); font: 10px/1.45 var(--mantine-font-family-monospace); }
 .formula-result .mantine-Code-root, .expression-display .mantine-Code-root { border: 1px solid var(--kt-line-soft); background: #10100e; color: #ddd8ce; font-size: 11px; line-height: 1.65; }
 .template-card { padding: 12px; border: 1px solid var(--kt-line); background: #151512; }
+.document-result-preview.is-source-linked { box-shadow: inset 2px 0 var(--kt-accent); }
 
 .chart-canvas { width: 100%; height: 100%; min-height: 420px; background: #131310; }
 

@@ -17,6 +17,7 @@ import {
 import { Spotlight, spotlight, type SpotlightActionData } from "@mantine/spotlight";
 import {
   Box as PackageIcon,
+  Braces,
   Check,
   CircleAlert,
   Columns3,
@@ -67,6 +68,7 @@ interface WorkspaceShellProps {
   onDocumentFocusModeChange(mode: DocumentFocusMode): void;
   onViewChange(view: ViewId): void;
   onOpenTool(tool: WorkspaceTool): void;
+  onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
   children: ReactNode;
 }
 
@@ -76,7 +78,7 @@ function workspaceName(path?: string): string {
   return parts.at(-1) || path;
 }
 
-export function WorkspaceShell({ activeView, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ activeView, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, children }: WorkspaceShellProps) {
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
     return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
@@ -177,7 +179,25 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
       onClick: () => { void controller.saveAll(); },
       keywords: ["save", "保存"],
     },
-  ], [controller, onDocumentFocusModeChange, onOpenTool, onViewChange]);
+    ...controller.documents.map((document) => ({
+      id: `document-${document.key}`,
+      label: `打开文档：${document.title}`,
+      description: document.package ? `${document.path} · ${document.package.name}@${document.package.version} · 只读` : document.path,
+      leftSection: document.package ? <PackageIcon size={17} strokeWidth={1.7} /> : <FileCode2 size={17} strokeWidth={1.7} />,
+      onClick: () => onNavigateToSource(document.key, 1, 1),
+      keywords: [document.title, document.path, document.package?.name ?? "", "文档", "quick open"],
+    })),
+    ...controller.authoringIndex.symbols
+      .filter((symbol) => symbol.outline && symbol.kind !== "section" && symbol.kind !== "entry")
+      .map((symbol) => ({
+        id: `symbol-${symbol.id}-${symbol.definition.key}-${symbol.definition.line}`,
+        label: `符号：${symbol.label}`,
+        description: `${symbol.detail} · ${symbol.definition.path}:${symbol.definition.line}`,
+        leftSection: <Braces size={17} strokeWidth={1.7} />,
+        onClick: () => onNavigateToSource(symbol.definition.key, symbol.definition.line, symbol.definition.column),
+        keywords: [symbol.id, symbol.name, symbol.label, symbol.kind, "symbol", "符号"],
+      })),
+  ], [controller, onDocumentFocusModeChange, onNavigateToSource, onOpenTool, onViewChange]);
 
   return (
     <>

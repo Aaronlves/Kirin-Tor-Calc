@@ -3,6 +3,7 @@ import { notifications } from "@mantine/notifications";
 
 import { ApiError, errorMessage, initialDocument, request, runOperation } from "../api";
 import type {
+  AuthoringChange,
   AsyncState,
   BootstrapPayload,
   CompletionItem,
@@ -10,8 +11,10 @@ import type {
   DocumentPayload,
   ExternalChangeConflict,
   OperationResult,
+  RecoveryDraft,
   ValidationResult,
 } from "../types";
+import { emptyAuthoringIndex } from "../authoring";
 
 function recordsEqual(left: Record<string, string>, right: Record<string, string>): boolean {
   const keys = Object.keys(left);
@@ -37,7 +40,10 @@ export function useWorkbench() {
   const [asyncState, setAsyncState] = useState<AsyncState>("connecting");
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [externalConflict, setExternalConflict] = useState<ExternalChangeConflict | null>(null);
+  const [recoveryReady, setRecoveryReady] = useState(false);
   const started = useRef(false);
+  const recoveryHydrated = useRef(false);
+  const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
 
   const currentDocument = useMemo(
@@ -65,11 +71,25 @@ export function useWorkbench() {
   const openDocument = useCallback(async (key: string) => {
     setCurrentKey(key);
     if (Object.prototype.hasOwnProperty.call(buffers, key)) return;
+    const recovered = recoveryDrafts.current[key];
+    if (recovered?.base_sha256 === null && recovered.document.source_sha256 === null) {
+      setBuffers((current) => ({ ...current, [key]: recovered.text }));
+      setOriginals((current) => ({ ...current, [key]: "" }));
+      setHashes((current) => ({ ...current, [key]: null }));
+      return;
+    }
     try {
       const result = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(key)}`);
-      setBuffers((current) => ({ ...current, [key]: result.text }));
+      setBuffers((current) => ({ ...current, [key]: recovered?.text ?? result.text }));
       setOriginals((current) => ({ ...current, [key]: result.text }));
-      setHashes((current) => ({ ...current, [key]: result.source_sha256 }));
+      const recoveredConflict = recovered && recovered.base_sha256 !== result.source_sha256;
+      setHashes((current) => ({
+        ...current,
+        [key]: recoveredConflict ? recovered.base_sha256 ?? "recovery-base-missing" : result.source_sha256,
+      }));
+      if (recoveredConflict) {
+        setExternalConflict({ key, path: result.path, draft: recovered.text, disk: result.text });
+      }
     } catch (error) {
       notifications.show({ color: "red", title: "无法打开文档", message: errorMessage(error) });
     }
@@ -82,20 +102,73 @@ export function useWorkbench() {
       setBootstrapData(data);
       setValidation(data.validation);
       setLastCheckedAt(new Date());
+      const firstRecovery = !recoveryHydrated.current;
+      recoveryHydrated.current = true;
+      recoveryDrafts.current = data.recovery?.drafts ?? {};
+      const recoveredEntries = Object.values(recoveryDrafts.current);
+      const recoveredNewDocuments = recoveredEntries
+        .filter((item) => !data.documents.some((document) => document.key === item.document.key))
+        .map((item) => item.document);
       setDocuments((existing) => {
         const unsavedDrafts = existing.filter(
           (item) => !data.documents.some((serverItem) => serverItem.key === item.key) && originals[item.key] === "",
         );
-        return [...data.documents, ...unsavedDrafts];
+        const extras = [...unsavedDrafts, ...recoveredNewDocuments].filter(
+          (item, index, items) => items.findIndex((candidate) => candidate.key === item.key) === index,
+        );
+        return [...data.documents, ...extras];
       });
+      const restoredBuffers: Record<string, string> = {};
+      if (firstRecovery && recoveredEntries.length) {
+        const restoredOriginals: Record<string, string> = {};
+        const restoredHashes: Record<string, string | null> = {};
+        let conflict: ExternalChangeConflict | null = null;
+        for (const recovered of recoveredEntries) {
+          const key = recovered.document.key;
+          const serverDocument = data.documents.find((item) => item.key === key);
+          if (!serverDocument) {
+            restoredBuffers[key] = recovered.text;
+            restoredOriginals[key] = "";
+            restoredHashes[key] = null;
+            continue;
+          }
+          const disk = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(key)}`);
+          restoredBuffers[key] = recovered.text;
+          restoredOriginals[key] = disk.text;
+          const mismatched = recovered.base_sha256 !== disk.source_sha256;
+          restoredHashes[key] = mismatched ? recovered.base_sha256 ?? "recovery-base-missing" : disk.source_sha256;
+          if (!conflict && mismatched) {
+            conflict = { key, path: disk.path, draft: recovered.text, disk: disk.text };
+          }
+        }
+        setBuffers((current) => ({ ...current, ...restoredBuffers }));
+        setOriginals((current) => ({ ...current, ...restoredOriginals }));
+        setHashes((current) => ({ ...current, ...restoredHashes }));
+        if (conflict) setExternalConflict(conflict);
+        notifications.show({
+          color: conflict ? "orange" : "green",
+          title: `已恢复 ${recoveredEntries.length} 个草稿`,
+          message: conflict ? "其中一个文档的磁盘版本已变化，请先比较。" : "草稿仍未写入权威源码；保存全部后才会落盘。",
+          autoClose: conflict ? false : 5000,
+        });
+      }
+      setRecoveryReady(true);
+      const availableDocuments = [...data.documents, ...recoveredNewDocuments];
       const desired = preserveCurrent && currentKey
         ? currentKey
-        : initialDocument && data.documents.some((item) => item.key === initialDocument)
+        : initialDocument && availableDocuments.some((item) => item.key === initialDocument)
           ? initialDocument
-          : data.documents[0]?.key;
+          : availableDocuments[0]?.key;
       if (desired) {
         setCurrentKey(desired);
-        if (!Object.prototype.hasOwnProperty.call(buffers, desired)) {
+        if (!Object.prototype.hasOwnProperty.call(buffers, desired) && !Object.prototype.hasOwnProperty.call(restoredBuffers, desired)) {
+          const recovered = recoveryDrafts.current[desired];
+          if (recovered && !data.documents.some((item) => item.key === desired)) {
+            setBuffers((current) => ({ ...current, [desired]: recovered.text }));
+            setOriginals((current) => ({ ...current, [desired]: "" }));
+            setHashes((current) => ({ ...current, [desired]: null }));
+            return;
+          }
           const opened = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(desired)}`);
           setBuffers((current) => ({ ...current, [desired]: opened.text }));
           setOriginals((current) => ({ ...current, [desired]: opened.text }));
@@ -186,6 +259,8 @@ export function useWorkbench() {
       }
       setOriginals(nextOriginals);
       setHashes(nextHashes);
+      await request("/api/recovery", { drafts: {} });
+      recoveryDrafts.current = {};
       notifications.show({ color: "green", title: "已保存", message: `${result.saved.length} 个文档已写入工作区。` });
       await refresh(true);
       return true;
@@ -286,6 +361,53 @@ export function useWorkbench() {
     return result.items;
   }, [dirtyOverlays]);
 
+  const applyAuthoringChanges = useCallback((changes: AuthoringChange[]) => {
+    if (!changes.length) return;
+    setBuffers((current) => {
+      const next = { ...current };
+      for (const change of changes) next[change.key] = change.text;
+      return next;
+    });
+    setOriginals((current) => {
+      const next = { ...current };
+      for (const change of changes) {
+        if (!Object.prototype.hasOwnProperty.call(next, change.key)) next[change.key] = change.before;
+      }
+      return next;
+    });
+    setHashes((current) => {
+      const next = { ...current };
+      for (const change of changes) {
+        if (!Object.prototype.hasOwnProperty.call(next, change.key)) {
+          next[change.key] = documents.find((item) => item.key === change.key)?.source_sha256 ?? null;
+        }
+      }
+      return next;
+    });
+  }, [documents]);
+
+  const renameSymbol = useCallback(async (symbol: string, newName: string) => {
+    const result = await request<{ changes: AuthoringChange[]; edits: number; renamed_to: string }>("/api/authoring", {
+      action: "rename",
+      payload: { symbol, new_name: newName },
+      overlays: dirtyOverlays,
+    });
+    applyAuthoringChanges(result.changes);
+    notifications.show({ color: "green", title: "符号已重命名", message: `${result.edits} 处草稿引用已更新为 ${result.renamed_to}。` });
+    return result;
+  }, [applyAuthoringChanges, dirtyOverlays]);
+
+  const formatDocument = useCallback(async (key: string) => {
+    const result = await request<{ changes: AuthoringChange[] }>("/api/authoring", {
+      action: "format",
+      payload: { key },
+      overlays: dirtyOverlays,
+    });
+    applyAuthoringChanges(result.changes);
+    notifications.show({ color: "green", message: result.changes.length ? "文档格式已整理，尚未保存。" : "文档格式已经整洁。" });
+    return result.changes.length > 0;
+  }, [applyAuthoringChanges, dirtyOverlays]);
+
   const operation = useCallback(async (
     name: string,
     payload: Record<string, unknown>,
@@ -321,6 +443,22 @@ export function useWorkbench() {
   }, [refresh]);
 
   useEffect(() => {
+    if (!bootstrapData || !recoveryReady) return;
+    const drafts = Object.fromEntries(Object.entries(dirtyOverlays).map(([key, text]) => {
+      const document = documents.find((item) => item.key === key);
+      return [key, {
+        text,
+        base_sha256: hashes[key] ?? null,
+        document: document ?? { key, path: key, title: key.split("/").at(-1)?.replace(/\.kirin$/i, "") || key, kind: "entry", read_only: false, source_sha256: null },
+      }];
+    }));
+    const timer = window.setTimeout(() => {
+      void request("/api/recovery", { drafts }).catch(() => undefined);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [bootstrapData, dirtySignature, dirtyOverlays, documents, hashes, recoveryReady]);
+
+  useEffect(() => {
     const preventLoss = (event: BeforeUnloadEvent) => {
       if (!Object.keys(dirtyOverlays).length) return;
       event.preventDefault();
@@ -334,6 +472,7 @@ export function useWorkbench() {
     asyncState,
     bootstrapData,
     buffers,
+    authoringIndex: validation?.authoring ?? bootstrapData?.authoring ?? emptyAuthoringIndex,
     completions,
     createDocument,
     createSourceDraft,
@@ -342,6 +481,7 @@ export function useWorkbench() {
     dirtyCount,
     dirtyOverlays,
     externalConflict,
+    formatDocument,
     documents,
     hashes,
     lastCheckedAt,
@@ -352,6 +492,7 @@ export function useWorkbench() {
     inspectExternalConflict,
     keepExternalConflictDraft,
     reloadExternalConflict,
+    renameSymbol,
     saveAll,
     templateAction,
     updateBuffer,

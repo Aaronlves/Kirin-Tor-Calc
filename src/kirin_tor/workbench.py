@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
+import uuid
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Sequence
 
@@ -20,7 +22,13 @@ from .application import (
     record_operation,
     scan_variant_comparison,
 )
-from .authoring import build_completion_candidates
+from .authoring import (
+    AuthoringSource,
+    build_authoring_index,
+    build_completion_candidates,
+    format_kirin_source,
+    rename_authoring_symbol,
+)
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
 from .errors import KTError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
@@ -190,6 +198,126 @@ class Workbench:
                 )
         return items
 
+    @property
+    def _recovery_path(self) -> Path:
+        return self.root / ".kirin" / "workbench-recovery.json"
+
+    def _read_recovery(self) -> dict:
+        path = self._recovery_path
+        if not path.is_file():
+            return {"version": 1, "drafts": {}}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"version": 1, "drafts": {}}
+        drafts = payload.get("drafts") if isinstance(payload, dict) else None
+        if not isinstance(drafts, dict):
+            return {"version": 1, "drafts": {}}
+        normalized: dict[str, dict] = {}
+        total_size = 0
+        for key, raw in drafts.items():
+            if not isinstance(key, str) or not isinstance(raw, dict) or not isinstance(raw.get("text"), str):
+                continue
+            try:
+                self._local_path(key, new=True)
+            except KTError:
+                continue
+            total_size += len(raw["text"].encode("utf-8"))
+            if total_size > 5 * 1024 * 1024 or len(normalized) >= 100:
+                break
+            document = raw.get("document") if isinstance(raw.get("document"), dict) else {}
+            normalized[key] = {
+                "text": raw["text"],
+                "base_sha256": raw.get("base_sha256") if isinstance(raw.get("base_sha256"), str) else None,
+                "document": {
+                    "key": key,
+                    "path": key,
+                    "title": str(document.get("title") or Path(key).stem),
+                    "kind": str(document.get("kind") or "entry"),
+                    "read_only": False,
+                    "source_sha256": None,
+                },
+            }
+        return {"version": 1, "drafts": normalized}
+
+    def save_recovery(self, drafts: object) -> dict:
+        with self._lock:
+            return self._save_recovery(drafts)
+
+    def _save_recovery(self, drafts: object) -> dict:
+        if not isinstance(drafts, dict):
+            raise ParameterError("recovery drafts must be an object")
+        normalized: dict[str, dict] = {}
+        total_size = 0
+        for key, raw in drafts.items():
+            if not isinstance(key, str) or not isinstance(raw, dict):
+                raise ParameterError("invalid recovery draft")
+            self._local_path(key, new=True)
+            text = raw.get("text")
+            if not isinstance(text, str):
+                raise ParameterError("recovery draft text must be a string")
+            total_size += len(text.encode("utf-8"))
+            if total_size > 5 * 1024 * 1024 or len(normalized) >= 100:
+                raise ParameterError("recovery drafts exceed the workbench safety limit")
+            document = raw.get("document") if isinstance(raw.get("document"), dict) else {}
+            normalized[key] = {
+                "text": text,
+                "base_sha256": raw.get("base_sha256") if isinstance(raw.get("base_sha256"), str) else None,
+                "document": {
+                    "key": key,
+                    "path": key,
+                    "title": str(document.get("title") or Path(key).stem),
+                    "kind": str(document.get("kind") or "entry"),
+                    "read_only": False,
+                    "source_sha256": None,
+                },
+            }
+        path = self._recovery_path
+        if not normalized:
+            path.unlink(missing_ok=True)
+            return {"status": "ok", "drafts": 0}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump({"version": 1, "drafts": normalized}, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"status": "ok", "drafts": len(normalized)}
+
+    def _authoring_sources(
+        self,
+        overlays: Optional[Mapping[Path, str]] = None,
+    ) -> list[AuthoringSource]:
+        parsed = dict(overlays or {})
+        items: list[AuthoringSource] = []
+        seen: set[Path] = set()
+        for item in self._document_catalog():
+            if item["read_only"]:
+                digest = item["package"]["content_sha256"]
+                actual = self.root / ".kirin" / "packages" / digest / item["path"]
+            else:
+                actual = self._local_path(item["path"])
+            seen.add(actual.resolve())
+            items.append(
+                AuthoringSource(
+                    key=item["key"],
+                    path=item["path"],
+                    text=parsed.get(actual.resolve(), actual.read_text(encoding="utf-8")),
+                    read_only=bool(item["read_only"]),
+                )
+            )
+        for actual, text in sorted(parsed.items()):
+            if actual.resolve() in seen:
+                continue
+            relative = actual.relative_to(self.root).as_posix()
+            items.append(AuthoringSource(relative, relative, text, False))
+        return items
+
     def bootstrap(self, overlays: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
             documents = self._document_catalog()
@@ -205,6 +333,8 @@ class Workbench:
                 "runs": self.list_runs(),
                 "validation": validation,
                 "index": index,
+                "authoring": validation.get("authoring", {"symbols": [], "references": [], "builtins": []}),
+                "recovery": self._read_recovery(),
             }
 
     def read_document(self, key: str) -> dict:
@@ -241,6 +371,7 @@ class Workbench:
                 if path.is_file()
             }
             sources.update(parsed)
+            authoring = build_authoring_index(self._authoring_sources(parsed))
             try:
                 workspace = (
                     Workspace.load_for_check_with_overlays(self.root, parsed)
@@ -252,11 +383,11 @@ class Workbench:
                     (workspace,),
                     DEFAULT_TIMEOUT_SECONDS,
                 )
-                return {**result, "status": "ok", "index": self._index_dict(workspace)}
+                return {**result, "status": "ok", "index": self._index_dict(workspace), "authoring": authoring}
             except ValidationErrors as exc:
-                return author_error_payload(exc, self.root, sources)
+                return {**author_error_payload(exc, self.root, sources), "authoring": authoring}
             except KTError as exc:
-                return author_error_payload(exc, self.root, sources)
+                return {**author_error_payload(exc, self.root, sources), "authoring": authoring}
 
     def save(self, overlays: Mapping[str, object], expected: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
@@ -328,16 +459,63 @@ class Workbench:
     def completions(self, key: str, prefix: str, overlays: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
             path = self._local_path(key, new=True)
-            sources = {
-                self._local_path(item["path"]): self._local_path(item["path"]).read_text(encoding="utf-8")
-                for item in self._document_catalog()
-                if not item["read_only"]
-            }
-            sources.update(self._overlays(overlays))
+            parsed = self._overlays(overlays)
+            sources: dict[Path, str] = {}
+            for item in self._document_catalog():
+                if item["read_only"]:
+                    digest = item["package"]["content_sha256"]
+                    actual = self.root / ".kirin" / "packages" / digest / item["path"]
+                else:
+                    actual = self._local_path(item["path"])
+                sources[actual] = parsed.get(actual.resolve(), actual.read_text(encoding="utf-8"))
+            sources.update(parsed)
             return {
                 "status": "ok",
                 "items": [item.__dict__ for item in build_completion_candidates(sources, path, prefix)],
             }
+
+    def authoring_action(
+        self,
+        action: str,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        with self._lock:
+            data = dict(payload or {})
+            parsed = self._overlays(overlays)
+            sources = self._authoring_sources(parsed)
+            if action == "index":
+                return {"status": "ok", **build_authoring_index(sources)}
+            if action == "format":
+                key = str(data.get("key", ""))
+                source = next((item for item in sources if item.key == key), None)
+                if source is None:
+                    raise WorkspaceError(f"unknown document: {key}")
+                if source.read_only:
+                    raise WorkspaceError(f"document is read-only: {key}")
+                rendered = format_kirin_source(source.text)
+                return {
+                    "status": "ok",
+                    "changes": [] if rendered == source.text else [{
+                        "key": source.key,
+                        "path": source.path,
+                        "before": source.text,
+                        "text": rendered,
+                    }],
+                }
+            if action == "rename":
+                result = rename_authoring_symbol(
+                    sources,
+                    str(data.get("symbol", "")),
+                    str(data.get("new_name", "")),
+                )
+                candidate = dict(parsed)
+                for change in result["changes"]:
+                    candidate[self._local_path(change["key"], new=True)] = change["text"]
+                workspace = Workspace.load_with_overlays(self.root, candidate)
+                run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
+                return result
+            raise ParameterError(f"unknown authoring action: {action}")
 
     def list_runs(self) -> list[dict]:
         result = []

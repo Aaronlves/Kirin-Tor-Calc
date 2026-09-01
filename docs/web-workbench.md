@@ -27,6 +27,12 @@ Diagnostics live beside the document editor rather than in a duplicate top-level
 
 Preview results, chart definitions, formula explanations, diagnostics, and relationship nodes expose source navigation when their validated projection carries a source coordinate. Navigation restores Split focus mode, opens the authoritative `.kirin` document when necessary, and focuses the defining line instead of creating an editable projection.
 
+The editor adds a tolerant authoring projection over complete or incomplete drafts. `Mod+F` opens find/replace, `Mod+G` jumps to a line, `Mod+Shift+O` opens the current-document symbol outline, and the fold gutter collapses sections and prose blocks. Hover shows a symbol's canonical identity, kind, signature, and unit or domain detail; the status bar shows the active function signature and parameter number. `F12` or Mod-click navigates to a definition, `Shift+F12` lists definitions, direct references, and alias-mediated uses, and `F2` performs a validated rename of a writable formal member. The command palette also searches documents and symbols across the workspace.
+
+Safe rename updates the definition, local short references, and qualified cross-document references together while retaining Chinese aliases. It first produces ordinary in-memory `.kirin` overlays and validates the resulting workspace; Package definitions and Package source remain read-only. Formatting is deliberately source-preserving: it normalizes indentation tabs, trailing whitespace outside prose fences, excess blank lines, and the final newline without re-rendering or deleting comments. Known full-width punctuation diagnostics expose an explicit quick fix but are never rewritten automatically.
+
+Cursor movement links source to the currently visible result, formula, or local-relationship projection when both sides identify the same symbol. This complements the existing projection-to-source controls without making preview state authoritative.
+
 CodeMirror has an explicit accessible name and visible focus outline. Canvas relationship graphs and calculation charts expose a collapsible keyboard-readable node or data list. Generated charts can be expanded into a full-window preview without creating another editable surface.
 
 ## Interface system
@@ -55,5 +61,7 @@ Package templates are data-only authoritative Package content: they participate 
 ## Saving and conflicts
 
 Every opened local document has an original source hash and an in-memory buffer. Save All first loads and validates the complete overlay. It then compares each original hash with the current disk file and rejects external changes. If all checks pass, all modified files are staged, flushed, and atomically replaced. Package documents never enter the writable overlay. A rejected external change keeps the draft intact and opens a side-by-side comparison. The author may continue editing, download a `.workbench-draft.kirin` recovery copy, or explicitly replace the buffer with the current disk version.
+
+While drafts are dirty, the workbench atomically mirrors at most 100 drafts and 5 MiB into ignored control state at `.kirin/workbench-recovery.json`. This cache is not source authority, is never evaluated independently, and is cleared after a successful Save All. A later workbench process restores a matching draft as an unsaved overlay; if the recorded base hash differs from disk, it opens the same explicit conflict comparison instead of silently choosing a version. CodeMirror undo history is retained when switching among documents during the current browser session.
 
 Closing or refreshing the browser with dirty buffers triggers the browser's unsaved-change warning. Stopping the terminal process stops the server; there is no background daemon or remote account state.

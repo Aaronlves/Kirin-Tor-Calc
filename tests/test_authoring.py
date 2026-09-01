@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from kirin_tor.authoring import (
+    AuthoringSource,
+    build_authoring_index,
     build_completion_candidates,
+    format_kirin_source,
     prepare_completion_insertion,
+    rename_authoring_symbol,
 )
 from kirin_tor.diagnostics import extract_author_title, format_author_diagnostic
-from kirin_tor.errors import SchemaError, SourceLocation
+from kirin_tor.errors import ParameterError, SchemaError, SourceLocation, WorkspaceError
 
 
 def test_chinese_title_and_full_width_punctuation_diagnostic(tmp_path: Path) -> None:
@@ -89,3 +95,101 @@ outputs:
     inserted, cursor = prepare_completion_insertion("piecewise(\n  $0\n)", "  ")
     assert inserted == "piecewise(\n    \n  )"
     assert inserted[:cursor].endswith("    ")
+
+
+def test_authoring_index_tracks_definitions_aliases_references_and_safe_rename() -> None:
+    skill = AuthoringSource(
+        "entries/skill.kirin",
+        "entries/skill.kirin",
+        """@kirin 1
+@entry skill
+
+functions:
+  expected(c: probability) -> damage = 1000 * (1 + c)
+""",
+    )
+    combo = AuthoringSource(
+        "entries/combo.kirin",
+        "entries/combo.kirin",
+        """@kirin 1
+@entry combo
+
+aliases:
+  技能 = skill.expected
+
+inputs:
+  crit: probability = 0.1
+
+outputs:
+  total "总计": damage = 技能(crit)
+
+groups:
+  damage:
+    total
+
+display:
+  total: integer
+
+y:
+  combo.total
+""",
+    )
+    index = build_authoring_index([skill, combo])
+    total = next(item for item in index["symbols"] if item["id"] == "combo.total")
+    assert total["label"] == "总计"
+    assert total["unit"] == "damage"
+    skill_references = [item for item in index["references"] if item["symbol_id"] == "skill.expected"]
+    assert {(item["text"], item["via_alias"]) for item in skill_references} == {
+        ("skill.expected", False),
+        ("技能", True),
+    }
+    assert sum(item["symbol_id"] == "combo.total" for item in index["references"]) == 3
+
+    renamed = rename_authoring_symbol([skill, combo], "combo.total", "combined_total")
+    assert renamed["edits"] == 4
+    rendered = renamed["changes"][0]["text"]
+    assert 'combined_total "总计"' in rendered
+    assert "    combined_total" in rendered
+    assert "  combined_total: integer" in rendered
+    assert "  combo.combined_total" in rendered
+    with pytest.raises(ParameterError, match="already exists"):
+        rename_authoring_symbol([skill, combo], "combo.total", "crit")
+    read_only_skill = AuthoringSource(skill.key, skill.path, skill.text, True)
+    with pytest.raises(WorkspaceError, match="read-only"):
+        rename_authoring_symbol([read_only_skill, combo], "skill.expected", "average")
+
+
+def test_safe_formatter_preserves_prose_and_comments() -> None:
+    source = "@kirin 1  \n@entry model\n\n\n\n// 注释  \n---\n保留尾随空格  \n---\n\toutputs:\n\t\tresult: dimensionless = 1  \n"
+    rendered = format_kirin_source(source)
+    assert rendered.startswith("@kirin 1\n@entry model\n\n\n// 注释\n")
+    assert "保留尾随空格  \n" in rendered
+    assert "  outputs:\n    result: dimensionless = 1\n" in rendered
+
+
+def test_authoring_references_respect_bounded_expression_and_state_names() -> None:
+    source = AuthoringSource(
+        "entries/model.kirin",
+        "entries/model.kirin",
+        """@kirin 1
+@entry model
+
+inputs:
+  index: nonnegative_integer = 1
+  chance: probability = 0.5
+
+state_models:
+  cycle:
+    states:
+      ready
+    transitions:
+      ready -> ready @ chance
+
+outputs:
+  total: dimensionless = sum(index, index, 0, 2)
+""",
+    )
+    index = build_authoring_index([source])
+    assert not any(item["symbol_id"] == "model.index" for item in index["references"])
+    chance_references = [item for item in index["references"] if item["symbol_id"] == "model.chance"]
+    assert [(item["location"]["line"], item["text"]) for item in chance_references] == [(13, "chance")]

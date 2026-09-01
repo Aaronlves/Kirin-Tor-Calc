@@ -183,3 +183,33 @@ def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
         "replay", {"run_id": "web_comparison_chart"}
     )
     assert comparison_replay["matches_recorded_result"] is True
+
+
+def test_workbench_authoring_actions_and_recovery_are_non_durable(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    workbench = Workbench(root)
+    relative = "entries/build_math.kirin"
+    original = (root / relative).read_text(encoding="utf-8")
+
+    bootstrap = workbench.bootstrap()
+    assert any(item["id"] == "build_math.total" for item in bootstrap["authoring"]["symbols"])
+    renamed = workbench.authoring_action(
+        "rename",
+        {"symbol": "build_math.total", "new_name": "combined_total"},
+    )
+    assert renamed["edits"] >= 2
+    assert "combined_total" in renamed["changes"][0]["text"]
+    assert (root / relative).read_text(encoding="utf-8") == original
+
+    workbench.save_recovery({
+        relative: {
+            "text": original + "\n// recovered draft\n",
+            "base_sha256": bootstrap["documents"][0]["source_sha256"],
+            "document": bootstrap["documents"][0],
+        }
+    })
+    recovered = Workbench(root).bootstrap()["recovery"]["drafts"][relative]
+    assert recovered["text"].endswith("// recovered draft\n")
+    assert (root / relative).read_text(encoding="utf-8") == original
+    workbench.save_recovery({})
+    assert not (root / ".kirin" / "workbench-recovery.json").exists()

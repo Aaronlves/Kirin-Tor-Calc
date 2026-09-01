@@ -6,7 +6,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+from .errors import ParameterError, WorkspaceError
 
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _QUOTED = r'"(?:[^"\\]|\\.)*"'
@@ -15,6 +17,20 @@ _ENTRY_RE = re.compile(rf"^@entry\s+({_IDENTIFIER})$")
 _SECTION_RE = re.compile(rf"^({_IDENTIFIER}):$")
 _MEMBER_RE = re.compile(rf"^\s+(?P<name>{_IDENTIFIER})(?:\s+(?P<label>{_QUOTED}))?")
 _ALIAS_RE = re.compile(rf"^\s+(?P<name>[^\s=]+)\s*=\s*(?P<target>{_IDENTIFIER}\.{_IDENTIFIER})")
+_REFERENCE_RE = re.compile(
+    rf"(?<![\w.])(?P<token>{_IDENTIFIER}\.{_IDENTIFIER}|[^\W\d]\w*)(?![\w.])",
+    re.UNICODE,
+)
+
+
+@dataclass(frozen=True)
+class AuthoringSource:
+    key: str
+    path: str
+    text: str
+    read_only: bool = False
+
+
 @dataclass(frozen=True)
 class CompletionCandidate:
     label: str
@@ -38,6 +54,7 @@ class _Member:
 
 
 _KIND_LABELS = {
+    "aliases": "别名",
     "inputs": "输入",
     "fields": "字段",
     "functions": "函数",
@@ -50,9 +67,37 @@ _KIND_LABELS = {
     "dimensions": "量纲",
     "units": "单位",
     "domains": "值域",
+    "constraints": "约束",
+    "sources": "来源",
+    "groups": "分组",
+    "presets": "参数方案",
+    "display": "显示",
+    "y": "图表曲线",
     "builtin": "内置函数",
     "keyword": "关键字",
     "snippet": "片段",
+}
+
+_AUTHORING_SECTIONS = {
+    "aliases", "dimensions", "units", "domains", "inputs", "constraints", "fields",
+    "functions", "tables", "distributions", "recurrences", "state_models", "outputs",
+    "sources", "groups", "presets", "display", "y",
+}
+
+_MEMBER_SECTIONS = {
+    "inputs", "fields", "functions", "tables", "distributions", "recurrences",
+    "state_models", "outputs",
+}
+
+_SECTION_KIND = {
+    "inputs": "input",
+    "fields": "field",
+    "functions": "function",
+    "tables": "table",
+    "distributions": "distribution",
+    "recurrences": "recurrence",
+    "state_models": "state_model",
+    "outputs": "output",
 }
 
 
@@ -377,6 +422,495 @@ def _index_source(
                 _Member(entry_id, match.group("name"), section, _decode_label(match.group("label")))
             )
     return entry_id, members, aliases, semantics
+
+
+def _location(source: AuthoringSource, line: int, start: int, end: int) -> dict:
+    return {
+        "key": source.key,
+        "path": source.path,
+        "line": line,
+        "column": start + 1,
+        "end_column": end + 1,
+        "read_only": source.read_only,
+    }
+
+
+def _masked_code(line: str) -> str:
+    """Mask strings and comments while preserving source columns."""
+    result = list(line)
+    quoted = False
+    escaped = False
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if quoted:
+            result[index] = " "
+            if character == '"' and not escaped:
+                quoted = False
+            escaped = character == "\\" and not escaped
+            if character != "\\":
+                escaped = False
+            index += 1
+            continue
+        if character == '"':
+            quoted = True
+            result[index] = " "
+            index += 1
+            continue
+        if character == "/" and index + 1 < len(line) and line[index + 1] == "/":
+            for masked in range(index, len(line)):
+                result[masked] = " "
+            break
+        index += 1
+    return "".join(result)
+
+
+def _member_signature(line: str) -> str:
+    stripped = line.strip()
+    if "=" in stripped:
+        return stripped.split("=", 1)[0].rstrip()
+    return stripped
+
+
+def _member_unit(section: str, line: str) -> Optional[str]:
+    stripped = line.strip()
+    if section == "functions":
+        match = re.search(r"->\s*([^=]+)", stripped)
+        return match.group(1).strip() if match else None
+    if ":" not in stripped:
+        return None
+    tail = stripped.split(":", 1)[1]
+    if "=" in tail:
+        tail = tail.split("=", 1)[0]
+    return tail.strip().rstrip(":") or None
+
+
+def _function_parameters(line: str) -> list[str]:
+    match = re.search(r"\((.*?)\)\s*->", line)
+    if not match:
+        return []
+    return re.findall(rf"({_IDENTIFIER})\s*:", match.group(1))
+
+
+def _scan_authoring_source(source: AuthoringSource) -> dict:
+    entry_id: Optional[str] = None
+    section: Optional[str] = None
+    section_member_indent: Optional[int] = None
+    aliases: dict[str, str] = {}
+    symbols: list[dict[str, Any]] = []
+    definitions: dict[int, list[tuple[int, int]]] = {}
+    member_headers: dict[int, dict[str, Any]] = {}
+    prose_fence: Optional[str] = None
+
+    def add_symbol(symbol: dict[str, Any], start: int, end: int) -> None:
+        symbols.append(symbol)
+        definitions.setdefault(symbol["definition"]["line"], []).append((start, end))
+
+    for line_number, line in enumerate(source.text.splitlines(), 1):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if prose_fence is not None:
+            if indent == 0 and stripped == prose_fence:
+                prose_fence = None
+            continue
+        if indent == 0 and _FENCE_RE.fullmatch(stripped):
+            prose_fence = stripped
+            continue
+        if not stripped or stripped.startswith("//"):
+            continue
+        header = _ENTRY_RE.fullmatch(stripped)
+        if header:
+            entry_id = header.group(1)
+            start = line.index(entry_id)
+            add_symbol(
+                {
+                    "id": f"entry:{entry_id}",
+                    "name": entry_id,
+                    "label": entry_id,
+                    "kind": "entry",
+                    "entry_id": entry_id,
+                    "detail": f"文档 · {entry_id}",
+                    "signature": f"@entry {entry_id}",
+                    "definition": _location(source, line_number, start, start + len(entry_id)),
+                    "renameable": False,
+                    "outline": True,
+                    "outline_level": 0,
+                },
+                start,
+                start + len(entry_id),
+            )
+            continue
+        if indent == 0:
+            section_match = _SECTION_RE.fullmatch(stripped)
+            section = section_match.group(1) if section_match and section_match.group(1) in _AUTHORING_SECTIONS else None
+            section_member_indent = None
+            if section and entry_id:
+                start = line.index(section)
+                add_symbol(
+                    {
+                        "id": f"section:{source.key}:{section}:{line_number}",
+                        "name": section,
+                        "label": _KIND_LABELS.get(section, section),
+                        "kind": "section",
+                        "entry_id": entry_id,
+                        "detail": f"章节 · {section}",
+                        "signature": f"{section}:",
+                        "definition": _location(source, line_number, start, start + len(section)),
+                        "renameable": False,
+                        "outline": True,
+                        "outline_level": 1,
+                    },
+                    start,
+                    start + len(section),
+                )
+            continue
+        if entry_id is None or section is None:
+            continue
+        if section == "aliases":
+            match = _ALIAS_RE.match(line)
+            if match:
+                name = match.group("name")
+                target = match.group("target")
+                aliases[name] = target
+                start = match.start("name")
+                add_symbol(
+                    {
+                        "id": f"alias:{entry_id}:{name}",
+                        "name": name,
+                        "label": name,
+                        "kind": "alias",
+                        "entry_id": entry_id,
+                        "detail": f"别名 · {name} → {target}",
+                        "signature": f"{name} = {target}",
+                        "target": target,
+                        "definition": _location(source, line_number, start, match.end("name")),
+                        "renameable": False,
+                        "outline": True,
+                        "outline_level": 2,
+                    },
+                    start,
+                    match.end("name"),
+                )
+            continue
+        if section in {"dimensions", "units", "domains"}:
+            match = _MEMBER_RE.match(line)
+            tail = line[match.end():].lstrip() if match else ""
+            valid = section == "dimensions" or (section == "units" and tail.startswith("=")) or (section == "domains" and tail.startswith(":"))
+            if match and valid:
+                name = match.group("name")
+                start = match.start("name")
+                kind = section[:-1]
+                add_symbol(
+                    {
+                        "id": f"semantic:{kind}:{name}",
+                        "name": name,
+                        "label": _decode_label(match.group("label")) or name,
+                        "kind": kind,
+                        "entry_id": entry_id,
+                        "detail": f"{_KIND_LABELS[section]} · {name}",
+                        "signature": line.strip(),
+                        "definition": _location(source, line_number, start, match.end("name")),
+                        "renameable": False,
+                        "outline": True,
+                        "outline_level": 2,
+                    },
+                    start,
+                    match.end("name"),
+                )
+            continue
+        if section not in _MEMBER_SECTIONS:
+            continue
+        if section_member_indent is None:
+            section_member_indent = indent
+        if indent != section_member_indent:
+            continue
+        match = _MEMBER_RE.match(line)
+        tail = line[match.end():].lstrip() if match else ""
+        valid = bool(match) and (
+            (section == "functions" and tail.startswith("("))
+            or (section in {"tables", "distributions", "recurrences", "state_models"} and tail.startswith(":"))
+            or (section in {"inputs", "fields", "outputs"} and tail.startswith(":"))
+        )
+        if not match or not valid:
+            continue
+        name = match.group("name")
+        label = _decode_label(match.group("label"))
+        kind = _SECTION_KIND[section]
+        canonical = f"{entry_id}.{name}"
+        start = match.start("name")
+        parameters = _function_parameters(line) if kind == "function" else []
+        symbol = {
+            "id": canonical,
+            "name": name,
+            "label": label or name,
+            "kind": kind,
+            "entry_id": entry_id,
+            "detail": f"{_KIND_LABELS[section]} · {canonical}",
+            "signature": _member_signature(line),
+            "unit": _member_unit(section, line),
+            "parameters": parameters,
+            "definition": _location(source, line_number, start, match.end("name")),
+            "renameable": not source.read_only,
+            "outline": True,
+            "outline_level": 2,
+        }
+        add_symbol(symbol, start, match.end("name"))
+        member_headers[line_number] = {"indent": indent, "parameters": parameters, "symbol_id": canonical}
+    return {
+        "source": source,
+        "entry_id": entry_id,
+        "aliases": aliases,
+        "symbols": symbols,
+        "definitions": definitions,
+        "member_headers": member_headers,
+    }
+
+
+def _builtin_authoring_items() -> list[dict]:
+    result: list[dict] = []
+    seen: set[str] = set()
+    for candidate in BUILTIN_COMPLETIONS:
+        match = re.match(rf"({_IDENTIFIER})", candidate.insert_text)
+        if not match or match.group(1) in seen:
+            continue
+        name = match.group(1)
+        seen.add(name)
+        result.append(
+            {
+                "id": f"builtin:{name}",
+                "name": name,
+                "label": candidate.label,
+                "kind": candidate.kind,
+                "detail": candidate.detail,
+                "signature": candidate.insert_text.replace("$0", "…"),
+            }
+        )
+    return result
+
+
+def _reference_start(line: str, section: Optional[str], is_member_header: bool) -> Optional[int]:
+    if is_member_header:
+        return line.index("=") + 1 if "=" in line else None
+    if section == "aliases" and "=" in line:
+        return line.index("=") + 1
+    if section == "display":
+        return 0
+    if section == "presets" and "=" in line:
+        return 0
+    if section == "state_models":
+        if "@" in line:
+            return line.rindex("@") + 1
+        if "=" in line:
+            return line.index("=") + 1
+        return None
+    keyed = re.match(r"^\s*[^\s:=]+\s*([:=])", line)
+    if keyed:
+        return keyed.end()
+    return 0
+
+
+def build_authoring_index(sources: Sequence[AuthoringSource]) -> dict:
+    """Build a tolerant symbol/reference projection from complete or incomplete drafts."""
+    scans = [_scan_authoring_source(source) for source in sources]
+    symbols = [symbol for scan in scans for symbol in scan["symbols"]]
+    symbol_by_id = {symbol["id"]: symbol for symbol in symbols}
+    local_members: dict[str, dict[str, str]] = {}
+    unique_inputs: dict[str, list[str]] = {}
+    semantic_names: dict[str, list[str]] = {}
+    for symbol in symbols:
+        entry_id = symbol.get("entry_id")
+        if entry_id and symbol["kind"] in set(_SECTION_KIND.values()):
+            local_members.setdefault(entry_id, {})[symbol["name"]] = symbol["id"]
+        if symbol["kind"] == "input":
+            unique_inputs.setdefault(symbol["name"], []).append(symbol["id"])
+        if symbol["kind"] in {"dimension", "unit", "domain"}:
+            semantic_names.setdefault(symbol["name"], []).append(symbol["id"])
+
+    builtins = _builtin_authoring_items()
+    builtin_by_name = {item["name"]: item["id"] for item in builtins}
+    references: list[dict[str, Any]] = []
+    for scan in scans:
+        source: AuthoringSource = scan["source"]
+        entry_id: Optional[str] = scan["entry_id"]
+        aliases: dict[str, str] = scan["aliases"]
+        section: Optional[str] = None
+        prose_fence: Optional[str] = None
+        active_parameters: set[str] = set()
+        active_indent: Optional[int] = None
+        for line_number, line in enumerate(source.text.splitlines(), 1):
+            stripped = line.lstrip()
+            indent = len(line) - len(stripped)
+            if prose_fence is not None:
+                if indent == 0 and stripped == prose_fence:
+                    prose_fence = None
+                continue
+            if indent == 0 and _FENCE_RE.fullmatch(stripped):
+                prose_fence = stripped
+                continue
+            if not stripped or stripped.startswith("//"):
+                continue
+            if indent == 0:
+                section_match = _SECTION_RE.fullmatch(stripped)
+                if section_match and section_match.group(1) in _AUTHORING_SECTIONS:
+                    section = section_match.group(1)
+                    active_parameters = set()
+                    active_indent = None
+                    continue
+                if stripped.startswith("@"):
+                    continue
+                section = None
+                active_parameters = set()
+                active_indent = None
+            header = scan["member_headers"].get(line_number)
+            if active_indent is not None and indent <= active_indent and header is None:
+                active_parameters = set()
+                active_indent = None
+            if header is not None:
+                active_parameters = set(header["parameters"])
+                active_indent = header["indent"] if active_parameters else None
+            line_parameters = set(active_parameters)
+            next_match = re.search(r"\bnext\s*\((.*?)\)\s*=", line)
+            if next_match:
+                line_parameters.update(re.findall(_IDENTIFIER, next_match.group(1)))
+            start = _reference_start(line, section, header is not None)
+            if start is None:
+                continue
+            masked = _masked_code(line)
+            if start:
+                masked = " " * start + masked[start:]
+            for bound in re.finditer(
+                rf"\b(?:sum|product|map|condition)\s*\([^,]+,\s*({_IDENTIFIER})\b",
+                masked,
+            ):
+                line_parameters.add(bound.group(1))
+            definitions = scan["definitions"].get(line_number, [])
+            for match in _REFERENCE_RE.finditer(masked):
+                if any(match.start("token") >= left and match.end("token") <= right for left, right in definitions):
+                    continue
+                token = match.group("token")
+                if token in line_parameters:
+                    continue
+                symbol_id: Optional[str] = None
+                via_alias = False
+                if "." in token and token in symbol_by_id:
+                    symbol_id = token
+                elif entry_id and token in aliases and aliases[token] in symbol_by_id:
+                    symbol_id = aliases[token]
+                    via_alias = True
+                elif entry_id and token in local_members.get(entry_id, {}):
+                    symbol_id = local_members[entry_id][token]
+                elif len(unique_inputs.get(token, [])) == 1:
+                    symbol_id = unique_inputs[token][0]
+                elif len(semantic_names.get(token, [])) == 1:
+                    symbol_id = semantic_names[token][0]
+                elif token in builtin_by_name:
+                    symbol_id = builtin_by_name[token]
+                if symbol_id is None:
+                    continue
+                references.append(
+                    {
+                        "symbol_id": symbol_id,
+                        "text": token,
+                        "location": _location(
+                            source,
+                            line_number,
+                            match.start("token"),
+                            match.end("token"),
+                        ),
+                        "via_alias": via_alias,
+                    }
+                )
+    symbols.sort(key=lambda item: (item["definition"]["key"], item["definition"]["line"], item["definition"]["column"]))
+    references.sort(key=lambda item: (item["location"]["key"], item["location"]["line"], item["location"]["column"]))
+    return {"symbols": symbols, "references": references, "builtins": builtins}
+
+
+def _source_offset(text: str, line: int, column: int) -> int:
+    lines = text.splitlines(keepends=True)
+    if line < 1 or line > len(lines):
+        raise ParameterError("authoring edit line is outside the document")
+    return sum(len(item) for item in lines[: line - 1]) + max(0, column - 1)
+
+
+def rename_authoring_symbol(sources: Sequence[AuthoringSource], symbol_id: str, new_name: str) -> dict:
+    """Return validated textual rename candidates without writing source files."""
+    if not re.fullmatch(_IDENTIFIER, new_name):
+        raise ParameterError("new symbol name must be an ASCII identifier")
+    index = build_authoring_index(sources)
+    symbol = next((item for item in index["symbols"] if item["id"] == symbol_id), None)
+    if symbol is None:
+        raise WorkspaceError(f"unknown authoring symbol: {symbol_id}")
+    if not symbol.get("renameable"):
+        raise WorkspaceError(f"symbol is read-only or cannot be renamed: {symbol_id}")
+    entry_id = symbol["entry_id"]
+    replacement_id = f"{entry_id}.{new_name}"
+    if replacement_id != symbol_id and any(item["id"] == replacement_id for item in index["symbols"]):
+        raise ParameterError(f"symbol already exists: {replacement_id}")
+
+    edits: dict[str, list[tuple[dict, str]]] = {
+        symbol["definition"]["key"]: [(symbol["definition"], new_name)]
+    }
+    for reference in index["references"]:
+        if reference["symbol_id"] != symbol_id or reference.get("via_alias"):
+            continue
+        location = reference["location"]
+        if location["read_only"]:
+            raise WorkspaceError(f"rename would modify read-only source: {location['path']}")
+        text = reference["text"]
+        replacement = f"{entry_id}.{new_name}" if "." in text else new_name
+        edits.setdefault(location["key"], []).append((location, replacement))
+
+    source_by_key = {source.key: source for source in sources}
+    changes = []
+    edit_count = 0
+    for key, items in edits.items():
+        source = source_by_key.get(key)
+        if source is None or source.read_only:
+            raise WorkspaceError(f"rename target is not writable: {key}")
+        unique: dict[tuple[int, int, int], tuple[dict, str]] = {}
+        for location, replacement in items:
+            unique[(location["line"], location["column"], location["end_column"])] = (location, replacement)
+        rendered = source.text
+        positioned = []
+        for location, replacement in unique.values():
+            start = _source_offset(source.text, location["line"], location["column"])
+            end = _source_offset(source.text, location["line"], location["end_column"])
+            positioned.append((start, end, replacement))
+        for start, end, replacement in sorted(positioned, reverse=True):
+            rendered = rendered[:start] + replacement + rendered[end:]
+        if rendered != source.text:
+            edit_count += len(positioned)
+            changes.append({"key": key, "path": source.path, "before": source.text, "text": rendered})
+    return {"status": "ok", "symbol": symbol_id, "renamed_to": replacement_id, "edits": edit_count, "changes": changes}
+
+
+def format_kirin_source(source: str) -> str:
+    """Normalize safe whitespace without re-rendering comments or prose blocks."""
+    rendered: list[str] = []
+    prose_fence: Optional[str] = None
+    blank_count = 0
+    for raw_line in source.splitlines():
+        stripped = raw_line.lstrip()
+        indent = len(raw_line) - len(stripped)
+        if prose_fence is not None:
+            rendered.append(raw_line)
+            if indent == 0 and stripped == prose_fence:
+                prose_fence = None
+            continue
+        if indent == 0 and _FENCE_RE.fullmatch(stripped):
+            prose_fence = stripped
+            rendered.append(raw_line.rstrip())
+            blank_count = 0
+            continue
+        leading = raw_line[:indent].replace("\t", "  ")
+        line = leading + stripped.rstrip()
+        if line:
+            rendered.append(line)
+            blank_count = 0
+        elif blank_count < 2:
+            rendered.append("")
+            blank_count += 1
+    return "\n".join(rendered).rstrip() + "\n"
 
 
 def build_completion_candidates(

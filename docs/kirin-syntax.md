@@ -304,7 +304,7 @@ The Documents view retains an in-memory buffer for every opened document and val
 - modified and valid: result, chart, formula, and relationship projections use the draft without writing it;
 - saved and valid: the buffer matches the atomic on-disk write.
 
-The document preview evaluates declared outputs and reveals a chart only when that document defines `x/range/points/y`. Temporary inputs use text with canonical names, unique local names, or display labels; exact percentages are normalized before the engine sees them. Unsaved but valid overlays may be explored, but durable run records require saved sources. Save All validates and atomically saves every modified buffer.
+The document preview evaluates declared outputs from source-declared defaults and reveals a chart only when that document defines `x/range/points/y`. Result and chart selectors choose a read-only projection; the inspector does not expose temporary parameter fields. Unsaved but valid overlays may be explored, but durable run records require saved sources. Save All validates and atomically saves every modified buffer.
 
 The Relationship Graph derives member-level edges from parsed formulas and aggregates them into a document-level projection. The document inspector uses the same graph data for a local zero-, one-, or two-hop projection; no relationship is guessed from comments or keyword overlap.
 
@@ -313,3 +313,7 @@ Workbench status text and common diagnostics are presented in Chinese without ch
 `Ctrl+Space` opens Kirin-aware completion. Use Up/Down, Enter, and Escape to navigate, insert, and close it. Candidate indexing is deliberately tolerant of incomplete drafts and includes every on-disk document plus every in-memory buffer. Formal IDs, Chinese display labels, entry-local aliases, finite distributions, recurrences, and state models are searchable. Units, domains, dimensions, built-in functions, booleans, and common constraint keywords are also included.
 
 Chinese snippet triggers include `条目文档`, `输入`, `别名`, `字段`, `函数`, `查表`, `输出`, `分组`, `参数方案`, `显示`, `约束`, `来源`, `长说明`, `图表`, `分段`, and `条件`. Snippets preserve the current indentation and remove the internal cursor marker on insertion.
+
+The same tolerant index drives the document outline, hover and parameter information, definition navigation, reference listing, and workspace rename. Use `Mod+F` for find/replace, `Mod+G` for line navigation, `Mod+Shift+O` for the outline, `F12` for definition, `Shift+F12` for references, and `F2` for a validated formal-member rename. Formal renames preserve labels and aliases and remain unsaved overlays until Save All. The fold gutter collapses sections and prose blocks. Formatting only normalizes safe whitespace and never re-renders the schema or discards comments.
+
+Dirty local drafts are mirrored to `.kirin/workbench-recovery.json`, an ignored, bounded recovery cache rather than another source format. A matching cache is restored as an unsaved overlay. A base-hash mismatch invokes explicit draft-versus-disk comparison. Successful Save All clears the cache.

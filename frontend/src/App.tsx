@@ -25,7 +25,7 @@ export function App() {
   }, [documentFocusMode]);
 
   const navigateToSource = async (path: string, line?: number | null, column?: number | null) => {
-    const document = controller.documents.find((item) => path === item.path || path.endsWith(item.path));
+    const document = controller.documents.find((item) => item.key === path || path === item.path || path.endsWith(item.path));
     if (!document) return;
     setActiveView("documents");
     setDocumentFocusMode("split");
@@ -43,6 +43,7 @@ export function App() {
         onDocumentFocusModeChange={setDocumentFocusMode}
         onViewChange={setActiveView}
         onOpenTool={setWorkspaceTool}
+        onNavigateToSource={(key, line, column) => { void navigateToSource(key, line, column); }}
         controller={controller}
       >
         <Suspense fallback={<LoadingState label="正在打开工作区工具…" />}>

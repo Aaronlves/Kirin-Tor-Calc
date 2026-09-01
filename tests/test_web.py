@@ -192,3 +192,39 @@ def test_web_refuses_to_overwrite_an_external_document_change(
         assert "changed outside" in payload["message"]
         assert payload["location"]["path"] == relative
         assert path.read_text(encoding="utf-8").endswith("// external edit\n")
+
+
+def test_web_exposes_authoring_actions_and_recovery_cache(example_workspace: Path) -> None:
+    relative = "entries/组合模型.kirin"
+    original = (example_workspace / relative).read_text(encoding="utf-8")
+    with RunningServer(example_workspace) as running:
+        bootstrap = decoded(running.request("/api/bootstrap")[2])
+        assert any(item["id"] == "combo.total" for item in bootstrap["authoring"]["symbols"])
+        status, _headers, body = running.request(
+            "/api/authoring",
+            {
+                "action": "rename",
+                "payload": {"symbol": "combo.total", "new_name": "combined_total"},
+                "overlays": {},
+            },
+        )
+        renamed = decoded(body)
+        assert status == 200
+        assert renamed["renamed_to"] == "combo.combined_total"
+        assert (example_workspace / relative).read_text(encoding="utf-8") == original
+
+        status, _headers, _body = running.request(
+            "/api/recovery",
+            {
+                "drafts": {
+                    relative: {
+                        "text": original + "\n// recovery\n",
+                        "base_sha256": bootstrap["documents"][0]["source_sha256"],
+                        "document": next(item for item in bootstrap["documents"] if item["path"] == relative),
+                    }
+                }
+            },
+        )
+        assert status == 200
+        recovered = decoded(running.request("/api/bootstrap")[2])["recovery"]["drafts"]
+        assert recovered[relative]["text"].endswith("// recovery\n")

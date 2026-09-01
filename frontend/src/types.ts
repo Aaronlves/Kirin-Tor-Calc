@@ -39,6 +39,72 @@ export interface CompletionItem {
   priority?: number;
 }
 
+export interface AuthoringLocation {
+  key: string;
+  path: string;
+  line: number;
+  column: number;
+  end_column: number;
+  read_only: boolean;
+}
+
+export interface AuthoringSymbol {
+  id: string;
+  name: string;
+  label: string;
+  kind: string;
+  entry_id?: string;
+  detail: string;
+  signature?: string;
+  unit?: string | null;
+  parameters?: string[];
+  target?: string;
+  definition: AuthoringLocation;
+  renameable: boolean;
+  outline: boolean;
+  outline_level: number;
+}
+
+export interface AuthoringReference {
+  symbol_id: string;
+  text: string;
+  location: AuthoringLocation;
+  via_alias: boolean;
+}
+
+export interface AuthoringBuiltin {
+  id: string;
+  name: string;
+  label: string;
+  kind: string;
+  detail: string;
+  signature?: string;
+}
+
+export interface AuthoringIndex {
+  symbols: AuthoringSymbol[];
+  references: AuthoringReference[];
+  builtins: AuthoringBuiltin[];
+}
+
+export interface AuthoringChange {
+  key: string;
+  path: string;
+  before: string;
+  text: string;
+}
+
+export interface RecoveryDraft {
+  text: string;
+  base_sha256: string | null;
+  document: DocumentItem;
+}
+
+export interface RecoveryPayload {
+  version: number;
+  drafts: Record<string, RecoveryDraft>;
+}
+
 export interface DiagnosticLocation {
   path?: string;
   line?: number;
@@ -104,6 +170,7 @@ export interface ValidationResult {
   code?: string;
   message?: string;
   author_message?: string;
+  authoring?: AuthoringIndex;
   [key: string]: unknown;
 }
 
@@ -153,6 +220,8 @@ export interface BootstrapPayload {
   runs: RunItem[];
   validation: ValidationResult;
   index: WorkspaceIndex;
+  authoring: AuthoringIndex;
+  recovery: RecoveryPayload;
 }
 
 export interface Variant {
