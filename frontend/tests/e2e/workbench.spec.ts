@@ -16,20 +16,35 @@ async function openCombo(page: Page) {
 }
 
 test.describe.serial("Kirin 浏览器工作台交互", () => {
-  test("窄屏默认突出编辑器并记住折叠状态", async ({ page }) => {
+  test("三种文档专注模式切换并记住选择", async ({ page }) => {
     await page.setViewportSize({ width: 1120, height: 800 });
     await openWorkbench(page);
     await expect(page.getByRole("button", { name: "展开导航" })).toBeVisible();
     await expect(page.locator('[aria-label^="工作区状态："]')).toBeVisible();
-    await expect(page.getByRole("button", { name: "展开文档检查器" })).toBeVisible();
+    const focusModes = page.getByRole("radiogroup", { name: "文档专注模式" });
+    await expect(focusModes.getByRole("radio", { name: "分栏" })).toBeChecked();
+    const focusChoice = (label: string) => page.locator(".document-focus-switch .mantine-SegmentedControl-label").filter({ hasText: label });
 
     const editorPanel = page.getByRole("region", { name: "源码编辑器" });
-    expect((await editorPanel.boundingBox())?.width).toBeGreaterThan(700);
-    await page.getByRole("button", { name: "收起文档索引" }).click();
+    await focusChoice("仅编辑").click();
+    await expect(page.getByRole("region", { name: "文档索引" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "文档检查器" })).toHaveCount(0);
     expect((await editorPanel.boundingBox())?.width).toBeGreaterThan(950);
 
+    await focusChoice("仅预览").click();
+    await expect(editorPanel).toBeHidden();
+    const inspector = page.getByRole("complementary", { name: "文档检查器" });
+    await expect(inspector).toBeVisible();
+    expect((await inspector.boundingBox())?.width).toBeGreaterThan(950);
+
     await page.reload();
-    await expect(page.getByRole("button", { name: "展开文档索引" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "仅预览" })).toBeChecked();
+    await expect(page.getByRole("complementary", { name: "文档检查器" })).toBeVisible();
+
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByText("文档：分栏", { exact: true }).click();
+    await expect(page.getByRole("radio", { name: "分栏" })).toBeChecked();
+    await expect(page.getByRole("region", { name: "文档索引" })).toBeVisible();
   });
 
   test("文档切换与新建文档 Enter 使用同一校验", async ({ page }) => {
@@ -73,21 +88,27 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
   });
 
-  test("临时参数、计算结果和展开图表预览可用", async ({ page }) => {
+  test("检查器自动派生结果、图表与公式且不提供参数填写", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
     await page.getByRole("tab", { name: "预览", exact: true }).click();
-    await page.getByRole("textbox", { name: "临时参数" }).fill("暴击率=25%，");
-    await page.getByRole("button", { name: "计算结果" }).click();
-    await expect(page.locator(".document-result-preview")).toContainText("2,750");
+    await expect(page.getByRole("textbox", { name: "临时参数" })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "参数方案" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "计算结果" })).toHaveCount(0);
+    await expect(page.locator(".document-result-preview")).toContainText("2,420");
 
     await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
-    await page.getByRole("button", { name: "生成图表" }).click();
+    await expect(page.getByRole("button", { name: "生成图表" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "展开预览" })).toBeVisible();
     await expect(page.locator(".document-chart-preview .canvas-data-fallback summary")).toContainText("使用键盘查看");
     await page.getByRole("button", { name: "展开预览" }).click();
     await expect(page.getByRole("dialog", { name: "展开图表预览" })).toBeVisible();
     await page.locator(".mantine-Modal-close").click();
+
+    await page.getByRole("tab", { name: "公式", exact: true }).click();
+    await expect(page.getByRole("spinbutton", { name: "超时" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "解释公式" })).toHaveCount(0);
+    await expect(page.locator(".formula-result")).toContainText("2200*combo.crit + 2200");
   });
 
   test("诊断项跳转到编辑器中的错误位置", async ({ page }) => {

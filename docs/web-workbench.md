@@ -21,7 +21,7 @@ Artifact paths stay inside the workspace by default and existing files are not o
 
 ## Text-first interaction
 
-Temporary parameter overrides are text, not a generated form. Authors may use canonical qualified names, an unambiguous short name, or a display label; exact percentages such as `25%` are normalized before evaluation. The first calculation has one baseline variant. Additional variants are created only when the author requests comparison.
+The document inspector is read-only: Preview and Formula derive automatically from the current valid draft and its source-declared defaults. Output and Result/Chart selectors choose which projection to inspect; they do not supply calculation parameters or modify source. Temporary parameter trials are not exposed in the inspector. Explicit export controls remain separate because paths, overwrite, and workspace-boundary expansion require an intentional author action.
 
 Diagnostics live beside the document editor rather than in a duplicate top-level page. They retain stable codes and source locations, add Chinese author-facing explanations, and navigate back to the failing document and position. Formula expansion appears in the same document context.
 
@@ -32,7 +32,7 @@ CodeMirror has an explicit accessible name and visible focus outline. Canvas rel
 The workbench uses one explicit grid hierarchy rather than stacking framework offsets and percentage split panes:
 
 - the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 64 px compact state, and the author choice is remembered locally;
-- the document view is a three-track grid: a collapsible 216–272 px source index, a flexible editor, and a collapsible 280–360 px inspector; panel choices are remembered locally;
+- the document view is a three-track grid with a 216–272 px source index, a flexible editor, and a 280–360 px inspector; the header switches between Editor Only, Split, and Preview Only focus modes, and remembers the author's choice locally;
 - page-level tools use twelve-part proportions, including 9/3 for the relationship graph and 4/8 for run history;
 - adjacent workbench tracks share a single 1 px divider and never add their own outer margins.
 

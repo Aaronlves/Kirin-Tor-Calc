@@ -20,7 +20,7 @@ at the root of `dist/`. That layout matches the local Python server's existing
 without changing the user-facing `kt web` command.
 
 The Playwright suite builds the current frontend, serves it against a disposable copy of the
-fictional example workspace, and covers document switching, completion insertion, preview inputs
-and results, chart expansion, diagnostic navigation, responsive panel state, keyboard graph
-navigation, creation validation, and external-change recovery. It never writes to the example
-workspace itself.
+fictional example workspace, and covers document switching, completion insertion, read-only
+automatic result, chart, and formula projections, chart expansion, diagnostic navigation,
+persisted document focus modes, keyboard graph navigation, creation validation, and external-change
+recovery. It never writes to the example workspace itself.

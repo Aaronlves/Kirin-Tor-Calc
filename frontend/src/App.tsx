@@ -1,10 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Drawer } from "@mantine/core";
 
 import { LoadingState } from "./components/ui";
 import { WorkspaceShell } from "./components/WorkspaceShell";
 import { useWorkbench } from "./hooks/useWorkbench";
-import type { ViewId, WorkspaceTool } from "./types";
+import type { DocumentFocusMode, ViewId, WorkspaceTool } from "./types";
 
 const DocumentsView = lazy(() => import("./views/DocumentsView").then((module) => ({ default: module.DocumentsView })));
 const GraphView = lazy(() => import("./views/GraphView").then((module) => ({ default: module.GraphView })));
@@ -15,6 +15,14 @@ export function App() {
   const controller = useWorkbench();
   const [activeView, setActiveView] = useState<ViewId>("documents");
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
+  const [documentFocusMode, setDocumentFocusMode] = useState<DocumentFocusMode>(() => {
+    const stored = localStorage.getItem("kirin:document-focus-mode");
+    return stored === "editor" || stored === "preview" ? stored : "split";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("kirin:document-focus-mode", documentFocusMode);
+  }, [documentFocusMode]);
 
   const navigateToSource = async (path: string, line?: number | null, column?: number | null) => {
     const document = controller.documents.find((item) => path === item.path || path.endsWith(item.path));
@@ -28,9 +36,16 @@ export function App() {
 
   return (
     <>
-      <WorkspaceShell activeView={activeView} onViewChange={setActiveView} onOpenTool={setWorkspaceTool} controller={controller}>
+      <WorkspaceShell
+        activeView={activeView}
+        documentFocusMode={documentFocusMode}
+        onDocumentFocusModeChange={setDocumentFocusMode}
+        onViewChange={setActiveView}
+        onOpenTool={setWorkspaceTool}
+        controller={controller}
+      >
         <Suspense fallback={<LoadingState label="正在打开工作区工具…" />}>
-          {activeView === "documents" && <DocumentsView controller={controller} />}
+          {activeView === "documents" && <DocumentsView controller={controller} focusMode={documentFocusMode} />}
           {activeView === "graph" && <GraphView controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
         </Suspense>
       </WorkspaceShell>

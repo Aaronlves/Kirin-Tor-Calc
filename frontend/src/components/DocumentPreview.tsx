@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Box, Button, Checkbox, Code, Group, Modal, ScrollArea, SegmentedControl, Select, SimpleGrid, Stack, Text, Textarea, TextInput } from "@mantine/core";
-import { FileOutput, Maximize2, Play, Save } from "lucide-react";
+import { Badge, Box, Button, Checkbox, Code, Group, Modal, ScrollArea, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
+import { FileOutput, Maximize2, Save } from "lucide-react";
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { DocumentItem, OperationResult } from "../types";
 import { ChartCanvas } from "./ChartCanvas";
-import { EmptyState, TechnicalResult } from "./ui";
+import { EmptyState, LoadingState, TechnicalResult } from "./ui";
 
 function documentId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
@@ -27,8 +27,6 @@ export function DocumentPreview({ controller, document, source }: { controller: 
   const hasChart = Boolean(entryId && controller.workspaceIndex.charts.some((item) => item.value === entryId));
   const [mode, setMode] = useState<"result" | "chart">("result");
   const [target, setTarget] = useState<string | null>(entryTargets[0]?.value ?? null);
-  const [preset, setPreset] = useState<string | null>(null);
-  const [overrides, setOverrides] = useState("");
   const [result, setResult] = useState<OperationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -46,8 +44,6 @@ export function DocumentPreview({ controller, document, source }: { controller: 
     modeWasChosen.current = false;
     setTarget(entryTargets[0]?.value ?? null);
     setMode(entryTargets.length ? "result" : "chart");
-    setPreset(null);
-    setOverrides("");
     setResult(null);
     setError(null);
     setExportResult(null);
@@ -75,23 +71,44 @@ export function DocumentPreview({ controller, document, source }: { controller: 
 
   const selectedTarget = entryTargets.find((item) => item.value === target);
   const relevantInputs = controller.workspaceIndex.inputs.filter((input) => selectedTarget?.inputs?.includes(input.value));
-  const presetOptions = controller.workspaceIndex.presets.map((item) => ({ value: item.value, label: item.label }));
 
-  const preview = async () => {
-    if (!entryId) return;
+  useEffect(() => {
+    const canPreview = Boolean(
+      entryId
+      && controller.validation?.status === "ok"
+      && (mode === "chart" ? hasChart : target),
+    );
+    if (!canPreview) {
+      setRunning(false);
+      return;
+    }
+
+    let active = true;
     setRunning(true);
     setError(null);
-    try {
-      setResult(mode === "chart"
-        ? await controller.operation("preview_plot", { config: entryId, preset: preset || null, overrides, precision: 30, display_digits: 12, timeout: 10 })
-        : await controller.operation("eval", { target, preset: preset || null, overrides, precision: 30, display_digits: 12, timeout: 10 }));
-    } catch (caught) {
-      setError(errorMessage(caught));
-      setResult(null);
-    } finally {
-      setRunning(false);
-    }
-  };
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const nextResult = mode === "chart"
+            ? await controller.operation("preview_plot", { config: entryId, precision: 30, display_digits: 12, timeout: 10 })
+            : await controller.operation("eval", { target, precision: 30, display_digits: 12, timeout: 10 });
+          if (active) setResult(nextResult);
+        } catch (caught) {
+          if (active) {
+            setError(errorMessage(caught));
+            setResult(null);
+          }
+        } finally {
+          if (active) setRunning(false);
+        }
+      })();
+    }, 650);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [controller.operation, controller.validation?.status, entryId, hasChart, mode, source, target]);
 
   const exportChart = async () => {
     if (!entryId) return;
@@ -114,16 +131,14 @@ export function DocumentPreview({ controller, document, source }: { controller: 
     <>
       <ScrollArea h="100%" type="auto">
         <Stack p="md" gap="md">
-          <Box><Text className="result-label">DOCUMENT PROJECTION</Text><Text fw={650} fz="sm" mt={4}>{entryId}</Text><Text c="dimmed" fz="xs" mt={3}>从当前源码草稿即时派生，不会写回临时参数。</Text></Box>
+          <Box><Text className="result-label">DOCUMENT PROJECTION</Text><Text fw={650} fz="sm" mt={4}>{entryId}</Text><Text c="dimmed" fz="xs" mt={3}>从当前源码草稿和源码默认值即时派生，不接受临时参数。</Text></Box>
           {entryTargets.length > 0 && hasChart && <SegmentedControl fullWidth size="xs" value={mode} onChange={(value) => { modeWasChosen.current = true; setMode(value as "result" | "chart"); setResult(null); }} data={[{ value: "result", label: "结果" }, { value: "chart", label: "图表" }]} />}
-          {mode === "result" && entryTargets.length > 0 && <Select label="结果输出" searchable value={target} onChange={(value) => { setTarget(value); setResult(null); }} data={entryTargets.map((item) => ({ value: item.value, label: `${item.group_label ? `${item.group_label} / ` : ""}${item.label}` }))} />}
-          <Select label="参数方案" clearable searchable placeholder="源码默认值" value={preset} onChange={(value) => { setPreset(value); setResult(null); setError(null); }} data={presetOptions} />
-          <Textarea label="临时参数" description="只覆盖本次投影，不构成文档权威。" placeholder={"暴击率=25%\n天赋=true"} autosize minRows={3} maxRows={7} value={overrides} onChange={(event) => { setOverrides(event.currentTarget.value); setResult(null); setError(null); }} />
+          {mode === "result" && entryTargets.length > 1 && <Select label="查看结果" searchable value={target} onChange={(value) => { setTarget(value); setResult(null); }} data={entryTargets.map((item) => ({ value: item.value, label: `${item.group_label ? `${item.group_label} / ` : ""}${item.label}` }))} />}
           {mode === "result" && relevantInputs.length > 0 && <Box className="preview-inputs"><Text className="result-label">相关输入</Text>{relevantInputs.map((input) => <Group key={input.value} justify="space-between" wrap="nowrap" mt={7}><span><strong>{input.label}</strong><small>{input.value}</small></span><Code>{String(input.default ?? "—")}</Code></Group>)}</Box>}
-          <Group grow><Button leftSection={<Play size={14} />} loading={running} disabled={mode === "result" && !target} onClick={() => { void preview(); }}>{mode === "chart" ? "生成图表" : "计算结果"}</Button>{mode === "chart" && <Button variant="default" leftSection={<FileOutput size={14} />} onClick={() => setExportOpened(true)}>导出</Button>}</Group>
+          {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
           {result && mode === "result" && <Stack gap="md" className="document-result-preview"><Box><Text className="result-label">{selectedTarget?.label || target}</Text><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
-          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
+          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}><Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
           {exportResult && <Box className="export-success"><Save size={16} /><span><strong>图表已导出</strong><small>{String(exportResult.out || "已使用文档声明的输出路径")}</small></span></Box>}
         </Stack>
       </ScrollArea>

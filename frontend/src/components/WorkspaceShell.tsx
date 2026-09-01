@@ -9,6 +9,7 @@ import {
   Menu,
   NavLink,
   ScrollArea,
+  SegmentedControl,
   Stack,
   Text,
   Tooltip,
@@ -18,7 +19,9 @@ import {
   Box as PackageIcon,
   Check,
   CircleAlert,
+  Columns3,
   Command,
+  Eye,
   FileCode2,
   History,
   Network,
@@ -28,7 +31,7 @@ import {
   Search,
 } from "lucide-react";
 
-import type { ViewId, WorkspaceTool } from "../types";
+import type { DocumentFocusMode, ViewId, WorkspaceTool } from "../types";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 
 const viewMetadata: Record<ViewId, { title: string; eyebrow: string; description: string }> = {
@@ -60,6 +63,8 @@ const navigationGroups: Array<{
 interface WorkspaceShellProps {
   activeView: ViewId;
   controller: WorkbenchController;
+  documentFocusMode: DocumentFocusMode;
+  onDocumentFocusModeChange(mode: DocumentFocusMode): void;
   onViewChange(view: ViewId): void;
   onOpenTool(tool: WorkspaceTool): void;
   children: ReactNode;
@@ -71,7 +76,7 @@ function workspaceName(path?: string): string {
   return parts.at(-1) || path;
 }
 
-export function WorkspaceShell({ activeView, controller, onViewChange, onOpenTool, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ activeView, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, children }: WorkspaceShellProps) {
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
     return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
@@ -117,6 +122,30 @@ export function WorkspaceShell({ activeView, controller, onViewChange, onOpenToo
       };
     })),
     {
+      id: "document-focus-editor",
+      label: "文档：仅编辑",
+      description: "隐藏文档索引和检查器，将空间完整交给源码编辑器",
+      leftSection: <FileCode2 size={17} strokeWidth={1.7} />,
+      onClick: () => { onViewChange("documents"); onDocumentFocusModeChange("editor"); },
+      keywords: ["focus", "editor", "专注", "编辑"],
+    },
+    {
+      id: "document-focus-split",
+      label: "文档：分栏",
+      description: "同时显示文档索引、源码编辑器和检查器",
+      leftSection: <Columns3 size={17} strokeWidth={1.7} />,
+      onClick: () => { onViewChange("documents"); onDocumentFocusModeChange("split"); },
+      keywords: ["focus", "split", "分栏"],
+    },
+    {
+      id: "document-focus-preview",
+      label: "文档：仅预览",
+      description: "隐藏文档索引和源码编辑器，将空间完整交给检查器",
+      leftSection: <Eye size={17} strokeWidth={1.7} />,
+      onClick: () => { onViewChange("documents"); onDocumentFocusModeChange("preview"); },
+      keywords: ["focus", "preview", "专注", "预览"],
+    },
+    {
       id: "open-runs",
       label: "打开运行记录",
       description: "检查并重放带定义快照的不可变计算记录",
@@ -148,7 +177,7 @@ export function WorkspaceShell({ activeView, controller, onViewChange, onOpenToo
       onClick: () => { void controller.saveAll(); },
       keywords: ["save", "保存"],
     },
-  ], [controller, onOpenTool, onViewChange]);
+  ], [controller, onDocumentFocusModeChange, onOpenTool, onViewChange]);
 
   return (
     <>
@@ -185,6 +214,18 @@ export function WorkspaceShell({ activeView, controller, onViewChange, onOpenToo
               </Box>
             </Group>
             <Group gap="xs" wrap="nowrap" className="header-actions">
+              {activeView === "documents" && <SegmentedControl
+                className="document-focus-switch"
+                size="xs"
+                aria-label="文档专注模式"
+                value={documentFocusMode}
+                onChange={(value) => onDocumentFocusModeChange(value as DocumentFocusMode)}
+                data={[
+                  { value: "editor", label: "仅编辑" },
+                  { value: "split", label: "分栏" },
+                  { value: "preview", label: "仅预览" },
+                ]}
+              />}
               <Button
                 variant="default"
                 size="xs"

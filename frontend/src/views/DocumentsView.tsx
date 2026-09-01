@@ -10,7 +10,6 @@ import {
   Group,
   Menu,
   Modal,
-  NumberInput,
   ScrollArea,
   Select,
   Stack,
@@ -35,10 +34,6 @@ import {
   MoreHorizontal,
   Network,
   PackageOpen,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Save,
   Search,
   Trash2,
@@ -46,7 +41,7 @@ import {
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
-import type { DiagnosticItem, DocumentItem, OperationResult, TemplateItem } from "../types";
+import type { DiagnosticItem, DocumentFocusMode, DocumentItem, OperationResult, TemplateItem } from "../types";
 import { CodeEditor, type CodeEditorHandle } from "../components/CodeEditor";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentRelationshipPreview } from "../components/DocumentRelationshipPreview";
@@ -54,6 +49,7 @@ import { EmptyState, LoadingState, TechnicalResult } from "../components/ui";
 
 interface DocumentsViewProps {
   controller: WorkbenchController;
+  focusMode: DocumentFocusMode;
 }
 
 function diagnosticPath(item: DiagnosticItem, workspace?: string): string {
@@ -77,7 +73,7 @@ function sourceEntryId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
 }
 
-export function DocumentsView({ controller }: DocumentsViewProps) {
+export function DocumentsView({ controller, focusMode }: DocumentsViewProps) {
   const [filter, setFilter] = useState("");
   const [newDocumentOpened, setNewDocumentOpened] = useState(false);
   const [templateDrawerOpened, setTemplateDrawerOpened] = useState(false);
@@ -89,15 +85,9 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   const [creating, setCreating] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<string | null>("preview");
   const [explainTarget, setExplainTarget] = useState<string | null>(null);
-  const [explainTimeout, setExplainTimeout] = useState(10);
   const [explainResult, setExplainResult] = useState<OperationResult | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [pendingLocation, setPendingLocation] = useState<{ line?: number; column?: number } | null>(null);
-  const [explorerCollapsed, setExplorerCollapsed] = useState(() => localStorage.getItem("kirin:explorer-collapsed") === "true");
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => {
-    const stored = localStorage.getItem("kirin:inspector-collapsed");
-    return stored === null ? window.matchMedia("(max-width: 1180px)").matches : stored === "true";
-  });
   const [conflictOpened, setConflictOpened] = useState(false);
   const editorRef = useRef<CodeEditorHandle>(null);
 
@@ -117,14 +107,6 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
 
   useEffect(() => {
-    localStorage.setItem("kirin:explorer-collapsed", String(explorerCollapsed));
-  }, [explorerCollapsed]);
-
-  useEffect(() => {
-    localStorage.setItem("kirin:inspector-collapsed", String(inspectorCollapsed));
-  }, [inspectorCollapsed]);
-
-  useEffect(() => {
     if (controller.externalConflict) setConflictOpened(true);
   }, [controller.externalConflict]);
 
@@ -141,8 +123,33 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   }, [current?.key, currentExplainTargetSignature]);
 
   useEffect(() => {
+    if (inspectorTab !== "formula" || !explainTarget || controller.validation?.status !== "ok") {
+      setExplaining(false);
+      setExplainResult(null);
+      return;
+    }
+
+    let active = true;
+    setExplaining(true);
     setExplainResult(null);
-  }, [currentText]);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await controller.operation("explain", { target: explainTarget });
+          if (active) setExplainResult(result);
+        } catch {
+          if (active) setExplainResult(null);
+        } finally {
+          if (active) setExplaining(false);
+        }
+      })();
+    }, 650);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [controller.operation, controller.validation?.status, currentText, explainTarget, inspectorTab]);
 
   useEffect(() => {
     if (!pendingLocation || !current) return;
@@ -239,26 +246,14 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
     }
   };
 
-  const handleExplain = async () => {
-    if (!explainTarget) return;
-    setExplaining(true);
-    try {
-      setExplainResult(await controller.operation("explain", { target: explainTarget, timeout: explainTimeout }));
-    } catch {
-      setExplainResult(null);
-    } finally {
-      setExplaining(false);
-    }
-  };
-
   if (!controller.bootstrapData && controller.asyncState === "connecting") {
     return <LoadingState label="正在读取工作区…" />;
   }
 
   return (
     <>
-      <div className={`documents-workspace${explorerCollapsed ? " is-explorer-collapsed" : ""}${inspectorCollapsed ? " is-inspector-collapsed" : ""}`} id="documents-layout">
-        {!explorerCollapsed && <section className="workspace-panel explorer-panel" aria-label="文档索引">
+      <div className={`documents-workspace is-focus-${focusMode}`} id="documents-layout">
+        {focusMode === "split" && <section className="workspace-panel explorer-panel" aria-label="文档索引">
           <div className="panel-toolbar">
             <Group justify="space-between" wrap="nowrap">
               <Text fw={650} fz="sm">工作区文档</Text>
@@ -347,16 +342,6 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                         </ActionIcon>
                       </Tooltip>
                     )}
-                    <Tooltip label={explorerCollapsed ? "展开文档索引" : "收起文档索引"}>
-                      <ActionIcon variant="subtle" color="gray" aria-label={explorerCollapsed ? "展开文档索引" : "收起文档索引"} onClick={() => setExplorerCollapsed((value) => !value)}>
-                        {explorerCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={inspectorCollapsed ? "展开文档检查器" : "收起文档检查器"}>
-                      <ActionIcon variant="subtle" color="gray" aria-label={inspectorCollapsed ? "展开文档检查器" : "收起文档检查器"} onClick={() => setInspectorCollapsed((value) => !value)}>
-                        {inspectorCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
-                      </ActionIcon>
-                    </Tooltip>
                     <Tooltip label={`保存全部${controller.dirtyCount ? `（${controller.dirtyCount} 个草稿）` : ""} · ⌘S`}>
                       <ActionIcon
                         variant="subtle"
@@ -415,7 +400,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
           )}
         </section>
 
-        {!inspectorCollapsed && <aside className="workspace-panel inspector-panel" aria-label="文档检查器">
+        {focusMode !== "editor" && <aside className="workspace-panel inspector-panel" aria-label="文档检查器">
           <Tabs value={inspectorTab} onChange={setInspectorTab} className="inspector-tabs" keepMounted={false}>
             <Tabs.List grow>
               <Tabs.Tab value="preview" leftSection={<Eye size={13} />}>预览</Tabs.Tab>
@@ -464,8 +449,8 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                     <Text fw={650} fz="sm">公式与依赖</Text>
                     <Text c="dimmed" fz="xs" mt={3}>从当前草稿解释一个结果，不会修改源码。</Text>
                   </Box>
-                  <Select
-                    label="结果输出"
+                  {currentExplainTargets.length > 1 && <Select
+                    label="查看结果"
                     placeholder="选择一个结果"
                     searchable
                     value={explainTarget}
@@ -474,9 +459,10 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                       value: item.value,
                       label: `${item.group_label || "未分组"} / ${item.label}`,
                     }))}
-                  />
-                  <NumberInput label="超时" suffix=" 秒" min={0.1} max={300} step={0.5} value={explainTimeout} onChange={(value) => setExplainTimeout(Number(value) || 10)} />
-                  <Button onClick={() => { void handleExplain(); }} loading={explaining} disabled={!explainTarget}>解释公式</Button>
+                  />}
+                  {currentExplainTargets.length === 1 && <Box><Text className="result-label">当前结果</Text><Code>{currentExplainTargets[0].value}</Code></Box>}
+                  {currentExplainTargets.length === 0 && <EmptyState title="这个文档没有结果输出" description="定义 output 后，表达式和依赖会自动出现在这里。" />}
+                  {explaining && <LoadingState label="正在解释公式…" />}
                   {explainResult && (
                     <Stack gap="sm" className="formula-result">
                       {typeof explainResult.expression === "string" && (

@@ -1,5 +1,6 @@
 export type ViewId = "documents" | "graph";
 export type WorkspaceTool = "runs" | "packages";
+export type DocumentFocusMode = "editor" | "split" | "preview";
 
 export interface PackageReference {
   name: string;

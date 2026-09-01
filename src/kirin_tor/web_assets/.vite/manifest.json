@@ -1,13 +1,21 @@
 {
-  "_RelationshipGraphCanvas-BO8bT67k.js": {
-    "file": "RelationshipGraphCanvas-BO8bT67k.js",
+  "_Checkbox-D-Lo5Bnx.js": {
+    "file": "Checkbox-D-Lo5Bnx.js",
+    "name": "Checkbox",
+    "imports": [
+      "_get-auto-contrast-value-BTPwFOS2.js",
+      "index.html"
+    ]
+  },
+  "_RelationshipGraphCanvas-DL0xH71N.js": {
+    "file": "RelationshipGraphCanvas-DL0xH71N.js",
     "name": "RelationshipGraphCanvas",
     "imports": [
       "index.html"
     ]
   },
-  "_Title-B4KNw5Jt.js": {
-    "file": "Title-B4KNw5Jt.js",
+  "_Title-C5lLdffU.js": {
+    "file": "Title-C5lLdffU.js",
     "name": "Title",
     "imports": [
       "index.html"
@@ -17,23 +25,15 @@
     "file": "get-auto-contrast-value-BTPwFOS2.js",
     "name": "get-auto-contrast-value"
   },
-  "_play-C1nr2uRB.js": {
-    "file": "play-C1nr2uRB.js",
-    "name": "play",
-    "imports": [
-      "_get-auto-contrast-value-BTPwFOS2.js",
-      "index.html"
-    ]
-  },
-  "_refresh-cw-DOgW3L5g.js": {
-    "file": "refresh-cw-DOgW3L5g.js",
+  "_refresh-cw-BKQrzcAh.js": {
+    "file": "refresh-cw-BKQrzcAh.js",
     "name": "refresh-cw",
     "imports": [
       "index.html"
     ]
   },
-  "_trash-2-CBu0Zvn-.js": {
-    "file": "trash-2-CBu0Zvn-.js",
+  "_trash-2-BqRsIDzE.js": {
+    "file": "trash-2-BqRsIDzE.js",
     "name": "trash-2",
     "imports": [
       "_get-auto-contrast-value-BTPwFOS2.js",
@@ -41,7 +41,7 @@
     ]
   },
   "index.html": {
-    "file": "index-CLvozdzN.js",
+    "file": "index-B_uEMgCv.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -52,55 +52,55 @@
       "src/views/PackagesView.tsx"
     ],
     "css": [
-      "index-Bsc2-CAA.css"
+      "index-DbLhXlFP.css"
     ]
   },
   "src/views/DocumentsView.tsx": {
-    "file": "DocumentsView-Cse-uryc.js",
+    "file": "DocumentsView-CxcGIlxV.js",
     "name": "DocumentsView",
     "src": "src/views/DocumentsView.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_trash-2-CBu0Zvn-.js",
-      "_RelationshipGraphCanvas-BO8bT67k.js",
-      "_refresh-cw-DOgW3L5g.js",
-      "_play-C1nr2uRB.js",
-      "index.html"
+      "_trash-2-BqRsIDzE.js",
+      "_refresh-cw-BKQrzcAh.js",
+      "_Checkbox-D-Lo5Bnx.js",
+      "index.html",
+      "_RelationshipGraphCanvas-DL0xH71N.js"
     ]
   },
   "src/views/GraphView.tsx": {
-    "file": "GraphView-DSNfcbvv.js",
+    "file": "GraphView-CxHqkAXB.js",
     "name": "GraphView",
     "src": "src/views/GraphView.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_RelationshipGraphCanvas-BO8bT67k.js",
-      "_refresh-cw-DOgW3L5g.js",
-      "_Title-B4KNw5Jt.js",
-      "index.html"
+      "_refresh-cw-BKQrzcAh.js",
+      "_Title-C5lLdffU.js",
+      "index.html",
+      "_RelationshipGraphCanvas-DL0xH71N.js"
     ]
   },
   "src/views/PackagesView.tsx": {
-    "file": "PackagesView-Bq1n7fK_.js",
+    "file": "PackagesView-DFVwzMtn.js",
     "name": "PackagesView",
     "src": "src/views/PackagesView.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_trash-2-CBu0Zvn-.js",
-      "_refresh-cw-DOgW3L5g.js",
-      "_Title-B4KNw5Jt.js",
+      "_trash-2-BqRsIDzE.js",
+      "_refresh-cw-BKQrzcAh.js",
+      "_Title-C5lLdffU.js",
       "index.html"
     ]
   },
   "src/views/RunsView.tsx": {
-    "file": "RunsView-ClgM2UY8.js",
+    "file": "RunsView-CdaUnDft.js",
     "name": "RunsView",
     "src": "src/views/RunsView.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_refresh-cw-DOgW3L5g.js",
-      "_play-C1nr2uRB.js",
-      "_Title-B4KNw5Jt.js",
+      "_refresh-cw-BKQrzcAh.js",
+      "_Checkbox-D-Lo5Bnx.js",
+      "_Title-C5lLdffU.js",
       "index.html"
     ]
   }
