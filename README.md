@@ -340,10 +340,6 @@ kt replay RUN_ID [--regenerate-artifacts] [--json]
 
 ## 示例工作区
 
-[`examples/酒仙系数表复现`](examples/%E9%85%92%E4%BB%99%E7%B3%BB%E6%95%B0%E8%A1%A8%E5%A4%8D%E7%8E%B0/README.md) 使用 Kirin 语法复现一份酒仙玩家工作簿的第 1、3、6 张表，覆盖单体伤害、防御/治疗和 1–20 目标 AOE 比较。它保留原表的版本边界，不把表内数值声明成当前官方数据。
-
-### 虚构验收示例
-
 以下验收示例使用虚构数据，不代表真实 WoW 技能：
 
 ```bash

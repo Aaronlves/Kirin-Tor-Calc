@@ -188,7 +188,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
           <Tabs value={installMode} onChange={(value) => setInstallMode(value as InstallMode)}>
             <Tabs.List grow><Tabs.Tab value="github" leftSection={<Download size={14} />}>GitHub 精确版本</Tabs.Tab><Tabs.Tab value="local" leftSection={<FolderInput size={14} />}>本地不可变快照</Tabs.Tab></Tabs.List>
           </Tabs>
-          <TextInput label="工作区别名" description="在当前工作区内引用这个 Package 的稳定名称。" placeholder="brewmaster" value={alias} onChange={(event) => setAlias(event.currentTarget.value)} />
+          <TextInput label="工作区别名" description="在当前工作区内引用这个 Package 的稳定名称。" placeholder="example" value={alias} onChange={(event) => setAlias(event.currentTarget.value)} />
           {installMode === "github" ? (
             <>
               <TextInput label="来源" placeholder="github:OWNER/REPOSITORY" value={source} onChange={(event) => setSource(event.currentTarget.value)} />

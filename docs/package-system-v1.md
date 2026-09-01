@@ -24,6 +24,12 @@ finite discrete distributions, bounded recurrences, finite analytical state mode
 general document grammar. It may also provide uncontroversial game-neutral vocabulary such
 as probability, non-negative integers, and physical time units.
 
+The application distribution contains only the current Python modules and browser assets under
+`src/kirin_tor`. Repository examples, test fixtures, and community game data are not installed.
+Wheel builds discard any older `build/lib/kirin_tor` staging tree before copying current sources,
+and CI compares every packaged `kirin_tor/` member with that source tree so deleted starters or
+obsolete modules cannot survive through a stale local build directory.
+
 Names such as damage, healing, attack power, armor, mana, rage, cooldown rules, critical-strike
 rules, character classes, skills, items, encounters, and patch data belong to community packages.
 The core gives those declarations no privileged meaning.
@@ -102,8 +108,8 @@ therefore creates a new source unless the workspace requirement is explicitly ch
 Kirin source syntax v1 uses two-part `ENTRY.MEMBER` references. To preserve that syntax while
 allowing independently authored packages, every package document ID must begin with
 `NAMESPACE_`. Every dimension, unit, and reusable domain declared by a package must also begin
-with `NAMESPACE_`. Examples for namespace `wow_brewmaster` are
-`wow_brewmaster_stagger` and `wow_brewmaster_damage_pool`.
+with `NAMESPACE_`. Examples for namespace `community_example` are
+`community_example_model` and `community_example_resource`.
 
 The package loader rejects two different resolved packages that claim the same namespace. It
 also rejects duplicate document IDs and conflicting mathematical declarations across the final
@@ -215,8 +221,9 @@ possible after the package is removed or its remote repository becomes unavailab
 New workspaces are always game-neutral and no longer accept a built-in game starter selection.
 The legacy `initial-package` workspace line remains readable for existing workspaces but has no
 runtime authority. The previously bundled WoW starter is not part of the mathematical core and is
-removed from new installations; game-specific examples must use ordinary community-package
-fixtures.
+removed from new installations. Repository examples may exercise game-mechanic capabilities, but
+they remain outside both wheel and source-distribution payloads; reusable game-specific content
+belongs in independently versioned community packages.
 
 V1 success requires local-path and GitHub packages to share one resolver, one validator, one
 lockfile, one content store, and one read-only workspace loading path. A test or successful build

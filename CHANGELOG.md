@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Prevented deleted game starters and obsolete modules from leaking out of a stale setuptools build directory; distribution CI now seeds an old layout and verifies the resulting wheel member-for-member against the current game-neutral source tree.
 - Added visible insertion-cursor, active-line, focused/unfocused text-selection states, plus live line/column and selection counts in the editor status bar.
 - Added an in-app, read-only Kirin syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.
 - Added workspace-wide search and draft-only replacement, save-before-write change review with read-only Git history, contextual syntax-reference links, and base/draft/disk three-way conflict merging.
@@ -25,8 +26,6 @@
 - Added tolerant symbol and reference indexing for incomplete drafts, hover and parameter information, definition navigation, alias-aware reference listing, validated formal-member rename, and undo history retained across document switches.
 - Added member/document dependency graphs derived only from validated expression references, including local direction/depth exploration, current-document marking, connection counts, keyboard-readable fallbacks, and source traceability.
 - Added immutable run-record provenance, definition snapshots, implementation/environment fingerprints, artifact hashes, failure replay, plot regeneration, multi-variant comparison records, and environment-drift reporting.
-- Added a Brewmaster workbook reproduction covering damage, defense/healing, and 1–20 target AOE comparisons, plus a tested game-mechanic capability audit; these examples retain their source/version boundaries and are not presented as current official game data.
-
 Breaking changes:
 
 - YAML and the Textual authoring workflow are no longer parallel authorities; `.kirin` is the only editable definition format.
