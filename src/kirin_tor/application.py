@@ -24,6 +24,10 @@ class TargetOption:
     unit: str
     is_boolean: bool
     inputs: Tuple[str, ...] = ()
+    group: Optional[str] = None
+    group_label: Optional[str] = None
+    display: str = "number"
+    digits: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -48,20 +52,18 @@ class NamedOption:
 class WorkspaceIndex:
     targets: Tuple[TargetOption, ...]
     inputs: Tuple[InputOption, ...]
-    scenarios: Tuple[NamedOption, ...]
+    presets: Tuple[NamedOption, ...]
     plots: Tuple[NamedOption, ...]
     document_ids: Tuple[str, ...]
-
 
 @dataclass(frozen=True)
 class ComparisonVariant:
     name: str
-    scenario: Optional[str] = None
+    preset: Optional[str] = None
     overrides: Mapping[str, str] = None
 
     def normalized_overrides(self) -> Mapping[str, str]:
         return dict(self.overrides or {})
-
 
 def parse_override_assignments(values: Iterable[str]) -> dict[str, str]:
     """Parse repeatable NAME=VALUE input with stable duplicate handling."""
@@ -156,9 +158,23 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                     tuple(spec.allowed_values),
                 )
             )
-        for name in sorted(entry.outputs):
+        group_by_output = {
+            output: group
+            for group in entry.groups.values()
+            for output in group.outputs
+        }
+        grouped_order = [
+            output
+            for group in entry.groups.values()
+            for output in group.outputs
+        ]
+        output_order = grouped_order + [
+            name for name in sorted(entry.outputs) if name not in group_by_output
+        ]
+        for name in output_order:
             qualified = f"{entry.id}.{name}"
             resolved = engine.resolve_target(qualified)
+            group = group_by_output.get(name)
             targets.append(
                 TargetOption(
                     qualified,
@@ -166,11 +182,15 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                     workspace.units.render(resolved.dimension),
                     resolved.is_boolean,
                     tuple(sorted(resolved.inputs)),
+                    group.qualified_id if group else None,
+                    group.label if group else None,
+                    entry.outputs[name].get("display", "number"),
+                    entry.outputs[name].get("digits"),
                 )
             )
-    scenarios = tuple(
-        NamedOption(document.id, document.name)
-        for document in sorted(workspace.scenarios.values(), key=lambda item: item.id)
+    presets = tuple(
+        NamedOption(reference, preset.label)
+        for reference, preset in sorted(workspace.presets.items())
     )
     plots = tuple(
         NamedOption(document.id, document.name)
@@ -179,7 +199,7 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
     return WorkspaceIndex(
         tuple(targets),
         tuple(inputs),
-        scenarios,
+        presets,
         plots,
         tuple(sorted(workspace.documents)),
     )
@@ -220,7 +240,7 @@ def compare_variants(
             result = evaluate(
                 Engine(workspace),
                 target,
-                scenario=variant.scenario,
+                preset=variant.preset,
                 overrides=variant.normalized_overrides(),
                 precision=precision,
                 display_digits=display_digits,
@@ -229,7 +249,7 @@ def compare_variants(
             rows.append(
                 {
                     "name": name,
-                    "scenario": variant.scenario,
+                    "preset": variant.preset,
                     "overrides": dict(variant.normalized_overrides()),
                     "status": "ok",
                     "result": result,
@@ -242,7 +262,7 @@ def compare_variants(
             rows.append(
                 {
                     "name": name,
-                    "scenario": variant.scenario,
+                    "preset": variant.preset,
                     "overrides": dict(variant.normalized_overrides()),
                     "status": "error",
                     "error": exc.as_dict(),
@@ -283,6 +303,8 @@ def compare_variants(
         "is_boolean": target_option.is_boolean,
         "precision": precision,
         "display_digits": display_digits,
+        "display_format": target_option.display,
+        "display_digits_player": target_option.digits,
         "variants": rows,
         "dependency_ids": dependency_ids,
     }
@@ -304,7 +326,7 @@ def save_comparison_run(
         "variants": [
             {
                 "name": variant.name,
-                "scenario": variant.scenario,
+                "preset": variant.preset,
                 "overrides": dict(variant.normalized_overrides()),
             }
             for variant in variants
@@ -313,7 +335,11 @@ def save_comparison_run(
         "display_digits": display_digits,
         "timeout_seconds": timeout_seconds,
     }
-    scenario_ids = [variant.scenario for variant in variants if variant.scenario]
+    preset_document_ids = {
+        workspace.get_preset(variant.preset).owner_id
+        for variant in variants
+        if variant.preset is not None
+    }
     return record_operation(
         workspace,
         run_id,
@@ -327,7 +353,7 @@ def save_comparison_run(
             display_digits=display_digits,
             timeout_seconds=timeout_seconds,
         ),
-        scenario_ids,
+        preset_document_ids,
     )
 
 
@@ -363,7 +389,7 @@ def scan_variant_comparison(
                     range_text,
                     points,
                     [target],
-                    variant.scenario,
+                    variant.preset,
                     variant.normalized_overrides(),
                     precision,
                     display_digits,
@@ -443,7 +469,7 @@ def scan_variant_comparison(
             {
                 "key": key,
                 "name": name,
-                "scenario": variant.scenario,
+                "preset": variant.preset,
                 "overrides": dict(variant.normalized_overrides()),
                 "status": "error" if error is not None else "ok",
                 "error": error,
@@ -541,7 +567,15 @@ def record_operation(
     if save_run_id:
         final_request = dict(request)
         final_request["effective_parameters"] = result.get("parameters", {})
-        document_ids = set(result.get("dependency_ids", [])) | set(extra_document_ids)
+        normalized_extra_ids = set()
+        for reference in extra_document_ids:
+            if reference in workspace.documents:
+                normalized_extra_ids.add(reference)
+                continue
+            preset = workspace.get_preset(reference)
+            if preset is not None:
+                normalized_extra_ids.add(preset.owner_id)
+        document_ids = set(result.get("dependency_ids", [])) | normalized_extra_ids
         path = save_run(
             workspace,
             save_run_id,

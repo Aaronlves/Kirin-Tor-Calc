@@ -8,12 +8,11 @@
 
 ---
 复现工作簿第 3 张表的防御、治疗和减伤公式。
-expected_dodge 的默认值来自原工作簿第 4 张表 H2，因为第 3 张表 N3 明确引用该单元格。
+第 3 张表 N3 对第 4 张表 H2 的引用由 dodge_expectation 动态计算。
 ---
 
 sources:
-  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第3张表 防御表，A1:U32"}
-  {"kind":"workbook_dependency","citation":"同一工作簿第4张表 总躲闪率计算表，H2"}
+  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第3张表 防御表，A1:U32","game_version":"12.0.1.65617","verified_at":"2026-09-01"}
 
 inputs:
   armor_constant "内容护甲常数": number[armor] = 4531.0301 in 0..*
@@ -25,7 +24,6 @@ inputs:
   miss_rate "未命中率": probability = 0.02
   night_elf "暗夜精灵": boolean = false
   parry_rate "招架率": probability = 0.03
-  expected_dodge "期望躲闪率": probability = 0.5132063480754253
   crit_rating "暴击绿字": nonnegative = 1091
 
   save_them_all "普渡众生": boolean = true
@@ -120,7 +118,8 @@ outputs:
     (1 - damage_table.versatility / 2)
   expected_physical_reduction "期望物理减免": dimensionless =
     1 - (1 - base_physical_reduction) *
-    (1 - expected_dodge - parry_rate - miss_rate - if_else(night_elf, 0.02, 0))
+    (1 - dodge_expectation.expected_dodge - parry_rate - miss_rate -
+    if_else(night_elf, 0.02, 0))
 
   expel_harm_coefficient "移花接木治疗系数": dimensionless =
     expel_harm_initial * healing_taken_multiplier * healing_done_multiplier *
@@ -206,3 +205,70 @@ outputs:
     (1 + damage_table.versatility) * (1 + crit_rate * 0.70),
     0
     )
+
+groups:
+  mitigation "减伤与躲闪":
+    stagger_absorption
+    armor_reduction
+    base_dodge
+    ramping_dodge
+    base_physical_reduction
+    base_magical_reduction
+    expected_physical_reduction
+
+  healing_absorb "治疗与吸收":
+    expel_harm_healing
+    vivify_healing
+    silent_sanctuary_healing
+    healing_sphere_healing
+    refreshing_drink_healing
+    harmonic_surge_healing
+    celestial_brew_absorb
+    celestial_infusion_absorb
+    awakening_spirit_healing
+    mantra_of_purity_healing
+    mantra_of_tenacity_healing
+
+  coefficients "治疗与吸收系数":
+    expel_harm_coefficient
+    vivify_coefficient
+    silent_sanctuary_coefficient
+    healing_sphere_coefficient
+    refreshing_drink_coefficient
+    harmonic_surge_healing_coefficient
+    celestial_brew_coefficient
+    celestial_infusion_coefficient
+    awakening_spirit_coefficient
+    mantra_of_purity_coefficient
+    mantra_of_tenacity_coefficient
+
+display:
+  stagger_absorption: percent digits 2
+  armor_reduction: percent digits 2
+  base_dodge: percent digits 2
+  ramping_dodge: percent digits 2
+  base_physical_reduction: percent digits 2
+  base_magical_reduction: percent digits 2
+  expected_physical_reduction: percent digits 2
+  expel_harm_healing: integer
+  vivify_healing: integer
+  silent_sanctuary_healing: integer
+  healing_sphere_healing: integer
+  refreshing_drink_healing: integer
+  harmonic_surge_healing: integer
+  celestial_brew_absorb: integer
+  celestial_infusion_absorb: integer
+  awakening_spirit_healing: integer
+  mantra_of_purity_healing: integer
+  mantra_of_tenacity_healing: integer
+  expel_harm_coefficient: coefficient_percent digits 2
+  vivify_coefficient: coefficient_percent digits 2
+  silent_sanctuary_coefficient: coefficient_percent digits 2
+  healing_sphere_coefficient: coefficient_percent digits 2
+  refreshing_drink_coefficient: coefficient_percent digits 2
+  harmonic_surge_healing_coefficient: coefficient_percent digits 2
+  celestial_brew_coefficient: coefficient_percent digits 2
+  celestial_infusion_coefficient: coefficient_percent digits 2
+  awakening_spirit_coefficient: coefficient_percent digits 2
+  mantra_of_purity_coefficient: coefficient_percent digits 2
+  mantra_of_tenacity_coefficient: coefficient_percent digits 2

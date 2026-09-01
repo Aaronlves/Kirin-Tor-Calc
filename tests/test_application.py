@@ -16,7 +16,9 @@ from kirin_tor.workspace import Workspace, build_document_draft, create_entry_te
 def test_cli_and_tui_share_one_document_draft_builder(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     workspace = Workspace.load(root)
-    expected = build_document_draft(root, "model", "shared_model")
+    expected = build_document_draft(
+        root, "entry", "shared_model", entry_template="model"
+    )
 
     created = create_entry_template(workspace, "model", "shared_model")
 
@@ -40,7 +42,7 @@ def test_player_override_text_and_workspace_index(example_workspace: Path) -> No
         for item in index.targets
     )
     assert any(item.value == "combo.crit" and item.label == "暴击率" for item in index.inputs)
-    assert any(item.value == "baseline" for item in index.scenarios)
+    assert any(item.value == "presets.baseline" for item in index.presets)
     assert parse_player_override_text("暴击率=25%", index.inputs) == {"combo.crit": "1/4"}
 
 
@@ -66,7 +68,7 @@ def test_comparison_keeps_one_workspace_revision_and_reports_differences(
     assert result["variants"][2]["error"]["code"] == "parameter_error"
 
 
-def test_variant_chart_scans_player_scenarios_on_one_axis(example_workspace: Path) -> None:
+def test_variant_chart_scans_player_presets_on_one_axis(example_workspace: Path) -> None:
     result = scan_variant_comparison(
         Workspace.load(example_workspace),
         "aoe_pattern.targets",

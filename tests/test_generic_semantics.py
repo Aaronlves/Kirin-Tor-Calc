@@ -4,10 +4,100 @@ from pathlib import Path
 
 import pytest
 
+from kirin_tor.application import record_operation
 from kirin_tor.engine import Engine
 from kirin_tor.errors import DomainError, ParameterError, SchemaError, UnitError, ValidationErrors
-from kirin_tor.operations import differentiate, evaluate, scan_values
+from kirin_tor.operations import differentiate, evaluate, scan_values, solve_equation
+from kirin_tor.records import load_run, replay
 from kirin_tor.workspace import Workspace, initialize
+
+
+def test_scaled_units_convert_exactly_across_eval_scan_and_solve(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "scaled-units")
+    (root / "entries" / "time_math.kirin").write_text(
+        """@kirin 1
+@entry time_math
+
+dimensions:
+  time
+
+units:
+  second = time
+  millisecond = 1/1000 * time
+
+inputs:
+  latency: number[millisecond] = 500 in 0..1000 integer
+
+fields:
+  base: second = 1
+
+tables:
+  latency_bonus "延迟换算": millisecond -> millisecond:
+    0 = 0
+    1000 = 500
+
+outputs:
+  total_seconds: second = base + latency
+  total_milliseconds: millisecond = base + latency
+  literal_conversion: second = 500 * millisecond
+  interpolated_milliseconds: millisecond = interpolate(latency_bonus, latency)
+""",
+        encoding="utf-8",
+    )
+    workspace = Workspace.load(root)
+    engine = Engine(workspace)
+    assert engine.validate_all()["status"] == "ok"
+    assert evaluate(engine, "time_math.total_seconds")["exact"] == "3/2"
+    assert evaluate(engine, "time_math.total_milliseconds")["exact"] == "1500"
+    assert evaluate(engine, "time_math.literal_conversion")["exact"] == "1/2"
+    assert evaluate(engine, "time_math.interpolated_milliseconds")["exact"] == "250"
+
+    scan = scan_values(
+        Engine(workspace),
+        "time_math.latency",
+        "0:1000",
+        3,
+        ["time_math.total_seconds"],
+    )
+    assert [row["x"] for row in scan["rows"]] == ["0", "500", "1000"]
+    assert [row["values"]["time_math.total_seconds"]["exact"] for row in scan["rows"]] == [
+        "1",
+        "3/2",
+        "2",
+    ]
+
+    solved = solve_equation(
+        Engine(workspace),
+        "time_math.total_seconds",
+        "time_math.latency",
+        "1.75 second",
+        "0:1000",
+    )
+    assert solved["solutions"][0]["exact"] == "750"
+
+    request = {
+        "target": "time_math.total_seconds",
+        "preset": None,
+        "overrides": {"time_math.latency": "750"},
+        "precision": 30,
+        "display_digits": 12,
+        "timeout_seconds": 10.0,
+    }
+    record_operation(
+        workspace,
+        "scaled_eval",
+        "eval",
+        request,
+        lambda: evaluate(
+            Engine(workspace),
+            "time_math.total_seconds",
+            overrides={"time_math.latency": "750"},
+        ),
+    )
+    assert load_run(root, "scaled_eval")["request"]["effective_parameters"] == {
+        "time_math.latency": "750"
+    }
+    assert replay(root, "scaled_eval")["matches_recorded_result"] is True
 
 from conftest import minimal_entry, write_kirin
 
@@ -51,23 +141,20 @@ def test_inputs_are_entry_qualified_and_short_names_must_be_unambiguous(tmp_path
     entry_a["constraints"] = ["x <= 5"]
     write_kirin(root / "entries" / "a.kirin", entry_a)
     write_kirin(root / "entries" / "b.kirin", minimal_entry("b", "x", {"x": {"default": "2"}}))
-    write_kirin(root / "entries" / "combo.kirin", minimal_entry("combo", "a.x + b.x"))
-    write_kirin(
-        root / "scenarios" / "values.kirin",
-        {
-            "schema_version": 1,
-            "id": "values",
-            "name": "values",
-            "type": "scenario",
+    combo = minimal_entry("combo", "a.x + b.x")
+    combo["presets"] = {
+        "values": {
+            "label": "values",
             "values": {"a.x": "3", "b.x": "4"},
-        },
-    )
+        }
+    }
+    write_kirin(root / "entries" / "combo.kirin", combo)
 
     workspace = Workspace.load(root)
     assert Engine(workspace).validate_all()["status"] == "ok"
     assert evaluate(Engine(workspace), "a.result")["exact"] == "1"
     assert evaluate(Engine(workspace), "b.result")["exact"] == "2"
-    assert evaluate(Engine(workspace), "combo.result", "values")["exact"] == "7"
+    assert evaluate(Engine(workspace), "combo.result", "combo.values")["exact"] == "7"
     with pytest.raises(ParameterError, match="ambiguous"):
         evaluate(Engine(workspace), "combo.result", overrides={"x": "9"})
     with pytest.raises(DomainError, match="domain condition failed"):

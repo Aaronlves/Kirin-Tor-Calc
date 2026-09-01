@@ -17,7 +17,7 @@ runner = make_cli_runner()
 
 def test_cli_json_stdout_exit_codes_and_stderr(example_workspace: Path, monkeypatch) -> None:
     monkeypatch.chdir(example_workspace)
-    success = runner.invoke(app, ["eval", "combo.total", "--scenario", "baseline", "--json"])
+    success = runner.invoke(app, ["eval", "combo.total", "--preset", "baseline", "--json"])
     assert success.exit_code == 0, success.output
     payload = json.loads(success.stdout)
     assert payload["exact"] == "2750"
@@ -48,19 +48,36 @@ def test_cli_help_new_check_and_chinese_paths(tmp_path: Path, monkeypatch) -> No
     initialized = runner.invoke(app, ["init", str(outside)])
     assert initialized.exit_code == 0, initialized.output
     monkeypatch.chdir(outside)
-    created = runner.invoke(app, ["new", "skill", "fictional_skill"])
+    created = runner.invoke(
+        app, ["new", "entry", "fictional_skill", "--template", "data"]
+    )
     assert created.exit_code == 0, created.output
     created_path = outside / "entries" / "fictional_skill.kirin"
     assert created_path.is_file()
     created_document = Workspace.load(outside).get_entry("fictional_skill")
     assert created_document.type == "entry"
-    assert created_document.template == "skill"
+    assert created_document.template == "data"
     checked = runner.invoke(app, ["check", "--json"])
     assert checked.exit_code == 0, checked.output
     assert json.loads(checked.stdout)["status"] == "ok"
     help_result = runner.invoke(app, ["--help"])
     assert help_result.exit_code == 0
     assert "Kirin Tor" in help_result.stdout
+
+
+def test_tui_command_accepts_workspace_directory_without_chdir(
+    example_workspace: Path, monkeypatch
+) -> None:
+    captured = {}
+
+    def fake_run_tui(root: Path, source) -> None:
+        captured["root"] = root
+        captured["source"] = source
+
+    monkeypatch.setattr("kirin_tor.tui.run_tui", fake_run_tui)
+    launched = runner.invoke(app, ["tui", str(example_workspace)])
+    assert launched.exit_code == 0, launched.output
+    assert captured == {"root": example_workspace.resolve(), "source": None}
 
 
 def test_installed_entry_point_runs_outside_source_tree(tmp_path: Path) -> None:
@@ -121,12 +138,17 @@ def test_new_game_neutral_templates_and_wow_data_package(tmp_path: Path, monkeyp
     monkeypatch.chdir(root)
     for kind, item_id, folder in (
         ("entry", "generic", "entries"),
-        ("scenario", "profile", "scenarios"),
         ("plot", "curve", "plots"),
     ):
         created = runner.invoke(app, ["new", kind, item_id])
         assert created.exit_code == 0, created.output
         assert (root / folder / f"{item_id}.kirin").is_file()
+    assert {path.name for path in root.iterdir() if path.is_dir()} == {
+        "entries",
+        "plots",
+        "results",
+        "runs",
+    }
 
 
 def test_check_aggregates_independent_math_errors_as_json(example_workspace: Path, monkeypatch) -> None:

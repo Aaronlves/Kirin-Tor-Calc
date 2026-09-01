@@ -284,6 +284,11 @@ class RestrictedCompiler:
                 inputs={spec.key: spec},
                 is_boolean=spec.value_type == "boolean",
             )
+        if name in self.engine.workspace.units.units:
+            return MathValue(
+                self.engine.unit_scale_expr(name),
+                self.engine.workspace.units.parse_unit(name),
+            )
         raise ExpressionError(f"undeclared variable {name!r}", self.location)
 
     def _attribute(self, node: ast.Attribute) -> MathValue:
@@ -399,13 +404,40 @@ class RestrictedCompiler:
             entry_id, function_name = self.entry.aliases[name].split(".", 1)
             args = [self._build(arg) for arg in node.args]
             return self.engine.call_function(entry_id, function_name, args)
-        if name == "sum":
-            return self._finite_sum(node)
+        if name in {"lookup", "interpolate"}:
+            return self._table_call(node, interpolate=name == "interpolate")
+        if name in {"sum", "product"}:
+            return self._finite_aggregate(node, name)
         if name in {"if_else", "piecewise"}:
             args = [self._build(arg) for arg in node.args]
             return self._piecewise(name, args)
         args = [self._build(arg) for arg in node.args]
         return self._builtin(name, args)
+
+    def _table_call(self, node: ast.Call, *, interpolate: bool) -> MathValue:
+        name = "interpolate" if interpolate else "lookup"
+        if len(node.args) != 2:
+            raise ExpressionError(f"{name} expects TABLE and KEY", self.location)
+        reference = node.args[0]
+        if isinstance(reference, ast.Name):
+            if self.entry is None:
+                raise ExpressionError(
+                    f"local table {reference.id!r} requires an entry context", self.location
+                )
+            entry_id, table_name = self.entry.id, reference.id
+        elif isinstance(reference, ast.Attribute) and isinstance(reference.value, ast.Name):
+            entry_id, table_name = reference.value.id, reference.attr
+        else:
+            raise ExpressionError(
+                f"{name} table must be a local name or ENTRY.TABLE", self.location
+            )
+        key = self._build(node.args[1])
+        return self.engine.lookup_table(
+            entry_id,
+            table_name,
+            key,
+            interpolate=interpolate,
+        )
 
     def _builtin(self, name: str, args: list[MathValue]) -> MathValue:
         allowed = {"abs", "min", "max", "sqrt", "floor", "ceil"}
@@ -485,12 +517,15 @@ class RestrictedCompiler:
         if not value.is_boolean:
             raise ExpressionError(f"{context} requires boolean operands", self.location)
 
-    def _finite_sum(self, node: ast.Call) -> MathValue:
+    def _finite_aggregate(self, node: ast.Call, operation: str) -> MathValue:
         if len(node.args) != 4:
-            raise ExpressionError("sum expects sum(expression, index, lower, upper)", self.location)
+            raise ExpressionError(
+                f"{operation} expects {operation}(expression, index, lower, upper)",
+                self.location,
+            )
         index_node = node.args[1]
         if not isinstance(index_node, ast.Name):
-            raise ExpressionError("sum index must be a plain identifier", self.location)
+            raise ExpressionError(f"{operation} index must be a plain identifier", self.location)
         index_name = index_node.id
         entry_names = set()
         if self.entry is not None:
@@ -502,19 +537,23 @@ class RestrictedCompiler:
                 | set(self.entry.aliases)
             )
         if index_name in self.local_values or index_name in entry_names:
-            raise ExpressionError(f"sum index {index_name!r} shadows a declared name", self.location)
+            raise ExpressionError(
+                f"{operation} index {index_name!r} shadows a declared name", self.location
+            )
         lower = self._build(node.args[2])
         upper = self._build(node.args[3])
-        self._require_numeric(lower, "sum lower bound")
-        self._require_numeric(upper, "sum upper bound")
-        require_same([lower.dimension, DIMENSIONLESS], "sum lower bound")
-        require_same([upper.dimension, DIMENSIONLESS], "sum upper bound")
+        self._require_numeric(lower, f"{operation} lower bound")
+        self._require_numeric(upper, f"{operation} upper bound")
+        require_same([lower.dimension, DIMENSIONLESS], f"{operation} lower bound")
+        require_same([upper.dimension, DIMENSIONLESS], f"{operation} upper bound")
         if lower.expr.free_symbols or upper.expr.free_symbols or not lower.expr.is_Integer or not upper.expr.is_Integer:
-            raise ExpressionError("sum bounds must be constant integers", self.location)
+            raise ExpressionError(f"{operation} bounds must be constant integers", self.location)
         start, end = int(lower.expr), int(upper.expr)
         terms = max(0, end - start + 1)
         if terms > MAX_SUM_TERMS:
-            raise ExpressionError(f"finite sum exceeds {MAX_SUM_TERMS} terms", self.location)
+            raise ExpressionError(
+                f"finite {operation} exceeds {MAX_SUM_TERMS} terms", self.location
+            )
         symbol = sp.Symbol(index_name, integer=True)
         nested = RestrictedCompiler(
             self.engine,
@@ -524,14 +563,25 @@ class RestrictedCompiler:
         )
         nested.source = self.source
         summand = nested._build(node.args[0])
-        self._require_numeric(summand, "sum")
-        expr = sp.Add(*(summand.expr.subs(symbol, value) for value in range(start, end + 1)))
+        self._require_numeric(summand, operation)
+        rendered_terms = [
+            summand.expr.subs(symbol, value) for value in range(start, end + 1)
+        ]
+        expr = (
+            sp.Add(*rendered_terms)
+            if operation == "sum"
+            else sp.Mul(*rendered_terms)
+        )
         conditions = [condition.subs(symbol, value) for value in range(start, end + 1) for condition in summand.conditions]
         conditions.extend(lower.conditions)
         conditions.extend(upper.conditions)
         return MathValue(
             expr,
-            summand.dimension,
+            (
+                summand.dimension
+                if operation == "sum"
+                else summand.dimension.power(Fraction(terms))
+            ),
             conditions,
             merge_inputs(summand.inputs, lower.inputs, upper.inputs),
             set(summand.dependencies) | set(lower.dependencies) | set(upper.dependencies),

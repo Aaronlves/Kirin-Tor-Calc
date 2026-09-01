@@ -68,6 +68,7 @@ class UnitRegistry:
     def __init__(self) -> None:
         self.dimensions: Dict[str, dict] = {}
         self.units: Dict[str, Dimension] = {"dimensionless": DIMENSIONLESS}
+        self.unit_scales: Dict[str, Fraction] = {"dimensionless": Fraction(1)}
         self.domains: Dict[str, DomainSpec] = {}
         self._dimension_locations: Dict[str, SourceLocation] = {}
         self._unit_locations: Dict[str, SourceLocation] = {}
@@ -86,6 +87,7 @@ class UnitRegistry:
         self,
         name: str,
         powers: Mapping[str, Fraction],
+        scale: Fraction,
         location: SourceLocation,
     ) -> None:
         unknown = set(powers) - set(self.dimensions)
@@ -95,13 +97,16 @@ class UnitRegistry:
                 location,
             )
         dimension = Dimension.from_mapping(powers)
+        if scale <= 0:
+            raise SchemaError(f"unit {name!r} scale must be positive", location)
         if name in self.units:
-            if self.units[name] != dimension:
+            if self.units[name] != dimension or self.unit_scales[name] != scale:
                 previous = self._unit_locations.get(name)
                 suffix = f" at {previous.render()}" if previous else " built into the mathematical core"
                 raise SchemaError(f"unit {name!r} conflicts with its declaration{suffix}", location)
             return
         self.units[name] = dimension
+        self.unit_scales[name] = scale
         self._unit_locations[name] = location
 
     def add_domain(self, spec: DomainSpec, location: SourceLocation) -> None:
@@ -143,8 +148,18 @@ class UnitRegistry:
             )
         return self.units[name]
 
+    def scale(self, name: str, location: Optional[SourceLocation] = None) -> Fraction:
+        self.parse_unit(name, location)
+        return self.unit_scales[name]
+
     def render(self, dimension: Dimension) -> str:
-        exact_names = sorted(name for name, value in self.units.items() if value == dimension)
+        exact_names = sorted(
+            name
+            for name, value in self.units.items()
+            if value == dimension and self.unit_scales[name] == 1
+        )
+        if not exact_names:
+            exact_names = sorted(name for name, value in self.units.items() if value == dimension)
         if exact_names:
             if "dimensionless" in exact_names:
                 return "dimensionless"

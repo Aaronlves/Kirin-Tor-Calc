@@ -12,7 +12,7 @@
 ---
 
 sources:
-  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第6张表 技能aoe总值表，A1:W64"}
+  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第6张表 技能aoe总值表，A1:W64","game_version":"12.0.1.65617","verified_at":"2026-09-01"}
 
 inputs:
   targets "目标数": target_count = 8
@@ -262,3 +262,94 @@ outputs:
   blackout_counter_tiger_palm_dpe "幻灭反击猛虎掌DPE": dimensionless =
     blackout_counter_tiger_palm_dpc_value(targets) / 25
   keg_smash_dpe "醉酿投DPE": dimensionless = keg_smash_dpc_value(targets) / 35
+
+groups:
+  aoe_totals "AOE总值":
+    tiger_palm_total
+    blackout_kick_total
+    spinning_crane_kick_total
+    keg_smash_aoe_total
+    exploding_keg_total
+    chi_burst_total
+    special_delivery_total
+    niuzao_aoe_total
+    breath_of_fire_direct_total
+    dragonfire_tick_total
+    breath_of_fire_dot_total
+    empty_keg_total
+    rushing_jade_wind_total
+    season_two_set_total
+    crackling_jade_lightning_total
+    fuel_on_the_fire_total
+    clear_the_cellar_total
+    flurry_normal_total
+    flurry_physical_total
+    high_impact_total
+    harmonic_surge_total
+
+  dpc "DPC":
+    blackout_kick_dpc
+    tiger_palm_dpc
+    counter_tiger_palm_dpc
+    blackout_tiger_palm_dpc
+    blackout_counter_tiger_palm_dpc
+    breath_of_fire_dpc
+    keg_smash_dpc
+    empty_keg_smash_dpc
+
+  burst_dpc "爆发期DPC":
+    burst_blackout_kick_dpc
+    burst_tiger_palm_dpc
+    burst_counter_tiger_palm_dpc
+    burst_blackout_tiger_palm_dpc
+    burst_blackout_counter_tiger_palm_dpc
+    burst_breath_of_fire_dpc
+    burst_keg_smash_dpc
+    burst_empty_keg_smash_dpc
+
+  dpe "DPE":
+    counter_tiger_palm_dpe
+    blackout_counter_tiger_palm_dpe
+    keg_smash_dpe
+
+display:
+  tiger_palm_total: coefficient_percent digits 2
+  blackout_kick_total: coefficient_percent digits 2
+  spinning_crane_kick_total: coefficient_percent digits 2
+  keg_smash_aoe_total: coefficient_percent digits 2
+  exploding_keg_total: coefficient_percent digits 2
+  chi_burst_total: coefficient_percent digits 2
+  special_delivery_total: coefficient_percent digits 2
+  niuzao_aoe_total: coefficient_percent digits 2
+  breath_of_fire_direct_total: coefficient_percent digits 2
+  dragonfire_tick_total: coefficient_percent digits 2
+  breath_of_fire_dot_total: coefficient_percent digits 2
+  empty_keg_total: coefficient_percent digits 2
+  rushing_jade_wind_total: coefficient_percent digits 2
+  season_two_set_total: coefficient_percent digits 2
+  crackling_jade_lightning_total: coefficient_percent digits 2
+  fuel_on_the_fire_total: coefficient_percent digits 2
+  clear_the_cellar_total: coefficient_percent digits 2
+  flurry_normal_total: coefficient_percent digits 2
+  flurry_physical_total: coefficient_percent digits 2
+  high_impact_total: coefficient_percent digits 2
+  harmonic_surge_total: coefficient_percent digits 2
+  blackout_kick_dpc: coefficient_percent digits 2
+  tiger_palm_dpc: coefficient_percent digits 2
+  counter_tiger_palm_dpc: coefficient_percent digits 2
+  blackout_tiger_palm_dpc: coefficient_percent digits 2
+  blackout_counter_tiger_palm_dpc: coefficient_percent digits 2
+  breath_of_fire_dpc: coefficient_percent digits 2
+  keg_smash_dpc: coefficient_percent digits 2
+  empty_keg_smash_dpc: coefficient_percent digits 2
+  burst_blackout_kick_dpc: coefficient_percent digits 2
+  burst_tiger_palm_dpc: coefficient_percent digits 2
+  burst_counter_tiger_palm_dpc: coefficient_percent digits 2
+  burst_blackout_tiger_palm_dpc: coefficient_percent digits 2
+  burst_blackout_counter_tiger_palm_dpc: coefficient_percent digits 2
+  burst_breath_of_fire_dpc: coefficient_percent digits 2
+  burst_keg_smash_dpc: coefficient_percent digits 2
+  burst_empty_keg_smash_dpc: coefficient_percent digits 2
+  counter_tiger_palm_dpe: coefficient_percent digits 2
+  blackout_counter_tiger_palm_dpe: coefficient_percent digits 2
+  keg_smash_dpe: coefficient_percent digits 2

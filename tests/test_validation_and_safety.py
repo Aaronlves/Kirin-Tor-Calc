@@ -21,7 +21,33 @@ from kirin_tor.errors import (
 )
 from kirin_tor.operations import evaluate, scan_values, solve_equation, transform
 from kirin_tor.timeout import run_with_timeout
-from kirin_tor.workspace import Workspace
+from kirin_tor.workspace import Workspace, initialize
+
+
+def test_mixed_game_versions_are_rejected_at_dependency_boundary(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "versions")
+    (root / "entries" / "old.kirin").write_text(
+        """@kirin 1
+@entry old
+@game-version patch-a
+
+outputs:
+  value: dimensionless = 1
+""",
+        encoding="utf-8",
+    )
+    (root / "entries" / "new.kirin").write_text(
+        """@kirin 1
+@entry new
+@game-version patch-b
+
+outputs:
+  mixed: dimensionless = old.value + 1
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="mixes incompatible game versions"):
+        Engine(Workspace.load(root)).validate_all()
 
 from conftest import load_kirin, minimal_entry, write_kirin
 
@@ -124,12 +150,14 @@ def test_restricted_parser_blocks_code_and_complexity(example_workspace: Path) -
 
 
 def test_kirin_decimal_is_exact_without_quotes(example_workspace: Path) -> None:
-    scenario_path = example_workspace / "scenarios" / "decimal.kirin"
-    scenario_path.write_text(
-        "@kirin 1\n@scenario decimal\n\nvalues:\n  combo.crit = 0.2\n",
+    preset_path = example_workspace / "entries" / "decimal_preset.kirin"
+    preset_path.write_text(
+        "@kirin 1\n@entry decimal_preset\n\npresets:\n  decimal:\n    combo.crit = 0.2\n",
         encoding="utf-8",
     )
-    result = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", "decimal")
+    result = evaluate(
+        Engine(Workspace.load(example_workspace)), "combo.total", "decimal_preset.decimal"
+    )
     assert result["exact"] == "2640"
 
 

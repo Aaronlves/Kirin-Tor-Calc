@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
 
@@ -17,10 +17,15 @@ from .application import (
     parse_player_override_text,
 )
 from .errors import KTError, WorkspaceError
-from .workspace import DOCUMENT_DRAFT_KINDS, DocumentDraft, build_document_draft
+from .workspace import (
+    DOCUMENT_DRAFT_KINDS,
+    ENTRY_TEMPLATE_KINDS,
+    DocumentDraft,
+    build_document_draft,
+)
 
 
-DEFAULT_SCENARIO = "__defaults__"
+DEFAULT_PRESET = "__defaults__"
 
 
 class VariantRow(Horizontal):
@@ -41,13 +46,16 @@ class VariantRow(Horizontal):
         width: 1fr;
         min-width: 12;
     }
-    VariantRow .variant-scenario {
+    VariantRow .variant-preset {
         width: 1fr;
         min-width: 16;
     }
     VariantRow .variant-overrides {
         width: 2fr;
         min-width: 24;
+    }
+    VariantRow .variant-form {
+        width: 12;
     }
     VariantRow .variant-remove {
         width: 8;
@@ -58,58 +66,171 @@ class VariantRow(Horizontal):
         self,
         number: int,
         name: str,
-        scenarios: Sequence[NamedOption] = (),
+        presets: Sequence[NamedOption] = (),
     ) -> None:
         super().__init__(id=f"variant-{number}", classes="variant-row")
         self.number = number
         self.initial_name = name
-        self._scenarios = tuple(scenarios)
+        self._presets = tuple(presets)
+        self.form_overrides: dict[str, str] = {}
 
-    def _scenario_options(self):
-        return [("默认参数", DEFAULT_SCENARIO)] + [
+    def _preset_options(self):
+        return [("默认参数", DEFAULT_PRESET)] + [
             (item.label if item.label != item.value else item.value, item.value)
-            for item in self._scenarios
+            for item in self._presets
         ]
 
     def compose(self) -> ComposeResult:
         yield Label(f"方案 {self.number}", classes="variant-index")
         yield Input(self.initial_name, placeholder="方案名称", classes="variant-name", compact=True)
         yield Select(
-            self._scenario_options(),
-            value=DEFAULT_SCENARIO,
+            self._preset_options(),
+            value=DEFAULT_PRESET,
             allow_blank=False,
-            classes="variant-scenario",
+            classes="variant-preset",
             compact=True,
         )
         yield Input(
-            placeholder="临时参数：暴击率=25%，用逗号分隔",
+            placeholder="高级输入：暴击率=25%，用逗号分隔",
             classes="variant-overrides",
             compact=True,
         )
+        yield Button("参数表单", classes="variant-form", compact=True)
         yield Button("移除", classes="variant-remove", compact=True)
 
-    def set_scenarios(self, scenarios: Sequence[NamedOption]) -> None:
-        self._scenarios = tuple(scenarios)
-        select = self.query_one(".variant-scenario", Select)
+    def set_presets(self, presets: Sequence[NamedOption]) -> None:
+        self._presets = tuple(presets)
+        select = self.query_one(".variant-preset", Select)
         current = select.value
-        options = self._scenario_options()
+        options = self._preset_options()
         select.set_options(options)
         values = {value for _label, value in options}
-        select.value = current if current in values else DEFAULT_SCENARIO
+        select.value = current if current in values else DEFAULT_PRESET
 
     def request(self, inputs: Sequence[InputOption] = ()) -> ComparisonVariant:
         name = self.query_one(".variant-name", Input).value.strip()
-        scenario_value = self.query_one(".variant-scenario", Select).value
-        scenario = (
+        preset_value = self.query_one(".variant-preset", Select).value
+        preset = (
             None
-            if scenario_value in {DEFAULT_SCENARIO, Select.NULL}
-            else str(scenario_value)
+            if preset_value in {DEFAULT_PRESET, Select.NULL}
+            else str(preset_value)
         )
         overrides = parse_player_override_text(
             self.query_one(".variant-overrides", Input).value,
             inputs,
         )
-        return ComparisonVariant(name, scenario, overrides)
+        duplicates = set(overrides) & set(self.form_overrides)
+        if duplicates:
+            raise WorkspaceError(
+                "参数同时出现在表单和高级输入中：" + "、".join(sorted(duplicates))
+            )
+        overrides.update(self.form_overrides)
+        return ComparisonVariant(name, preset, overrides)
+
+    def set_form_overrides(self, values: Optional[dict[str, str]]) -> None:
+        if values is None:
+            return
+        self.form_overrides = dict(values)
+        button = self.query_one(".variant-form", Button)
+        button.label = f"参数表单 {len(values)}" if values else "参数表单"
+
+
+class OverrideFormScreen(ModalScreen[Optional[dict[str, str]]]):
+    """Edit relevant inputs with type-aware controls instead of assignment syntax."""
+
+    DEFAULT_CSS = """
+    OverrideFormScreen {
+        align: center middle;
+        background: $background 70%;
+    }
+    OverrideFormScreen #override-dialog {
+        width: 76;
+        height: 80%;
+        padding: 1 2;
+        background: $panel;
+        border: tall $primary;
+    }
+    OverrideFormScreen #override-fields {
+        height: 1fr;
+    }
+    OverrideFormScreen .override-label {
+        height: auto;
+        margin-top: 1;
+        color: $text-muted;
+    }
+    OverrideFormScreen .dialog-actions {
+        height: 3;
+        align-horizontal: right;
+    }
+    """
+
+    def __init__(self, inputs: Sequence[InputOption], current: dict[str, str]) -> None:
+        super().__init__()
+        self.inputs = tuple(inputs)
+        self.current = dict(current)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="override-dialog"):
+            yield Label("临时参数表单", classes="dialog-title")
+            yield Static("留空表示使用所选参数方案或条目默认值。")
+            with VerticalScroll(id="override-fields"):
+                for index, item in enumerate(self.inputs):
+                    details = [item.value, f"单位 {item.unit}"]
+                    if item.default is not None:
+                        details.append(f"默认 {item.default}")
+                    if item.minimum is not None or item.maximum is not None:
+                        details.append(f"范围 {item.minimum or '—'}..{item.maximum or '—'}")
+                    yield Label(
+                        f"{item.label} · " + " · ".join(details),
+                        classes="override-label",
+                    )
+                    current = self.current.get(item.value, "")
+                    if item.value_type == "boolean":
+                        yield Select(
+                            [("使用默认值", "__default__"), ("开启", "true"), ("关闭", "false")],
+                            value=current.lower() if current.lower() in {"true", "false"} else "__default__",
+                            allow_blank=False,
+                            id=f"override-{index}",
+                        )
+                    else:
+                        yield Input(
+                            current,
+                            placeholder="留空使用默认值；百分比可写 25%",
+                            id=f"override-{index}",
+                        )
+            yield Static("", id="override-error")
+            with Horizontal(classes="dialog-actions"):
+                yield Button("清空", id="override-clear")
+                yield Button("取消", id="override-cancel")
+                yield Button("应用", id="override-apply", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "override-cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "override-clear":
+            self.dismiss({})
+            return
+        if event.button.id != "override-apply":
+            return
+        assignments = []
+        for index, item in enumerate(self.inputs):
+            widget = self.query_one(f"#override-{index}")
+            if isinstance(widget, Select):
+                value = widget.value
+                if value in {"__default__", Select.NULL}:
+                    continue
+                assignments.append(f"{item.value}={value}")
+            elif isinstance(widget, Input):
+                value = widget.value.strip()
+                if value:
+                    assignments.append(f"{item.value}={value}")
+        try:
+            parsed = parse_player_override_text(",".join(assignments), self.inputs)
+        except KTError as exc:
+            self.query_one("#override-error", Static).update(str(exc))
+            return
+        self.dismiss(parsed)
 
 
 class NewDocumentScreen(ModalScreen[Optional[DocumentDraft]]):
@@ -152,10 +273,14 @@ class NewDocumentScreen(ModalScreen[Optional[DocumentDraft]]):
 
     KIND_LABELS = {
         "entry": "通用条目",
-        "skill": "技能或数据",
-        "model": "组合模型",
-        "scenario": "参数方案",
         "plot": "图表配置",
+    }
+
+    TEMPLATE_LABELS = {
+        "blank": "空白",
+        "data": "数据与技能",
+        "model": "组合计算",
+        "semantics": "数学语义",
     }
 
     def __init__(
@@ -175,9 +300,16 @@ class NewDocumentScreen(ModalScreen[Optional[DocumentDraft]]):
             yield Label("类型", classes="field-label")
             yield Select(
                 [(self.KIND_LABELS[kind], kind) for kind in DOCUMENT_DRAFT_KINDS],
-                value="model",
+                value="entry",
                 allow_blank=False,
                 id="new-kind",
+            )
+            yield Label("起始模板（仅用于条目）", classes="field-label")
+            yield Select(
+                [(self.TEMPLATE_LABELS[kind], kind) for kind in ENTRY_TEMPLATE_KINDS],
+                value="model",
+                allow_blank=False,
+                id="new-template",
             )
             yield Label("文档 ID", classes="field-label")
             yield Input(placeholder="例如：arcane_missiles", id="new-id")
@@ -192,10 +324,16 @@ class NewDocumentScreen(ModalScreen[Optional[DocumentDraft]]):
 
     def _candidate(self) -> Optional[DocumentDraft]:
         kind = self.query_one("#new-kind", Select).value
+        template = self.query_one("#new-template", Select).value
         document_id = self.query_one("#new-id", Input).value.strip()
-        if not document_id or not isinstance(kind, str):
+        if not document_id or not isinstance(kind, str) or not isinstance(template, str):
             return None
-        return build_document_draft(self.root, kind, document_id)
+        return build_document_draft(
+            self.root,
+            kind,
+            document_id,
+            entry_template=template,
+        )
 
     def _refresh_preview(self) -> None:
         error = self.query_one("#new-error", Static)
@@ -217,7 +355,7 @@ class NewDocumentScreen(ModalScreen[Optional[DocumentDraft]]):
             self._refresh_preview()
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "new-kind":
+        if event.select.id in {"new-kind", "new-template"}:
             self._refresh_preview()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

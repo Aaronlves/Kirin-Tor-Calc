@@ -28,7 +28,7 @@ from .limits import (
     MAX_NUMERIC_PRECISION,
     MAX_SCAN_POINTS,
 )
-from .schema import Entry, InputSpec, PlotConfig, Scenario, _parse_input
+from .schema import Entry, InputSpec, PlotConfig, Preset, _parse_input
 from .units import DIMENSIONLESS, Dimension
 from .workspace import Workspace
 
@@ -53,6 +53,25 @@ class Engine:
         self._member_cache: Dict[tuple[str, str], MathValue] = {}
         self._stack: list[str] = []
         self._constraint_entries: Set[str] = set()
+
+    def unit_scale_expr(self, unit_name: str) -> sp.Rational:
+        scale = self.workspace.units.scale(unit_name)
+        return sp.Rational(scale.numerator, scale.denominator)
+
+    def target_unit_name(self, target: str, fallback_dimension: Dimension) -> str:
+        """Return the unit explicitly chosen for a declared target when available."""
+        match = TARGET_RE.fullmatch(target.strip())
+        if match:
+            entry = self.workspace.entries.get(match.group(1))
+            if entry is not None:
+                member = match.group(2)
+                if member in entry.inputs:
+                    return entry.inputs[member].unit_name
+                if member in entry.fields and entry.fields[member].get("kind") != "info":
+                    return entry.fields[member].get("unit", "dimensionless")
+                if member in entry.outputs:
+                    return entry.outputs[member].get("unit", "dimensionless")
+        return self.workspace.units.render(fallback_dimension)
 
     def input_symbol(self, name: str, spec: InputSpec) -> sp.Symbol:
         key = spec.key
@@ -100,15 +119,24 @@ class Engine:
 
     def input_conditions(self, spec: InputSpec, expr: sp.Basic) -> list:
         conditions = []
+        scale = self.unit_scale_expr(spec.unit_name)
         if spec.minimum is not None:
-            conditions.append(sp.Ge(expr, parse_exact_number(spec.minimum), evaluate=False))
+            conditions.append(
+                sp.Ge(expr, parse_exact_number(spec.minimum) * scale, evaluate=False)
+            )
         if spec.maximum is not None:
-            conditions.append(sp.Le(expr, parse_exact_number(spec.maximum), evaluate=False))
+            conditions.append(
+                sp.Le(expr, parse_exact_number(spec.maximum) * scale, evaluate=False)
+            )
         if spec.integer:
-            conditions.append(sp.Contains(expr, sp.S.Integers, evaluate=False))
+            conditions.append(sp.Contains(expr / scale, sp.S.Integers, evaluate=False))
         if spec.allowed_values:
             values = [
-                sp.true if value is True else sp.false if value is False else parse_exact_number(str(value))
+                sp.true
+                if value is True
+                else sp.false
+                if value is False
+                else parse_exact_number(str(value)) * scale
                 for value in spec.allowed_values
             ]
             conditions.append(sp.Or(*(sp.Eq(expr, value, evaluate=False) for value in values)))
@@ -186,7 +214,10 @@ class Engine:
                         )
                     else:
                         value = MathValue(
-                            parse_exact_number(str(data["value"])), dimension, dependencies={entry_id}
+                            parse_exact_number(str(data["value"]))
+                            * self.unit_scale_expr(data.get("unit", "dimensionless")),
+                            dimension,
+                            dependencies={entry_id},
                         )
                 else:
                     value = self._compile_entry_expression(
@@ -314,6 +345,68 @@ class Engine:
         finally:
             self._stack.pop()
 
+    def lookup_table(
+        self,
+        entry_id: str,
+        table_name: str,
+        key: MathValue,
+        *,
+        interpolate: bool,
+    ) -> MathValue:
+        entry = self.workspace.get_entry(entry_id)
+        table = entry.tables.get(table_name)
+        if table is None:
+            raise ReferenceError(f"entry {entry_id!r} has no table {table_name!r}")
+        if key.is_boolean:
+            raise ExpressionError("table keys must be numeric", table.location)
+        if key.dimension != table.input_dimension:
+            raise UnitError(
+                f"table {table.qualified_id} expects {table.input_unit}, got {key.dimension.render()}",
+                table.location,
+            )
+        input_scale = self.unit_scale_expr(table.input_unit)
+        output_scale = self.unit_scale_expr(table.output_unit)
+        points = [
+            (parse_exact_number(x) * input_scale, parse_exact_number(y) * output_scale)
+            for x, y in table.points
+        ]
+        conditions = list(key.conditions)
+        if interpolate:
+            if len(points) < 2:
+                raise ExpressionError(
+                    f"interpolate requires at least two points in {table.qualified_id}",
+                    table.location,
+                )
+            branches = []
+            for (x1, y1), (x2, y2) in zip(points, points[1:]):
+                active = sp.And(
+                    sp.Ge(key.expr, x1, evaluate=False),
+                    sp.Le(key.expr, x2, evaluate=False),
+                )
+                value = y1 + (key.expr - x1) * (y2 - y1) / (x2 - x1)
+                branches.append((value, active))
+            expr = sp.Piecewise(*branches, (points[-1][1], True))
+            conditions.extend(
+                [
+                    sp.Ge(key.expr, points[0][0], evaluate=False),
+                    sp.Le(key.expr, points[-1][0], evaluate=False),
+                ]
+            )
+        else:
+            matches = [sp.Eq(key.expr, x, evaluate=False) for x, _y in points]
+            expr = sp.Piecewise(
+                *((y, match) for match, (_x, y) in zip(matches, points)),
+                (points[-1][1], True),
+            )
+            conditions.append(sp.Or(*matches))
+        return MathValue(
+            expr,
+            table.output_dimension,
+            conditions,
+            dict(key.inputs),
+            set(key.dependencies) | {entry_id},
+        )
+
     def _compile_entry_expression(
         self,
         entry: Entry,
@@ -388,10 +481,23 @@ class Engine:
                 f"expanded dependency closure exceeds {MAX_DEPENDENCY_DOCUMENTS} entries"
             )
 
+    def _check_dependency_versions(self, value: MathValue, location: SourceLocation) -> None:
+        versions = {
+            entry.game_version
+            for dependency in value.dependencies
+            for entry in [self.workspace.entries.get(dependency)]
+            if entry is not None and entry.game_version
+        }
+        if len(versions) > 1:
+            raise SchemaError(
+                "calculation mixes incompatible game versions: " + ", ".join(sorted(versions)),
+                location,
+            )
+
     def _parse_parameters(
         self,
         value: MathValue,
-        scenario: Optional[Scenario],
+        preset: Optional[Preset],
         overrides: Optional[Mapping[str, str]],
         keep: Set[str],
     ) -> Dict[str, sp.Basic]:
@@ -399,16 +505,18 @@ class Engine:
         for name, spec in value.inputs.items():
             if spec.default is not None:
                 available[name] = spec.default
-        if scenario is not None:
+        if preset is not None:
             all_inputs = {
                 spec.key: spec for entry in self.workspace.entries.values() for spec in entry.inputs.values()
             }
-            scenario_seen = set()
-            for raw_name, raw_value in scenario.values.items():
+            preset_seen = set()
+            for raw_name, raw_value in preset.values.items():
                 key = self.resolve_input_key(raw_name, all_inputs)
-                if key in scenario_seen:
-                    raise ParameterError(f"scenario {scenario.id!r} assigns {key!r} more than once")
-                scenario_seen.add(key)
+                if key in preset_seen:
+                    raise ParameterError(
+                        f"preset {preset.qualified_id!r} assigns {key!r} more than once"
+                    )
+                preset_seen.add(key)
                 available[key] = raw_value
         if overrides:
             canonical_overrides = {}
@@ -439,7 +547,7 @@ class Engine:
                 f"parameter {spec.key} requires a number, not a boolean", spec.location
             )
         try:
-            return parse_exact_number(str(value))
+            return parse_exact_number(str(value)) * self.unit_scale_expr(spec.unit_name)
         except ExpressionError as exc:
             if exc.location is None:
                 exc.location = spec.location
@@ -457,19 +565,25 @@ class Engine:
                         f"parameter {spec.key}={value} is not one of: {rendered}", spec.location
                     )
             return
-        if spec.minimum is not None and value < parse_exact_number(spec.minimum):
+        scale = self.unit_scale_expr(spec.unit_name)
+        raw_value = sp.simplify(value / scale)
+        if spec.minimum is not None and raw_value < parse_exact_number(spec.minimum):
             raise ParameterError(
                 f"parameter {spec.key}={value} is below minimum {spec.minimum}", spec.location
             )
-        if spec.maximum is not None and value > parse_exact_number(spec.maximum):
+        if spec.maximum is not None and raw_value > parse_exact_number(spec.maximum):
             raise ParameterError(
                 f"parameter {spec.key}={value} is above maximum {spec.maximum}", spec.location
             )
-        if spec.integer and value not in sp.S.Integers:
+        if spec.integer and raw_value not in sp.S.Integers:
             raise ParameterError(f"parameter {spec.key}={value} must be an integer", spec.location)
         if spec.allowed_values:
             allowed = [
-                sp.true if item is True else sp.false if item is False else parse_exact_number(str(item))
+                sp.true
+                if item is True
+                else sp.false
+                if item is False
+                else parse_exact_number(str(item)) * scale
                 for item in spec.allowed_values
             ]
             if value not in allowed:
@@ -481,15 +595,18 @@ class Engine:
     def prepare(
         self,
         target_or_expression: str,
-        scenario_id: Optional[str] = None,
+        preset_id: Optional[str] = None,
         overrides: Optional[Mapping[str, str]] = None,
         keep: Optional[Iterable[str]] = None,
         require_numeric: bool = False,
     ) -> PreparedValue:
         value = self.resolve_target(target_or_expression)
+        self._check_dependency_versions(
+            value, SourceLocation(field=target_or_expression)
+        )
         keep_set = {self.resolve_input_key(name, value.inputs) for name in (keep or ())}
-        scenario = self.workspace.get_scenario(scenario_id)
-        parameters = self._parse_parameters(value, scenario, overrides, keep_set)
+        preset = self.workspace.get_preset(preset_id)
+        parameters = self._parse_parameters(value, preset, overrides, keep_set)
         substitutions = {self.input_symbol(name, value.inputs[name]): number for name, number in parameters.items()}
         expr = value.expr.subs(substitutions)
         conditions = [condition.subs(substitutions) for condition in value.conditions]
@@ -512,7 +629,7 @@ class Engine:
                 raise DomainError(f"could not establish domain condition: {sp.sstr(condition)}")
 
     def _validate_entry_constraint_values(
-        self, entry: Entry, scenario: Optional[Scenario] = None
+        self, entry: Entry, preset: Optional[Preset] = None
     ) -> None:
         for index, source in enumerate(entry.constraints):
             condition = RestrictedCompiler(
@@ -526,13 +643,13 @@ class Engine:
             available = {
                 key: spec.default for key, spec in condition.inputs.items() if spec.default is not None
             }
-            if scenario is not None:
+            if preset is not None:
                 all_inputs = {
                     spec.key: spec
                     for item in self.workspace.entries.values()
                     for spec in item.inputs.values()
                 }
-                for raw_name, raw_value in scenario.values.items():
+                for raw_name, raw_value in preset.values.items():
                     key = self.resolve_input_key(raw_name, all_inputs)
                     if key in condition.inputs:
                         available[key] = raw_value
@@ -591,7 +708,13 @@ class Engine:
                 if data["kind"] != "info":
                     capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
             for member in entry.outputs:
-                capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
+                def validate_output(entry=entry, member=member):
+                    value = self.resolve_member(entry.id, member)
+                    self._check_dependency_versions(
+                        value, entry.location(f"outputs.{member}")
+                    )
+
+                capture(f"{entry.id}.{member}", validate_output)
             for function_name, data in entry.functions.items():
                 def validate_function(entry=entry, function_name=function_name, data=data):
                     args = []
@@ -628,20 +751,22 @@ class Engine:
         all_inputs = {
             spec.key: spec for entry in self.workspace.entries.values() for spec in entry.inputs.values()
         }
-        for scenario in self.workspace.scenarios.values():
-            def validate_scenario(scenario=scenario):
+        for preset_reference, preset in self.workspace.presets.items():
+            def validate_preset(preset=preset):
                 seen = set()
-                for name, text in scenario.values.items():
+                for name, text in preset.values.items():
                     key = self.resolve_input_key(name, all_inputs)
                     if key in seen:
-                        raise ParameterError(f"scenario {scenario.id!r} assigns {key!r} more than once")
+                        raise ParameterError(
+                            f"preset {preset.qualified_id!r} assigns {key!r} more than once"
+                        )
                     seen.add(key)
                     spec = all_inputs[key]
                     self._check_constraint(spec, self._parse_parameter_value(spec, text))
                 for entry in self.workspace.entries.values():
-                    self._validate_entry_constraint_values(entry, scenario)
+                    self._validate_entry_constraint_values(entry, preset)
 
-            capture(scenario.id, validate_scenario)
+            capture(preset_reference, validate_preset)
         for plot in self.workspace.plots.values():
             def validate_plot(plot=plot):
                 if plot.points < 2 or plot.points > MAX_SCAN_POINTS:
@@ -652,15 +777,21 @@ class Engine:
                 end = parse_exact_number(plot.range_end)
                 if start > end:
                     raise SchemaError("plot range start exceeds its end", plot.location("range"))
-                self.workspace.get_scenario(plot.scenario)
+                self.workspace.get_preset(plot.preset)
                 canonical = None
+                plot_dependencies = set()
                 for target in plot.y:
-                    prepared = self.prepare(target, plot.scenario, keep={plot.x})
+                    prepared = self.prepare(target, plot.preset, keep={plot.x})
+                    plot_dependencies.update(prepared.value.dependencies)
                     target_axis = self.resolve_input_key(plot.x, prepared.value.inputs)
                     if canonical is None:
                         canonical = target_axis
                     elif canonical != target_axis:
                         raise ParameterError("plot curves do not share one stable axis input")
+                self._check_dependency_versions(
+                    MathValue(sp.Integer(0), dependencies=plot_dependencies),
+                    plot.location("y"),
+                )
 
             capture(plot.id, validate_plot)
         if errors:

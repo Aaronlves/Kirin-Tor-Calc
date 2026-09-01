@@ -20,7 +20,7 @@ identity is expressed through the eye mark, color, borders, and restrained motio
 ## Authority and state
 
 Kirin documents are the writable authority for entries, inputs, formulae,
-scenarios, semantic declarations, and saved plot configurations. Calculations,
+entry-local presets, semantic declarations, output groups, and saved plot configurations. Calculations,
 comparisons, charts, indexes, completion candidates, and UI controls are derived
 views and must never silently write back to source documents.
 
@@ -30,7 +30,7 @@ the overlay becomes invalid, no new result is produced; an earlier result may
 remain visible only when marked stale.
 
 Saving a run or exporting a durable artifact requires all participating source
-documents to be saved and valid. Creating a scenario or plot from an exploration
+documents to be saved and valid. Creating a plot from a curve exploration
 creates an unsaved source draft and opens it in Documents.
 
 ## Calculation request
@@ -38,7 +38,7 @@ creates an unsaved source draft and opens it in Documents.
 A calculation selects one output target and one or more named variants. Each
 variant contains:
 
-- an optional scenario;
+- an optional entry-local preset;
 - zero or more temporary input overrides;
 - the same numerical precision and display rules as the comparison;
 - one result or one isolated error.
@@ -50,13 +50,17 @@ Boolean results omit numeric differences. A failed variant does not erase valid
 peer results.
 
 The Calculate view may solve one numeric input for a requested output value and
-optional range. It uses the first variant as the visible baseline so the applied
-scenario and temporary inputs are not implicit.
+optional range, or solve a finite linked system for several inputs. It uses the
+first variant as the visible baseline so the applied preset and temporary inputs
+are not implicit. Target search and order use author-declared groups; the UI does
+not inject game-specific categories. Input edits are available as a typed form,
+with the compact assignment field retained for advanced entry.
 
 ## Document lifecycle
 
-`Ctrl+N` opens a new-document dialog for Entry, Skill, Model, Scenario, or Plot.
-The type determines the folder; the user supplies only the stable document ID.
+`Ctrl+N` opens a new-document dialog for Entry or Plot. An Entry may start from
+Blank, Data, Model, or Semantics templates. The type determines the folder; the
+user supplies only the stable document ID.
 Creation adds a draft to the in-memory overlay and does not write a file.
 
 The UI distinguishes new, modified, and saved documents. Closing a modified
@@ -69,15 +73,17 @@ private template implementation.
 
 ## Charts
 
-Charts may originate from a saved Plot document or an ad-hoc scan. Ad-hoc scans
+Charts may originate from a saved Plot document or an ad-hoc scan. Curve scans
 select one numeric input axis, a finite range, point count, one or more output
-targets, an optional scenario, and temporary overrides. The chart and its data
-table use one scan result.
+targets, an optional preset, and temporary overrides. A grid scan selects two
+numeric axes and one output and renders a heatmap. The chart and its data table
+use one calculation result.
 
 The user may instead scan the variants currently configured in Calculate. Every
-curve uses the same axis and workspace revision and keeps the variant's scenario
-and overrides. A multi-variant interactive chart cannot be converted to a Plot
-source silently because one Plot source currently stores only one scenario.
+curve uses the same axis and workspace revision and keeps the variant's preset
+and overrides. A multi-variant interactive chart or heatmap cannot be converted
+to a Plot source silently when its shape exceeds the saved Plot schema; its full
+data remains exportable.
 
 Animation is presentation only. A scan is computed once, then revealed or
 transitioned without recomputing points per frame. Motion has Full, Reduced, and
@@ -96,8 +102,8 @@ CLI and TUI are adapters over shared application services. Shared code owns:
 
 - document draft construction and exclusive creation;
 - override parsing and calculation/comparison requests;
-- workspace indexes for targets, inputs, scenarios, and plots;
-- scan and chart requests;
+- workspace indexes for grouped targets, inputs, presets, and plots;
+- curve, grid, system-solve, and chart requests;
 - run saving and replay orchestration;
 - stable errors and artifact path rules.
 

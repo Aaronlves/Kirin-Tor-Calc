@@ -24,9 +24,10 @@ IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PARAMETER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$")
 QUALIFIED_MEMBER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
 NUMBER_TEXT_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$")
-DOCUMENT_TYPES = {"entry", "scenario", "plot"}
+DOCUMENT_TYPES = {"entry", "plot"}
+DISPLAY_FORMATS = {"number", "integer", "percent", "coefficient_percent"}
 EXPRESSION_RESERVED_NAMES = {
-    "abs", "ceil", "floor", "if_else", "max", "min", "piecewise", "sqrt", "sum"
+    "abs", "ceil", "floor", "if_else", "interpolate", "lookup", "max", "min", "piecewise", "product", "sqrt", "sum"
 }
 
 
@@ -171,18 +172,62 @@ class Document:
 @dataclass
 class Entry(Document):
     template: Optional[str] = None
+    game_version: Optional[str] = None
+    validation_status: Optional[str] = None
+    sources: List[Dict[str, Any]] = field(default_factory=list)
     semantics: Dict[str, Any] = field(default_factory=dict)
     aliases: Dict[str, str] = field(default_factory=dict)
     inputs: Dict[str, InputSpec] = field(default_factory=dict)
     constraints: List[str] = field(default_factory=list)
     fields: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     functions: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    tables: Dict[str, "LookupTable"] = field(default_factory=dict)
     outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    groups: Dict[str, "OutputGroup"] = field(default_factory=dict)
+    presets: Dict[str, "Preset"] = field(default_factory=dict)
 
 
-@dataclass
-class Scenario(Document):
-    values: Dict[str, Any] = field(default_factory=dict)
+@dataclass(frozen=True)
+class OutputGroup:
+    id: str
+    owner_id: str
+    label: str
+    outputs: Tuple[str, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class Preset:
+    id: str
+    owner_id: str
+    label: str
+    values: Dict[str, Any]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class LookupTable:
+    id: str
+    owner_id: str
+    label: str
+    input_unit: str
+    input_dimension: Dimension
+    output_unit: str
+    output_dimension: Dimension
+    points: Tuple[Tuple[str, str], ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
 
 
 @dataclass
@@ -192,14 +237,13 @@ class PlotConfig(Document):
     range_end: str = ""
     points: int = 0
     y: List[str] = field(default_factory=list)
-    scenario: Optional[str] = None
+    preset: Optional[str] = None
     out: Optional[str] = None
     data_out: Optional[str] = None
     title: Optional[str] = None
     x_label: Optional[str] = None
     y_label: Optional[str] = None
     curve_labels: Dict[str, str] = field(default_factory=dict)
-
 
 def _location(path: Path, entry_id: Optional[str], positions, field_name: Optional[str] = None):
     line = column = None
@@ -247,7 +291,7 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
             loc = _location(path, entry_id, positions, f"semantics.units.{name}")
             require_identifier(name, "unit name", loc)
             spec = require_mapping(raw_spec, f"unit {name}", loc)
-            _reject_unknown(spec, {"dimensions", "description"}, "unit", loc)
+            _reject_unknown(spec, {"dimensions", "scale", "description"}, "unit", loc)
             powers_raw = require_mapping(spec.get("dimensions"), "unit dimensions", loc)
             powers = {}
             for dimension_name, exponent in powers_raw.items():
@@ -261,7 +305,12 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
                     raise SchemaError(
                         f"absolute dimension exponent may not exceed {MAX_ABS_DIMENSION_EXPONENT}", loc
                     )
-            registry.add_unit(name, powers, loc)
+            scale_text = number_text(spec.get("scale", "1"), "unit scale", loc)
+            try:
+                scale = Fraction(scale_text)
+            except (ValueError, ZeroDivisionError) as exc:
+                raise SchemaError("unit scale must be an exact positive number", loc) from exc
+            registry.add_unit(name, powers, scale, loc)
 
     for entry_id, path, positions, semantics in declarations:
         domains = require_mapping(
@@ -453,7 +502,8 @@ def _parse_input(
 
 TOP_KEYS = {
     "schema_version", "id", "name", "type", "template", "description", "sources", "game_version",
-    "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "outputs",
+    "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables", "outputs",
+    "groups", "presets",
 }
 
 
@@ -488,8 +538,55 @@ def parse_document(
         for key in ("description", "game_version", "validation_status"):
             if key in raw:
                 require_text(raw[key], key, _location(path, doc_id, positions, key))
-        if "sources" in raw and not isinstance(raw["sources"], list):
+        sources_raw = raw.get("sources", [])
+        if not isinstance(sources_raw, list):
             raise SchemaError("sources must be a list", _location(path, doc_id, positions, "sources"))
+        sources = []
+        for index, source in enumerate(sources_raw):
+            source_location = _location(path, doc_id, positions, f"sources.{index}")
+            if isinstance(source, str):
+                raise SchemaError(
+                    "source must be a structured object with kind and citation",
+                    source_location,
+                )
+            source = require_mapping(source, "source", source_location)
+            _reject_unknown(
+                source,
+                {"kind", "citation", "location", "verified_at", "digest", "game_version"},
+                "source",
+                source_location,
+            )
+            kind = require_identifier(source.get("kind"), "source kind", source_location)
+            citation = require_text(source.get("citation"), "source citation", source_location)
+            if not citation.strip():
+                raise SchemaError("source citation may not be empty", source_location)
+            normalized_source = {"kind": kind, "citation": citation}
+            for key in ("location", "verified_at", "digest", "game_version"):
+                if key in source:
+                    normalized_source[key] = require_text(
+                        source[key], f"source {key}", source_location
+                    )
+            if "verified_at" in normalized_source and not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}", normalized_source["verified_at"]
+            ):
+                raise SchemaError("source verified_at must use YYYY-MM-DD", source_location)
+            if "digest" in normalized_source and not re.fullmatch(
+                r"sha256:[0-9a-f]{64}", normalized_source["digest"]
+            ):
+                raise SchemaError(
+                    "source digest must use sha256:<64 lowercase hex digits>",
+                    source_location,
+                )
+            if (
+                raw.get("game_version")
+                and normalized_source.get("game_version")
+                and normalized_source["game_version"] != raw["game_version"]
+            ):
+                raise SchemaError(
+                    "source game_version must match the owning entry game version",
+                    source_location,
+                )
+            sources.append(normalized_source)
         template = raw.get("template")
         if template is not None:
             require_identifier(template, "entry template", _location(path, doc_id, positions, "template"))
@@ -520,8 +617,74 @@ def parse_document(
         if not isinstance(constraints_raw, list) or not all(isinstance(item, str) for item in constraints_raw):
             raise SchemaError("constraints must be a list of boolean expressions", root_location)
         functions = dict(require_mapping(raw.get("functions", {}), "functions", root_location))
+        tables_raw = require_mapping(raw.get("tables", {}), "tables", root_location)
+        tables = {}
+        for table_id, table_raw in tables_raw.items():
+            table_location = _location(path, doc_id, positions, f"tables.{table_id}")
+            require_identifier(table_id, "table id", table_location)
+            table_raw = require_mapping(table_raw, f"tables.{table_id}", table_location)
+            _reject_unknown(
+                table_raw,
+                {"label", "input_unit", "unit", "points"},
+                "table",
+                table_location,
+            )
+            label = require_display_label(
+                table_raw.get("label", table_id), "table label", table_location
+            )
+            input_unit = require_identifier(
+                table_raw.get("input_unit", "dimensionless"),
+                "table input unit",
+                table_location,
+            )
+            output_unit = require_identifier(
+                table_raw.get("unit", "dimensionless"),
+                "table output unit",
+                table_location,
+            )
+            input_dimension = registry.parse_unit(input_unit, table_location)
+            output_dimension = registry.parse_unit(output_unit, table_location)
+            points_raw = table_raw.get("points", [])
+            if (
+                not isinstance(points_raw, list)
+                or not points_raw
+                or any(not isinstance(point, list) or len(point) != 2 for point in points_raw)
+            ):
+                raise SchemaError("table points must be a non-empty list of [x, y] pairs", table_location)
+            points = []
+            seen_x = set()
+            previous_x = None
+            for index, point in enumerate(points_raw):
+                x = number_text(point[0], "table x", table_location)
+                y = number_text(point[1], "table y", table_location)
+                x_value = Fraction(x)
+                if x_value in seen_x:
+                    raise SchemaError("table x values must be unique", table_location)
+                if previous_x is not None and x_value <= previous_x:
+                    raise SchemaError("table x values must be strictly increasing", table_location)
+                seen_x.add(x_value)
+                previous_x = x_value
+                points.append((x, y))
+            tables[table_id] = LookupTable(
+                table_id,
+                doc_id,
+                label,
+                input_unit,
+                input_dimension,
+                output_unit,
+                output_dimension,
+                tuple(points),
+                table_location,
+            )
         outputs = dict(require_mapping(raw.get("outputs", {}), "outputs", root_location))
         occupied = set(inputs)
+        for table_id in tables:
+            if table_id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {table_id!r}",
+                    _location(path, doc_id, positions, f"tables.{table_id}"),
+                )
+            occupied.add(table_id)
         for section_name, section in (("fields", fields), ("functions", functions), ("outputs", outputs)):
             for member, value in section.items():
                 member_location = _location(path, doc_id, positions, f"{section_name}.{member}")
@@ -582,45 +745,135 @@ def parse_document(
                             raise SchemaError("explicit function parameters may not define defaults", parsed.location)
                     registry.parse_unit(data.get("unit", "dimensionless"), member_location)
                 else:
-                    _reject_unknown(data, {"expression", "unit", "description", "label"}, "output", member_location)
+                    _reject_unknown(
+                        data,
+                        {"expression", "unit", "description", "label", "display", "digits"},
+                        "output",
+                        member_location,
+                    )
                     if "label" in data:
                         require_display_label(data["label"], "output label", member_location)
                     require_text(data.get("expression"), "output expression", member_location)
                     registry.parse_unit(data.get("unit", "dimensionless"), member_location)
+                    display = data.get("display", "number")
+                    if display not in DISPLAY_FORMATS:
+                        raise SchemaError(
+                            "output display must be one of: "
+                            + ", ".join(sorted(DISPLAY_FORMATS)),
+                            member_location,
+                        )
+                    digits = data.get("digits")
+                    if digits is not None and (
+                        isinstance(digits, bool) or not isinstance(digits, int) or digits < 0 or digits > 15
+                    ):
+                        raise SchemaError("output digits must be an integer from 0 to 15", member_location)
         for alias in aliases:
             if alias in occupied:
                 raise SchemaError(
                     f"alias {alias!r} conflicts with a declared member",
                     _location(path, doc_id, positions, f"aliases.{alias}"),
                 )
+        groups_raw = require_mapping(raw.get("groups", {}), "groups", root_location)
+        if len(groups_raw) > MAX_ENTRY_ALIASES:
+            raise SchemaError(
+                f"an entry may define at most {MAX_ENTRY_ALIASES} output groups",
+                _location(path, doc_id, positions, "groups"),
+            )
+        groups = {}
+        grouped_outputs = set()
+        for group_id, group_raw in groups_raw.items():
+            group_location = _location(path, doc_id, positions, f"groups.{group_id}")
+            require_identifier(group_id, "group id", group_location)
+            group_raw = require_mapping(group_raw, f"groups.{group_id}", group_location)
+            _reject_unknown(group_raw, {"label", "outputs"}, "group", group_location)
+            label = require_display_label(
+                group_raw.get("label", group_id), "group label", group_location
+            )
+            members = group_raw.get("outputs", [])
+            if not isinstance(members, list) or not members or not all(isinstance(item, str) for item in members):
+                raise SchemaError("group outputs must be a non-empty list", group_location)
+            normalized_members = []
+            for member in members:
+                require_identifier(member, "group output", group_location)
+                if member not in outputs:
+                    raise SchemaError(
+                        f"group {group_id!r} references unknown local output {member!r}",
+                        group_location,
+                    )
+                if member in grouped_outputs:
+                    raise SchemaError(
+                        f"output {member!r} appears in more than one group",
+                        group_location,
+                    )
+                grouped_outputs.add(member)
+                normalized_members.append(member)
+            groups[group_id] = OutputGroup(
+                group_id,
+                doc_id,
+                label,
+                tuple(normalized_members),
+                group_location,
+            )
+
+        presets_raw = require_mapping(raw.get("presets", {}), "presets", root_location)
+        if len(presets_raw) > MAX_ENTRY_ALIASES:
+            raise SchemaError(
+                f"an entry may define at most {MAX_ENTRY_ALIASES} presets",
+                _location(path, doc_id, positions, "presets"),
+            )
+        presets = {}
+        for preset_id, preset_raw in presets_raw.items():
+            preset_location = _location(path, doc_id, positions, f"presets.{preset_id}")
+            require_identifier(preset_id, "preset id", preset_location)
+            preset_raw = require_mapping(preset_raw, f"presets.{preset_id}", preset_location)
+            _reject_unknown(preset_raw, {"label", "values"}, "preset", preset_location)
+            label = require_display_label(
+                preset_raw.get("label", preset_id), "preset label", preset_location
+            )
+            values_raw = require_mapping(
+                preset_raw.get("values", {}), f"presets.{preset_id}.values", preset_location
+            )
+            values = {}
+            for key, value in values_raw.items():
+                parameter = require_parameter_name(
+                    key,
+                    "preset parameter name",
+                    _location(path, doc_id, positions, f"presets.{preset_id}.values.{key}"),
+                )
+                values[parameter] = value if isinstance(value, bool) else number_text(
+                    value, f"preset value {key}", preset_location
+                )
+            presets[preset_id] = Preset(
+                preset_id,
+                doc_id,
+                label,
+                values,
+                preset_location,
+            )
+
         semantics = dict(require_mapping(raw.get("semantics", {}), "semantics", root_location))
         return Entry(
             **base,
             template=template,
+            game_version=raw.get("game_version"),
+            validation_status=raw.get("validation_status"),
+            sources=sources,
             semantics=semantics,
             aliases=aliases,
             inputs=inputs,
             constraints=list(constraints_raw),
             fields=fields,
             functions=functions,
+            tables=tables,
             outputs=outputs,
+            groups=groups,
+            presets=presets,
         )
-
-    if doc_type == "scenario":
-        _reject_unknown(raw, {"schema_version", "id", "name", "type", "description", "values"}, "scenario", root_location)
-        if "description" in raw:
-            require_text(raw["description"], "description", _location(path, doc_id, positions, "description"))
-        values_raw = require_mapping(raw.get("values", {}), "values", root_location)
-        values = {}
-        for key, value in values_raw.items():
-            parameter = require_parameter_name(key, "parameter name", _location(path, doc_id, positions, f"values.{key}"))
-            values[parameter] = value if isinstance(value, bool) else number_text(value, f"scenario value {key}", root_location)
-        return Scenario(**base, values=values)
 
     _reject_unknown(
         raw,
         {
-            "schema_version", "id", "name", "type", "description", "x", "range", "points", "y", "scenario",
+            "schema_version", "id", "name", "type", "description", "x", "range", "points", "y", "preset",
             "out", "data_out", "title", "x_label", "y_label", "curve_labels",
         },
         "plot",
@@ -638,9 +891,11 @@ def parse_document(
     y = raw.get("y")
     if not isinstance(y, list) or not y or not all(isinstance(item, str) for item in y):
         raise SchemaError("plot y must be a non-empty list of targets", _location(path, doc_id, positions, "y"))
-    scenario = raw.get("scenario")
-    if scenario is not None:
-        require_identifier(scenario, "plot scenario", _location(path, doc_id, positions, "scenario"))
+    preset = raw.get("preset")
+    if preset is not None:
+        require_parameter_name(
+            preset, "plot preset", _location(path, doc_id, positions, "preset")
+        )
     text_options = {}
     for key in ("out", "data_out", "title", "x_label", "y_label"):
         value = raw.get(key)
@@ -657,7 +912,7 @@ def parse_document(
         range_end=end,
         points=points,
         y=list(y),
-        scenario=scenario,
+        preset=preset,
         curve_labels=dict(labels_raw),
         **text_options,
     )

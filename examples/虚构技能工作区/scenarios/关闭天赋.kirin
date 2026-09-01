@@ -1,8 +1,0 @@
-@kirin 1
-@scenario no_talent
-
-// 关闭布尔开关（虚构）
-
-values:
-  aoe_pattern.targets = 4
-  aoe_pattern.talent_enabled = false

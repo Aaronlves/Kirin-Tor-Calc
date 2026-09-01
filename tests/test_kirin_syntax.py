@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from kirin_tor.engine import Engine
-from kirin_tor.errors import ReferenceError, SchemaError
+from kirin_tor.errors import DomainError, ReferenceError, SchemaError
 from kirin_tor.kirin_syntax import load_kirin_document, render_kirin_document
 from kirin_tor.operations import evaluate, explain, scan_values
 from kirin_tor.workspace import Workspace, initialize
@@ -45,18 +45,24 @@ outputs:
 """
 
 
-def test_kirin_entry_scenario_and_plot_use_existing_engine(tmp_path: Path) -> None:
+def test_kirin_entry_preset_groups_display_and_plot_use_existing_engine(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
-    (root / "entries" / "model.kirin").write_text(ENTRY_SOURCE, encoding="utf-8")
-    (root / "scenarios" / "baseline.kirin").write_text(
-        """@kirin 1
-@scenario baseline
+    source = ENTRY_SOURCE + """
 
-// Baseline
+groups:
+  results "结果":
+    result
+    doubled
 
-values:
-  model.x = 0.5
-""",
+presets:
+  baseline "基线":
+    model.x = 0.5
+
+display:
+  result: percent digits 1
+"""
+    (root / "entries" / "model.kirin").write_text(
+        source,
         encoding="utf-8",
     )
     (root / "plots" / "curve.kirin").write_text(
@@ -72,7 +78,7 @@ points: 3
 y:
   model.result as "Result"
 
-scenario: baseline
+preset: model.baseline
 title: "Preview"
 x-label: "Input"
 y-label: "Value"
@@ -87,8 +93,10 @@ export-csv: "results/curve.csv"
     assert result["status"] == "ok"
     assert workspace.get_entry("model").raw["description"].endswith("Tabs inside prose are preserved.")
     assert workspace.get_entry("model").name == "model"
-    assert evaluate(Engine(workspace), "model.result", "baseline")["exact"] == "3"
+    assert evaluate(Engine(workspace), "model.result", "model.baseline")["exact"] == "3"
     assert evaluate(Engine(workspace), "model.doubled", "baseline")["exact"] == "6"
+    assert workspace.get_entry("model").groups["results"].outputs == ("result", "doubled")
+    assert workspace.get_entry("model").outputs["result"]["display"] == "percent"
 
     plot = workspace.get_plot("curve")
     scan = scan_values(
@@ -96,6 +104,7 @@ export-csv: "results/curve.csv"
     )
     assert [row["values"]["model.result"]["exact"] for row in scan["rows"]] == ["2", "3", "4"]
     assert plot.curve_labels == {"model.result": "Result"}
+    assert plot.preset == "model.baseline"
 
 
 def test_kirin_reports_source_line_and_rejects_unknown_sections(tmp_path: Path) -> None:
@@ -114,6 +123,81 @@ unknown:
         Workspace.load(root)
     assert caught.value.location.path == str(path)
     assert caught.value.location.field == "unknown"
+
+
+def test_versioned_lookup_tables_support_exact_lookup_and_interpolation(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "lookup")
+    (root / "entries" / "lookup.kirin").write_text(
+        """@kirin 1
+@entry lookup_model
+@game-version test-1
+
+sources:
+  {"kind":"test","citation":"lookup fixture","game_version":"test-1"}
+
+inputs:
+  level: number[dimensionless] = 1 in 1..3
+
+tables:
+  rating "等级换算": dimensionless -> dimensionless:
+    1 = 10
+    3 = 30
+
+outputs:
+  exact: dimensionless = lookup(rating, level)
+  interpolated: dimensionless = interpolate(rating, level)
+""",
+        encoding="utf-8",
+    )
+    workspace = Workspace.load(root)
+    assert Engine(workspace).validate_all()["status"] == "ok"
+    assert evaluate(Engine(workspace), "lookup_model.exact")["exact"] == "10"
+    assert evaluate(
+        Engine(workspace),
+        "lookup_model.interpolated",
+        overrides={"lookup_model.level": "2"},
+    )["exact"] == "20"
+    with pytest.raises(DomainError, match="domain condition failed"):
+        evaluate(
+            Engine(workspace),
+            "lookup_model.exact",
+            overrides={"lookup_model.level": "2"},
+        )
+
+
+def test_source_metadata_rejects_version_drift_and_invalid_digest(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "sources")
+    path = root / "entries" / "source_model.kirin"
+    path.write_text(
+        """@kirin 1
+@entry source_model
+@game-version patch-a
+
+sources:
+  {"kind":"note","citation":"fixture","game_version":"patch-b"}
+
+outputs:
+  result: dimensionless = 1
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="source game_version must match"):
+        Workspace.load(root)
+
+    path.write_text(
+        """@kirin 1
+@entry source_model
+
+sources:
+  {"kind":"note","citation":"fixture","digest":"not-a-digest"}
+
+outputs:
+  result: dimensionless = 1
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="source digest must use sha256"):
+        Workspace.load(root)
 
 
 def test_workspace_overlay_validates_without_writing(tmp_path: Path) -> None:

@@ -109,7 +109,9 @@ def highlight_kirin_source(source: str) -> Dict[int, List[Highlight]]:
         declaration_valid = False
         if current_section == "functions":
             declaration_valid = declaration_tail.startswith("(")
-        elif current_section in {"inputs", "fields", "outputs"}:
+        elif current_section == "tables":
+            declaration_valid = declaration_tail.startswith(":")
+        elif current_section in {"inputs", "fields", "outputs", "groups", "presets", "display"}:
             declaration_valid = declaration_tail.startswith(":")
         elif current_section == "info":
             declaration_valid = declaration_tail.startswith("=")
@@ -120,7 +122,7 @@ def highlight_kirin_source(source: str) -> Dict[int, List[Highlight]]:
         elif current_section == "domains":
             declaration_valid = declaration_tail.startswith(":")
         if declaration and indent and declaration_valid:
-            if current_section == "functions":
+            if current_section in {"functions", "tables"}:
                 name_style = "function"
             elif current_section in {"dimensions", "units", "domains"}:
                 name_style = "type"
@@ -179,6 +181,7 @@ _KIND_LABELS = {
     "inputs": "输入",
     "fields": "字段",
     "functions": "函数",
+    "tables": "查表",
     "outputs": "输出",
     "alias": "别名",
     "dimensions": "量纲",
@@ -203,13 +206,6 @@ SNIPPETS = (
         1,
     ),
     _snippet(
-        "场景文档",
-        "场景文档",
-        "scenario document",
-        "@kirin 1\n@scenario scenario_id\n\n// 中文标题\n\nvalues:\n  entry.input = $0",
-        2,
-    ),
-    _snippet(
         "图表文档",
         "图表文档",
         "plot document",
@@ -226,18 +222,27 @@ SNIPPETS = (
         'functions:\n  function_name "显示名"(arg: number[dimensionless]) -> dimensionless =\n    $0',
         13,
     ),
+    _snippet(
+        "查表章节",
+        "查表",
+        "tables",
+        'tables:\n  table_name "显示名": dimensionless -> dimensionless:\n    1 = $0',
+        14,
+    ),
     _snippet("输出章节", "输出", "outputs", 'outputs:\n  result "显示名": dimensionless = $0', 14),
+    _snippet("分组章节", "分组", "groups", 'groups:\n  group_id "显示名":\n    result$0', 15),
+    _snippet(
+        "参数方案章节",
+        "参数方案",
+        "presets",
+        'presets:\n  preset_id "显示名":\n    entry.input = $0',
+        16,
+    ),
+    _snippet("显示章节", "显示", "display", "display:\n  result: number digits $0", 17),
     _snippet("约束章节", "约束", "constraints", "constraints:\n  $0", 15),
     _snippet("说明字段", "说明字段", "info", 'info:\n  note "说明" = "$0"', 16),
     _snippet("来源章节", "来源", "sources", 'sources:\n  {"kind":"note","citation":"$0"}', 17),
     _snippet("长说明块", "长说明", "description", "---\n$0\n---", 18),
-    _snippet(
-        "场景参数",
-        "场景",
-        "values",
-        "values:\n  entry.input = $0",
-        19,
-    ),
     _snippet(
         "图表配置",
         "图表",
@@ -269,6 +274,30 @@ BUILTIN_COMPLETIONS = (
         "sum(expression, index, lower, $0)",
         "builtin",
         ("sum", "求和", "有限求和"),
+        24,
+    ),
+    CompletionCandidate(
+        "有限连乘",
+        "内置函数 · product",
+        "product(expression, index, lower, $0)",
+        "builtin",
+        ("product", "连乘", "有限连乘"),
+        24,
+    ),
+    CompletionCandidate(
+        "精确查表",
+        "内置函数 · lookup",
+        "lookup(table_name, $0)",
+        "builtin",
+        ("lookup", "查表", "精确查表"),
+        24,
+    ),
+    CompletionCandidate(
+        "线性插值",
+        "内置函数 · interpolate",
+        "interpolate(table_name, $0)",
+        "builtin",
+        ("interpolate", "插值", "线性插值"),
         24,
     ),
     CompletionCandidate("布尔真", "关键字 · true", "true", "keyword", ("true", "真"), 26),
@@ -359,12 +388,13 @@ def _index_source(
             if match and valid:
                 semantics.append((match.group("name"), section))
             continue
-        if section not in {"inputs", "fields", "functions", "outputs"}:
+        if section not in {"inputs", "fields", "functions", "tables", "outputs"}:
             continue
         match = _MEMBER_RE.match(line)
         tail = line[match.end() :].lstrip() if match else ""
         if match and (
             (section == "functions" and tail.startswith("("))
+            or (section == "tables" and tail.startswith(":"))
             or (section in {"inputs", "fields", "outputs"} and tail.startswith(":"))
         ):
             members.append(

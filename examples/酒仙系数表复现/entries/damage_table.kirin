@@ -12,7 +12,7 @@
 ---
 
 sources:
-  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第1张表 伤害表，A1:U31"}
+  {"kind":"workbook","citation":"酒仙技能攻强系数表 v2.1.xlsx，第1张表 伤害表，A1:U31","game_version":"12.0.1.65617","verified_at":"2026-09-01"}
 
 inputs:
   weapon_dps "武器秒伤": number[attack_power] = 77.5 in 0..*
@@ -224,3 +224,98 @@ outputs:
     harmonic_surge_coefficient / 100,
     0
     )
+
+groups:
+  predicted_damage "预测伤害":
+    tiger_palm_damage
+    blackout_kick_damage
+    spinning_crane_kick_damage
+    keg_smash_damage
+    exploding_keg_damage
+    chi_burst_damage
+    special_delivery_damage
+    niuzao_damage
+    breath_of_fire_damage
+    dragonfire_tick_damage
+    breath_of_fire_dot_damage
+    empty_keg_damage
+    rushing_jade_wind_damage
+    season_two_set_damage
+    crackling_jade_lightning_damage
+    fuel_on_the_fire_damage
+    clear_the_cellar_damage
+    aflame_damage
+    flurry_normal_damage
+    flurry_physical_damage
+    high_impact_damage
+    harmonic_surge_damage
+
+  coefficients "攻强系数":
+    tiger_palm_coefficient
+    blackout_kick_coefficient
+    spinning_crane_kick_coefficient
+    keg_smash_coefficient
+    exploding_keg_coefficient
+    chi_burst_coefficient
+    special_delivery_coefficient
+    niuzao_coefficient
+    breath_of_fire_coefficient
+    dragonfire_tick_coefficient
+    breath_of_fire_dot_coefficient
+    empty_keg_coefficient
+    rushing_jade_wind_coefficient
+    season_two_set_coefficient
+    crackling_jade_lightning_coefficient
+    fuel_on_the_fire_coefficient
+    clear_the_cellar_coefficient
+    aflame_coefficient
+    flurry_normal_coefficient
+    flurry_physical_coefficient
+    high_impact_coefficient
+    harmonic_surge_coefficient
+
+display:
+  tiger_palm_damage: integer
+  blackout_kick_damage: integer
+  spinning_crane_kick_damage: integer
+  keg_smash_damage: integer
+  exploding_keg_damage: integer
+  chi_burst_damage: integer
+  special_delivery_damage: integer
+  niuzao_damage: integer
+  breath_of_fire_damage: integer
+  dragonfire_tick_damage: integer
+  breath_of_fire_dot_damage: integer
+  empty_keg_damage: integer
+  rushing_jade_wind_damage: integer
+  season_two_set_damage: integer
+  crackling_jade_lightning_damage: integer
+  fuel_on_the_fire_damage: integer
+  clear_the_cellar_damage: integer
+  aflame_damage: integer
+  flurry_normal_damage: integer
+  flurry_physical_damage: integer
+  high_impact_damage: integer
+  harmonic_surge_damage: integer
+  tiger_palm_coefficient: coefficient_percent digits 2
+  blackout_kick_coefficient: coefficient_percent digits 2
+  spinning_crane_kick_coefficient: coefficient_percent digits 2
+  keg_smash_coefficient: coefficient_percent digits 2
+  exploding_keg_coefficient: coefficient_percent digits 2
+  chi_burst_coefficient: coefficient_percent digits 2
+  special_delivery_coefficient: coefficient_percent digits 2
+  niuzao_coefficient: coefficient_percent digits 2
+  breath_of_fire_coefficient: coefficient_percent digits 2
+  dragonfire_tick_coefficient: coefficient_percent digits 2
+  breath_of_fire_dot_coefficient: coefficient_percent digits 2
+  empty_keg_coefficient: coefficient_percent digits 2
+  rushing_jade_wind_coefficient: coefficient_percent digits 2
+  season_two_set_coefficient: coefficient_percent digits 2
+  crackling_jade_lightning_coefficient: coefficient_percent digits 2
+  fuel_on_the_fire_coefficient: coefficient_percent digits 2
+  clear_the_cellar_coefficient: coefficient_percent digits 2
+  aflame_coefficient: coefficient_percent digits 2
+  flurry_normal_coefficient: coefficient_percent digits 2
+  flurry_physical_coefficient: coefficient_percent digits 2
+  high_impact_coefficient: coefficient_percent digits 2
+  harmonic_surge_coefficient: coefficient_percent digits 2

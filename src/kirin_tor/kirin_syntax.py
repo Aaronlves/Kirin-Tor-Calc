@@ -22,7 +22,7 @@ from .limits import MAX_SOURCE_BYTES
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 QUOTED_STRING = r'"(?:[^"\\]|\\.)*"'
-_HEADER_RE = re.compile(r"^@(entry|scenario|plot)\s+(" + IDENTIFIER + r")$")
+_HEADER_RE = re.compile(r"^@(entry|plot)\s+(" + IDENTIFIER + r")$")
 _SECTION_RE = re.compile(r"^(" + IDENTIFIER + r"):$$")
 _KEY_VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
 _FENCE_RE = re.compile(r"^-{3,}$")
@@ -51,6 +51,18 @@ _INFO_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*=\s*(?P<value>.+)$"
 )
 _ALIAS_RE = re.compile(rf"^(?P<alias>[^\s=]+)\s*=\s*(?P<target>{IDENTIFIER}\.{IDENTIFIER})$")
+_NAMED_BLOCK_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:$"
+)
+_DISPLAY_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})\s*:\s*"
+    r"(?P<display>number|integer|percent|coefficient_percent)"
+    r"(?:\s+digits\s+(?P<digits>\d+))?$"
+)
+_TABLE_RE = re.compile(
+    rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*"
+    rf"(?P<input>{IDENTIFIER})\s*->\s*(?P<output>{IDENTIFIER})\s*:$"
+)
 
 
 @dataclass(frozen=True)
@@ -278,7 +290,9 @@ def _dimension_exponent(node: ast.AST, path: Path, line: _Line) -> Fraction:
     raise AssertionError("unreachable")
 
 
-def _parse_dimension_expression(expression: str, path: Path, line: _Line) -> Dict[str, str]:
+def _parse_dimension_expression(
+    expression: str, path: Path, line: _Line
+) -> Tuple[Dict[str, str], str]:
     try:
         root = ast.parse(expression, mode="eval")
     except SyntaxError as exc:
@@ -292,19 +306,35 @@ def _parse_dimension_expression(expression: str, path: Path, line: _Line) -> Dic
                 del result[name]
         return result
 
-    def visit(node: ast.AST) -> Dict[str, Fraction]:
+    def visit(node: ast.AST) -> Tuple[Dict[str, Fraction], Fraction]:
         if isinstance(node, ast.Name):
-            return {node.id: Fraction(1)}
-        if isinstance(node, ast.Constant) and node.value == 1:
-            return {}
+            return {node.id: Fraction(1)}, Fraction(1)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            token = ast.get_source_segment(expression, node)
+            try:
+                scale = Fraction(token) if token is not None else Fraction(node.value)
+            except (ValueError, ZeroDivisionError):
+                _fail(path, "unit scale must be an exact positive number", line, "units")
+            return {}, scale
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
-            return combine(visit(node.left), visit(node.right), 1)
+            left, left_scale = visit(node.left)
+            right, right_scale = visit(node.right)
+            return combine(left, right, 1), left_scale * right_scale
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            return combine(visit(node.left), visit(node.right), -1)
+            left, left_scale = visit(node.left)
+            right, right_scale = visit(node.right)
+            if right_scale == 0:
+                _fail(path, "unit scale denominator may not be zero", line, "units")
+            return combine(left, right, -1), left_scale / right_scale
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
-            base = visit(node.left)
+            base, scale = visit(node.left)
             exponent = _dimension_exponent(node.right, path, line)
-            return {name: power * exponent for name, power in base.items() if power * exponent}
+            if exponent.denominator != 1 and scale != 1:
+                _fail(path, "a scaled unit may only use an integer power", line, "units")
+            return (
+                {name: power * exponent for name, power in base.items() if power * exponent},
+                scale ** exponent.numerator,
+            )
         _fail(
             path,
             "dimension expression allows only names, 1, multiplication, division, and exact powers",
@@ -313,8 +343,13 @@ def _parse_dimension_expression(expression: str, path: Path, line: _Line) -> Dic
         )
         raise AssertionError("unreachable")
 
-    powers = visit(root.body)
-    return {name: str(power) for name, power in sorted(powers.items())}
+    powers, scale = visit(root.body)
+    if scale <= 0:
+        _fail(path, "unit scale must be positive", line, "units")
+    return (
+        {name: str(power) for name, power in sorted(powers.items())},
+        str(scale),
+    )
 
 
 def _statements(lines: Iterable[_Line], path: Path, section: str) -> List[_Statement]:
@@ -360,7 +395,7 @@ def _parse_document_structure(
         _fail(path, "document type declaration is missing", code_lines[0])
     header = _HEADER_RE.fullmatch(code_lines[1].text)
     if not header:
-        _fail(path, "second declaration must be '@entry ID', '@scenario ID', or '@plot ID'", code_lines[1])
+        _fail(path, "second declaration must be '@entry ID' or '@plot ID'", code_lines[1])
     if "\t" in code_lines[0].raw or "\t" in code_lines[1].raw:
         _fail(path, "tabs are not allowed; use spaces for indentation", code_lines[1])
     assert header is not None
@@ -469,7 +504,8 @@ def _parse_entry(
 ) -> Dict[str, Any]:
     allowed_sections = {
         "dimensions", "units", "domains", "inputs", "constraints", "fields",
-        "info", "functions", "outputs", "sources", "aliases",
+        "info", "functions", "tables", "outputs", "sources", "aliases", "groups", "presets",
+        "display",
     }
     unknown = sorted(set(sections) - allowed_sections)
     if unknown:
@@ -529,7 +565,10 @@ def _parse_entry(
             _fail(path, "unit must use NAME = DIMENSION_EXPRESSION", statement.head, "units")
         if name in units:
             _fail(path, f"duplicate unit {name!r}", statement.head, f"units.{name}")
-        units[name] = {"dimensions": _parse_dimension_expression(expression, path, statement.head)}
+        dimensions, scale = _parse_dimension_expression(expression, path, statement.head)
+        units[name] = {"dimensions": dimensions}
+        if scale != "1":
+            units[name]["scale"] = scale
         _set_position(positions, f"semantics.units.{name}", statement.head)
     if units:
         semantics["units"] = units
@@ -671,6 +710,50 @@ def _parse_entry(
         _set_position(positions, f"functions.{name}", statement.head)
         _set_position(positions, f"functions.{name}.expression", statement.head)
 
+    tables: Dict[str, Any] = {}
+    for statement in _statements(sections.get("tables", ()), path, "tables"):
+        match = _TABLE_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(
+                path,
+                'table must use ID ["LABEL"]: INPUT_UNIT -> OUTPUT_UNIT:',
+                statement.head,
+                "tables",
+            )
+        assert match is not None
+        table_id = match.group("name")
+        if table_id in tables:
+            _fail(path, f"duplicate table {table_id!r}", statement.head, f"tables.{table_id}")
+        points = []
+        for point in _statements(statement.continuation, path, f"tables.{table_id}"):
+            if point.continuation or point.head.text.count("=") != 1:
+                _fail(
+                    path,
+                    "table point must use X = Y",
+                    point.head,
+                    f"tables.{table_id}",
+                )
+            x, y = (part.strip() for part in point.head.text.split("=", 1))
+            if not x or not y:
+                _fail(path, "table point requires X and Y", point.head, f"tables.{table_id}")
+            points.append([_atom(x, path, point.head), _atom(y, path, point.head)])
+            _set_position(
+                positions,
+                f"tables.{table_id}.points.{len(points) - 1}",
+                point.head,
+            )
+        tables[table_id] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else table_id,
+            "input_unit": match.group("input"),
+            "unit": match.group("output"),
+            "points": points,
+        }
+        _set_position(positions, f"tables.{table_id}", statement.head)
+    if tables:
+        raw["tables"] = tables
+
     for statement in _statements(sections.get("outputs", ()), path, "outputs"):
         match = _OUTPUT_RE.fullmatch(statement.head.text)
         if not match:
@@ -693,42 +776,119 @@ def _parse_entry(
             )
         _set_position(positions, f"outputs.{name}", statement.head)
         _set_position(positions, f"outputs.{name}.expression", statement.head)
-    return raw
 
+    groups: Dict[str, Any] = {}
+    for statement in _statements(sections.get("groups", ()), path, "groups"):
+        match = _NAMED_BLOCK_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, 'group must use ID ["LABEL"]:', statement.head, "groups")
+        assert match is not None
+        group_id = match.group("name")
+        if group_id in groups:
+            _fail(path, f"duplicate group {group_id!r}", statement.head, f"groups.{group_id}")
+        members = []
+        for member_statement in _statements(statement.continuation, path, f"groups.{group_id}"):
+            if member_statement.continuation or not re.fullmatch(IDENTIFIER, member_statement.head.text):
+                _fail(
+                    path,
+                    "group members must be local output identifiers",
+                    member_statement.head,
+                    f"groups.{group_id}",
+                )
+            members.append(member_statement.head.text)
+            _set_position(
+                positions,
+                f"groups.{group_id}.outputs.{len(members) - 1}",
+                member_statement.head,
+            )
+        groups[group_id] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else group_id,
+            "outputs": members,
+        }
+        _set_position(positions, f"groups.{group_id}", statement.head)
+    if groups:
+        raw["groups"] = groups
 
-def _parse_scenario(
-    doc_id: str,
-    description: Optional[str],
-    sections: Dict[str, Tuple[_Line, ...]],
-    top_values: Dict[str, Tuple[str, _Line]],
-    positions: Dict[str, Tuple[int, int]],
-    path: Path,
-) -> Dict[str, Any]:
-    if set(sections) - {"values"}:
-        unknown = sorted(set(sections) - {"values"})[0]
-        _fail(path, f"unknown scenario section {unknown!r}", field=unknown)
-    if top_values:
-        key = sorted(top_values)[0]
-        _fail(path, f"unknown scenario key {key!r}", top_values[key][1], key)
-    raw: Dict[str, Any] = {
-        "schema_version": 1,
-        "id": doc_id,
-        "name": doc_id,
-        "type": "scenario",
-        "values": {},
-    }
-    if description is not None:
-        raw["description"] = description
-    for statement in _statements(sections.get("values", ()), path, "values"):
-        if statement.continuation or statement.head.text.count("=") != 1:
-            _fail(path, "scenario value must use PARAMETER = VALUE", statement.head, "values")
-        name, value = (part.strip() for part in statement.head.text.split("=", 1))
-        if not name or not value:
-            _fail(path, "scenario value must include both parameter and value", statement.head, "values")
-        if name in raw["values"]:
-            _fail(path, f"duplicate scenario value {name!r}", statement.head, f"values.{name}")
-        raw["values"][name] = _atom(value, path, statement.head)
-        _set_position(positions, f"values.{name}", statement.head)
+    presets: Dict[str, Any] = {}
+    for statement in _statements(sections.get("presets", ()), path, "presets"):
+        match = _NAMED_BLOCK_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(path, 'preset must use ID ["LABEL"]:', statement.head, "presets")
+        assert match is not None
+        preset_id = match.group("name")
+        if preset_id in presets:
+            _fail(
+                path,
+                f"duplicate preset {preset_id!r}",
+                statement.head,
+                f"presets.{preset_id}",
+            )
+        values = {}
+        for value_statement in _statements(statement.continuation, path, f"presets.{preset_id}"):
+            if value_statement.continuation or value_statement.head.text.count("=") != 1:
+                _fail(
+                    path,
+                    "preset value must use PARAMETER = VALUE",
+                    value_statement.head,
+                    f"presets.{preset_id}",
+                )
+            name, value = (part.strip() for part in value_statement.head.text.split("=", 1))
+            if not name or not value:
+                _fail(
+                    path,
+                    "preset value must include both parameter and value",
+                    value_statement.head,
+                    f"presets.{preset_id}",
+                )
+            if name in values:
+                _fail(
+                    path,
+                    f"duplicate preset value {name!r}",
+                    value_statement.head,
+                    f"presets.{preset_id}.values.{name}",
+                )
+            values[name] = _atom(value, path, value_statement.head)
+            _set_position(
+                positions,
+                f"presets.{preset_id}.values.{name}",
+                value_statement.head,
+            )
+        presets[preset_id] = {
+            "label": _decode_string(match.group("label"), path, statement.head)
+            if match.group("label")
+            else preset_id,
+            "values": values,
+        }
+        _set_position(positions, f"presets.{preset_id}", statement.head)
+    if presets:
+        raw["presets"] = presets
+
+    for statement in _statements(sections.get("display", ()), path, "display"):
+        if statement.continuation:
+            _fail(path, "display declarations must fit on one line", statement.head, "display")
+        match = _DISPLAY_RE.fullmatch(statement.head.text)
+        if not match:
+            _fail(
+                path,
+                "display must use OUTPUT: FORMAT [digits N]",
+                statement.head,
+                "display",
+            )
+        assert match is not None
+        output_name = match.group("name")
+        if output_name not in raw["outputs"]:
+            _fail(
+                path,
+                f"display references unknown local output {output_name!r}",
+                statement.head,
+                f"display.{output_name}",
+            )
+        raw["outputs"][output_name]["display"] = match.group("display")
+        if match.group("digits") is not None:
+            raw["outputs"][output_name]["digits"] = int(match.group("digits"))
+        _set_position(positions, f"outputs.{output_name}.display", statement.head)
     return raw
 
 
@@ -744,7 +904,7 @@ def _parse_plot(
         unknown = sorted(set(sections) - {"y"})[0]
         _fail(path, f"unknown plot section {unknown!r}", field=unknown)
     allowed = {
-        "x", "range", "points", "scenario", "title", "x-label", "y-label",
+        "x", "range", "points", "preset", "title", "x-label", "y-label",
         "export-svg", "export-csv",
     }
     unknown = sorted(set(top_values) - allowed)
@@ -776,7 +936,7 @@ def _parse_plot(
         _fail(path, "plot points must be an integer", points_line, "points")
 
     key_map = {
-        "scenario": "scenario",
+        "preset": "preset",
         "title": "title",
         "x-label": "x_label",
         "y-label": "y_label",
@@ -815,8 +975,6 @@ def parse_kirin_source(
     doc_type, doc_id, description, sections, top_values, positions = _parse_document_structure(text, path)
     if doc_type == "entry":
         raw = _parse_entry(doc_id, description, sections, top_values, positions, path)
-    elif doc_type == "scenario":
-        raw = _parse_scenario(doc_id, description, sections, top_values, positions, path)
     else:
         raw = _parse_plot(doc_id, description, sections, top_values, positions, path)
     return raw, positions
@@ -907,8 +1065,8 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
     """Render one structured schema document as canonical Kirin v1 source."""
     doc_type = raw.get("type")
     doc_id = raw.get("id")
-    if raw.get("schema_version") != 1 or doc_type not in {"entry", "scenario", "plot"}:
-        raise SchemaError("Kirin renderer requires a schema-v1 entry, scenario, or plot")
+    if raw.get("schema_version") != 1 or doc_type not in {"entry", "plot"}:
+        raise SchemaError("Kirin renderer requires a schema-v1 entry or plot")
     if not isinstance(doc_id, str):
         raise SchemaError("Kirin renderer requires a document id")
     lines = ["@kirin 1", f"@{doc_type} {doc_id}"]
@@ -923,12 +1081,6 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
     lines.extend(["", f"// {str(raw.get('name', doc_id)).replace(chr(10), ' ')}"])
     if "description" in raw:
         lines.extend(["", *_description_block(str(raw["description"]))])
-
-    if doc_type == "scenario":
-        lines.extend(["", "values:"])
-        for name, value in raw.get("values", {}).items():
-            lines.append(f"  {name} = {_render_atom(value)}")
-        return "\n".join(lines).rstrip() + "\n"
 
     if doc_type == "plot":
         lines.extend(
@@ -946,7 +1098,7 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
             suffix = f" as {_render_atom(labels[target], text=True)}" if target in labels else ""
             lines.append(f"  {target}{suffix}")
         plot_keys = {
-            "scenario": "scenario",
+            "preset": "preset",
             "title": "title",
             "x_label": "x-label",
             "y_label": "y-label",
@@ -958,7 +1110,7 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
                 lines.append(f"{target}: {_render_atom(raw[source], text=True)}")
         allowed = {
             "schema_version", "id", "name", "type", "description", "x", "range", "points",
-            "y", "scenario", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
+            "y", "preset", "out", "data_out", "title", "x_label", "y_label", "curve_labels",
         }
         unsupported = set(raw) - allowed
         if unsupported:
@@ -981,7 +1133,10 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
     if units:
         lines.extend(["", "units:"])
         for name, spec in units.items():
-            lines.append(f"  {name} = {_dimension_text(spec.get('dimensions', {}))}")
+            dimension_text = _dimension_text(spec.get("dimensions", {}))
+            scale = str(spec.get("scale", "1"))
+            expression = dimension_text if scale == "1" else f"{scale} * {dimension_text}"
+            lines.append(f"  {name} = {expression}")
     domains = semantics.get("domains", {})
     if domains:
         lines.extend(["", "domains:"])
@@ -1062,10 +1217,21 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
                 labelled_name += f" {_render_atom(spec['label'], text=True)}"
             prefix = f"  {labelled_name}({parameters}) -> {spec.get('unit', 'dimensionless')} = "
             lines.extend(_render_expression(prefix, str(spec.get("expression", "")), "  "))
+    if raw.get("tables"):
+        lines.extend(["", "tables:"])
+        for name, spec in raw["tables"].items():
+            label = spec.get("label", name)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != name else ""
+            lines.append(
+                f"  {name}{label_suffix}: {spec.get('input_unit', 'dimensionless')}"
+                f" -> {spec.get('unit', 'dimensionless')}:"
+            )
+            for x, y in spec.get("points", []):
+                lines.append(f"    {_render_atom(x)} = {_render_atom(y)}")
     if raw.get("outputs"):
         lines.extend(["", "outputs:"])
         for name, spec in raw["outputs"].items():
-            unsupported = set(spec) - {"expression", "unit", "label"}
+            unsupported = set(spec) - {"expression", "unit", "label", "display", "digits"}
             if unsupported:
                 raise SchemaError(
                     f"Kirin v1 renderer cannot preserve output {name!r} attribute(s): {', '.join(sorted(unsupported))}"
@@ -1076,10 +1242,41 @@ def render_kirin_document(raw: Dict[str, Any]) -> str:
             prefix = f"  {labelled_name}: {spec.get('unit', 'dimensionless')} = "
             lines.extend(_render_expression(prefix, str(spec.get("expression", "")), "  "))
 
+    if raw.get("groups"):
+        lines.extend(["", "groups:"])
+        for group_id, spec in raw["groups"].items():
+            label = spec.get("label", group_id)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != group_id else ""
+            lines.append(f"  {group_id}{label_suffix}:")
+            for output in spec.get("outputs", []):
+                lines.append(f"    {output}")
+
+    if raw.get("presets"):
+        lines.extend(["", "presets:"])
+        for preset_id, spec in raw["presets"].items():
+            label = spec.get("label", preset_id)
+            label_suffix = f" {_render_atom(label, text=True)}" if label != preset_id else ""
+            lines.append(f"  {preset_id}{label_suffix}:")
+            for name, value in spec.get("values", {}).items():
+                lines.append(f"    {name} = {_render_atom(value)}")
+
+    display_items = [
+        (name, spec)
+        for name, spec in raw.get("outputs", {}).items()
+        if spec.get("display") is not None or spec.get("digits") is not None
+    ]
+    if display_items:
+        lines.extend(["", "display:"])
+        for name, spec in display_items:
+            declaration = f"  {name}: {spec.get('display', 'number')}"
+            if spec.get("digits") is not None:
+                declaration += f" digits {spec['digits']}"
+            lines.append(declaration)
+
     allowed = {
         "schema_version", "id", "name", "type", "template", "description", "sources",
         "game_version", "validation_status", "semantics", "aliases", "inputs", "constraints", "fields",
-        "functions", "outputs",
+        "functions", "tables", "outputs", "groups", "presets",
     }
     unsupported = set(raw) - allowed
     if unsupported:

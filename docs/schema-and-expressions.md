@@ -9,7 +9,6 @@
 ```text
 kirin.workspace
 entries/
-scenarios/
 plots/
 runs/
 results/
@@ -22,9 +21,9 @@ results/
 initial-package: none
 ```
 
-`initial-package` 只记录初始化选择，不给予任何运行时权限。`entries/`、`scenarios/` 和 `plots/` 递归发现 `.kirin` 文件；文件名、子目录和 `//` 标题注释都不构成引用身份。
+`initial-package` 只记录初始化选择，不给予任何运行时权限。`entries/` 和 `plots/` 递归发现 `.kirin` 文件；文件名、子目录和 `//` 标题注释都不构成引用身份。
 
-文档 id、字段、输入、函数、局部参数、量纲、单位和值域名称遵守 `[A-Za-z_][A-Za-z0-9_]*`，且不得以 `__` 开头。scenario 参数和绘图横轴可以使用 `entry_id.input_name`。
+文档 id、字段、输入、函数、局部参数、量纲、单位和值域名称遵守 `[A-Za-z_][A-Za-z0-9_]*`，且不得以 `__` 开头。参数方案和绘图轴可以使用 `entry_id.input_name`。
 
 ## 2. 文档种类
 
@@ -36,10 +35,9 @@ initial-package: none
 
 角色、技能、天赋、开关、组合模型以及语义声明都是普通 entry。`@template` 只是作者标记，不参与计算分派。
 
-另外两种文档是：
+另一个公开文档种类是：
 
 ```text
-@scenario ID
 @plot ID
 ```
 
@@ -57,14 +55,15 @@ dimensions:
 units:
   damage = damage
   second = time
+  millisecond = 1/1000 * time
   damage_per_time = damage / time
 ```
 
-量纲是独立数学轴。单位右侧会被解析成“基础量纲 → 精确有理指数”的结构映射；只允许名称、`1`、乘法、除法和精确幂。
+量纲是独立数学轴。单位右侧会被解析成精确比例与“基础量纲 → 精确有理指数”的结构映射；只允许正的精确比例、名称、乘法、除法和精确幂。
 
 同名且结构相同的声明可以重复；同名但结构不同会失败并报告两个来源位置。内核不会根据名字猜测或自动创建单位。
 
-当前版本只处理量纲，不进行秒/毫秒等比例换算。
+输入、常量、查表点、范围、目标值和结果都会按声明比例精确换算。表达式中也可直接写 `500 * millisecond`。
 
 ### 3.2 可复用值域
 
@@ -101,16 +100,16 @@ inputs:
 
 - 当前条目内部写 `crit`；
 - 其他条目写 `combo.crit`；
-- scenario、CLI 覆盖、求导、求解和扫描推荐使用限定名；
+- 参数方案、CLI 覆盖、求导、求解和扫描推荐使用限定名；
 - 短名只有在当前候选集合中唯一时才能省略前缀。
 
 参数优先级为：
 
 ```text
-entry default < scenario < --set
+entry default < preset < --set
 ```
 
-符号保留变量、求导/求解变量和扫描横轴不会被默认值或 scenario 提前代入。
+符号保留变量、求导/求解变量和扫描轴不会被默认值或参数方案提前代入。
 
 ### 4.1 中文局部别名与显示标签
 
@@ -125,7 +124,7 @@ outputs:
   total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
 ```
 
-别名可以指向输入、字段、输出或函数，但不能遮蔽当前条目的正式成员或表达式内置函数。其他文件、scenario、CLI 参数和运行结果仍使用正式限定身份。输入、字段、说明字段、函数和输出都可以在正式 ID 后增加双引号显示标签；标签只影响 `explain`、TUI 和图表呈现，不参与引用。plot 中显式的 `as "标签"` 优先于成员默认标签。
+别名可以指向输入、字段、输出或函数，但不能遮蔽当前条目的正式成员或表达式内置函数。其他文件、参数方案、CLI 参数和运行结果仍使用正式限定身份。输入、字段、说明字段、函数和输出都可以在正式 ID 后增加双引号显示标签；标签只影响 `explain`、TUI 和图表呈现，不参与引用。plot 中显式的 `as "标签"` 优先于成员默认标签。
 
 ## 5. 约束、字段、函数与输出
 
@@ -137,7 +136,7 @@ constraints:
   not enabled or coefficient > 0
 ```
 
-约束必须产生布尔值，可以引用当前条目的输入、数学字段和普通跨条目成员。`kt check` 会验证可确定的默认值及 scenario 组合。
+约束必须产生布尔值，可以引用当前条目的输入、数学字段和普通跨条目成员。`kt check` 会验证可确定的默认值及参数方案组合。
 
 ### 5.2 字段
 
@@ -165,18 +164,28 @@ outputs:
 
 函数参数是显式局部变量，不能声明默认值。函数和输出声明的单位必须与表达式推导的量纲一致。
 
-## 6. Scenario
+## 6. 分组、参数方案、查表与显示
 
 ```text
-@kirin 1
-@scenario baseline
+groups:
+  damage "伤害收益":
+    total
 
-values:
-  combo.crit = 0.25
-  selection.enabled = true
+presets:
+  baseline "当前配装":
+    combo.crit = 0.25
+    selection.enabled = true
+
+tables:
+  rating "等级换算": dimensionless -> dimensionless:
+    1 = 10
+    3 = 30
+
+display:
+  total: integer
 ```
 
-Scenario 只能提供已声明的外部输入。十进制直接作为精确文本处理，不经过二进制浮点数。单次计算只代入当前依赖闭包需要的值。
+分组完全由作者命名，只影响 TUI 中的顺序和搜索；内核不预设游戏类别。参数方案只能提供已声明的输入，稳定引用为 `entry.preset`。十进制直接作为精确文本处理，不经过二进制浮点数。`lookup` 要求精确键，`interpolate` 只在表范围内做线性插值。
 
 ## 7. Plot
 
@@ -192,7 +201,7 @@ y:
   combo.total as "组合 A"
   alternative.total as "组合 B"
 
-scenario: baseline
+preset: builds.baseline
 title: "对比"
 x-label: "暴击率"
 y-label: "数值"
@@ -200,7 +209,7 @@ export-svg: "results/damage.svg"
 export-csv: "results/damage.csv"
 ```
 
-所有曲线共享一个稳定横轴输入。不同纵轴单位可以同时绘制；工具保留每条曲线单位并产生警告，不进行隐式换算。
+所有曲线共享一个稳定横轴输入。不同量纲的纵轴可以同时绘制；工具保留每条曲线单位并产生警告。相同量纲的不同单位会按声明比例精确换算。
 
 TUI 使用同一份 scan 数据直接生成 Plotext 终端图。SVG、PNG 和 CSV 导出仍通过同一数学求值结果产生。
 
@@ -227,6 +236,9 @@ ceil(x)
 if_else(condition, when_true, when_false)
 piecewise(condition1, value1, ..., default_value)
 sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
+product(expression, index, inclusive_lower_integer, inclusive_upper_integer)
+lookup(table, key)
+interpolate(table, key)
 ```
 
 不允许：
@@ -257,7 +269,9 @@ sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
 
 未完成集合不会被截断成几个样本冒充完整答案。
 
-扫描使用精确等距横轴。无效采样点保留错误原因并形成曲线断点。所有解析、引用展开、SymPy 操作、扫描与绘图均受进程级超时约束。
+`solve-system` 可对最多八个输入联立最多八个等式；只接受满足每个输入值域和全部定义域条件的有限符号解，参数化结果会明确标为 `incomplete`。
+
+一维扫描和双属性网格都使用精确等距轴。无效采样点保留错误原因并形成曲线断点或热力图空格。二维网格总点数与一维扫描共享 10,000 点上限。所有解析、引用展开、SymPy 操作、求解、扫描与绘图均受进程级超时约束。
 
 ## 11. 运行记录与重放
 
@@ -270,7 +284,7 @@ sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
 - 成功结果或失败状态；
 - 导出文件的哈希与大小。
 
-重放只从嵌入的结构快照构建隔离工作区，不读取当前 `entries/`、`scenarios/` 或 `plots/`。
+重放只从嵌入的结构快照构建隔离工作区，不读取当前 `entries/` 或 `plots/`。
 
 ## 12. 固定限制
 
@@ -285,7 +299,8 @@ sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
 | 单 entry 输入 | 100 |
 | 单值域允许值 | 1,000 |
 | 单次扫描点 | 10,000 |
-| 有限求和项 | 10,000 |
+| 有限求和或连乘项 | 10,000 |
+| 联立方程或变量 | 8 |
 | 默认操作超时 | 10 秒 |
 | 最大可请求超时 | 300 秒 |
 

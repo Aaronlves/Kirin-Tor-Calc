@@ -19,3 +19,10 @@ inputs:
 
 outputs:
   total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
+
+groups:
+  damage "伤害":
+    total
+
+display:
+  total: integer

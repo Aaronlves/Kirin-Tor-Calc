@@ -126,6 +126,15 @@ def _build_capability_workspace(root: Path) -> Path:
                     "unit": "dimensionless",
                 },
             },
+            presets={
+                "alternate_talents": {
+                    "label": "alternate_talents",
+                    "values": {
+                        "choose_talent_a": False,
+                        "choose_talent_b": True,
+                    },
+                }
+            },
         ),
     )
 
@@ -213,16 +222,6 @@ def _build_capability_workspace(root: Path) -> Path:
     )
 
     write_kirin(
-        root / "scenarios" / "alternate_talents.kirin",
-        {
-            "schema_version": 1,
-            "id": "alternate_talents",
-            "name": "alternate_talents",
-            "type": "scenario",
-            "values": {"choose_talent_a": False, "choose_talent_b": True},
-        },
-    )
-    write_kirin(
         root / "plots" / "target_scaling.kirin",
         {
             "schema_version": 1,
@@ -252,7 +251,9 @@ def test_character_talents_selection_and_complex_composition(tmp_path: Path) -> 
     default_skill = evaluate(Engine(Workspace.load(root)), "skill.damage")
     assert default_skill["exact"] == "1980"
     alternate_skill = evaluate(
-        Engine(Workspace.load(root)), "skill.damage", scenario="alternate_talents"
+        Engine(Workspace.load(root)),
+        "skill.damage",
+        preset="talent_selection.alternate_talents",
     )
     assert alternate_skill["exact"] == "1815"
 

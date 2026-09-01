@@ -2,7 +2,7 @@
 
 Kirin Tor CLI 是一个游戏中立、文件驱动的结构化数学工作台。它面向希望保存数据、公式、参数方案和图表，而不想编写程序的理论计算用户。
 
-内核只有一种数学条目 `entry`。角色、技能、天赋、目标衰减、组合公式以及其他游戏机制都由用户用普通条目表达；内核不会把任何游戏、职业或机制写死。条目、scenario、plot 和用户声明的数学语义统一使用 `.kirin` 源文件。可选的 WoW 初始化包也只是遵守同一公开语法的普通数据文件，没有额外执行权限。
+公开文档只有两类：保存数据、公式和参数方案的 `entry`，以及保存图表配置的 `plot`。角色、技能、天赋、目标衰减、组合公式以及其他游戏机制都由用户用普通条目表达；内核不会把任何游戏、职业或机制写死。两类文档和用户声明的数学语义统一使用 `.kirin` 源文件。可选的 WoW 初始化包也只是遵守同一公开语法的普通数据文件，没有额外执行权限。
 
 这不是战斗模拟器：没有事件队列、随机战斗模拟、完整 APL、Boss 时间轴或自动循环优化器。
 
@@ -52,17 +52,18 @@ outputs:
   expected "期望伤害": damage = base_damage * (1 + crit)
 ```
 
-在工作区内运行 `kt tui` 会打开第一个 `.kirin` 文档；也可以指定相对路径：
+在工作区内运行 `kt tui` 会打开第一个 `.kirin` 文档；也可以直接传工作区目录或源文件，不必先 `cd`：
 
 ```bash
 kt tui entries/fictional_effect.kirin
+kt tui /path/to/workspace
 ```
 
 TUI 默认进入玩家计算台，并提供五个普通入口：计算、图表、文档、诊断和记录。`Ctrl+1` 至 `Ctrl+5` 切换入口。
 
-- **计算**选择一个正式输出，并添加一个或多个命名方案。每个方案可以选择参数方案，并用逗号分隔临时参数。参数既可使用正式名称，也可使用唯一的局部名称或中文显示标签；百分比可以直接写作 `暴击率=25%`。结果同时显示精确值、近似值、相对基准的差异和百分比。也可以按第一个方案反求达到目标结果所需的单个输入。
-- **图表**直接选择横轴输入、结果输出、范围、点数和参数方案，生成共享同一份扫描数据的终端曲线与数据表；也可以把计算页中的当前方案画成多条比较曲线。单方案探索结果可转换为未保存的图表配置草稿。
-- **文档**保留原有 Kirin 编辑器。`Ctrl+N` 创建通用条目、技能或数据、组合模型、参数方案或图表配置草稿；创建时不写盘。`Ctrl+P` 切换文档，`Ctrl+R` 校验所有内存草稿，`Ctrl+S` 验证后保存全部已修改文档，`Ctrl+E` 保存并导出当前图表配置的 SVG/CSV。
+- **计算**选择一个正式输出，并添加一个或多个命名方案。输出按作者在条目中声明的分组排序和搜索，工具不预设“伤害/防御”等类别。每个比较方案可以选择条目内参数方案，也可以通过类型化表单或高级文本临时改参数；百分比可直接写作 `25%`。结果使用作者声明的整数、百分比或系数显示，同时保留精确值。除了单输入反求，也可用多个结果联立反求多个输入。
+- **图表**可生成单轴曲线、多方案比较曲线和双属性热力图；终端预览与数据表共享同一份计算结果。已保存的 `plot` 会完整恢复所有曲线。单方案曲线可转换为未保存的图表配置草稿；热力图可导出完整 CSV。
+- **文档**保留 Kirin 编辑器。`Ctrl+N` 只创建 `entry` 或 `plot` 草稿；entry 可从空白、数据、公式或基础语义模板开始，参数方案写在 entry 的 `presets:` 中。创建时不写盘。`Ctrl+P` 切换文档，`Ctrl+R` 校验所有内存草稿，`Ctrl+S` 验证后保存全部已修改文档，`Ctrl+E` 保存并导出当前图表配置的 SVG/CSV。
 - **诊断**聚合多个文件中的独立错误，选择错误后会打开对应文件和行；也可查看输出的展开公式、输入、单位、条件和依赖文档。
 - **记录**把已保存文档上的计算比较写成含定义快照的不可变运行记录，并使用同一重放管线检查结果和环境是否一致。
 
@@ -74,7 +75,7 @@ TUI 的状态、诊断类别和常见错误说明默认使用中文。诊断保�
 
 文档编辑区提供 Kirin 专用语法高亮；指令、章节、正式成员、中文别名、字符串、数字、布尔值、单位类型、函数调用、注释和 `---` 说明块使用不同样式。按 `Ctrl+Space` 打开补全，在候选中用上下方向键移动、`Enter` 插入、`Esc` 关闭。补全会读取全部磁盘文档和内存草稿，可以按正式 ID、中文标签或中文别名检索输入、字段、函数、输出、量纲、单位和值域；函数补全后光标位于参数括号内。
 
-补全面板还提供中文触发的结构片段，包括“条目文档”“场景文档”“图表文档”“输入”“别名”“字段”“函数”“输出”“约束”“说明字段”“来源”“长说明”“分段”和“条件”。多行片段继承当前行缩进，并把光标放在下一处需要填写的位置。
+补全面板还提供中文触发的结构片段，包括“条目文档”“图表文档”“输入”“别名”“字段”“函数”“查表”“输出”“分组”“参数方案”“显示”“约束”“说明字段”“来源”“长说明”“分段”和“条件”。多行片段继承当前行缩进，并把光标放在下一处需要填写的位置。
 
 完整语法见 [Kirin source syntax v1](docs/kirin-syntax.md)。
 
@@ -139,14 +140,15 @@ outputs:
   displayed_attack_power: attack_power = attack_power
 ```
 
-该输入的稳定身份是 `character.attack_power`。其他条目可以直接引用它，scenario 和 CLI 也可以覆盖它：
+该输入的稳定身份是 `character.attack_power`。其他条目可以直接引用它，条目内参数方案和 CLI 也可以覆盖它：
 
 ```text
 @kirin 1
-@scenario stronger
+@entry builds
 
-values:
-  character.attack_power = 3500
+presets:
+  stronger "高主属性":
+    character.attack_power = 3500
 ```
 
 ```bash
@@ -155,7 +157,7 @@ kt eval character.displayed_attack_power --set character.attack_power=3500
 
 如果一个短名在当前目标中唯一，`--set attack_power=3500` 仍可使用；若多个条目都声明 `rank` 或 `x`，必须写限定名。这避免不相关条目因为同名输入而被意外合并。
 
-参数优先级为：条目 `default` < scenario < 本次 `--set`。`--keep`、求导/求解变量以及扫描横轴不会被默认值或 scenario 提前代入。
+参数优先级为：条目 `default` < 参数方案 < 本次 `--set`。`--keep`、求导/求解变量以及扫描轴不会被默认值或参数方案提前代入。
 
 ## 中文局部别名与显示标签
 
@@ -173,7 +175,43 @@ outputs:
   total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
 ```
 
-别名可以指向输入、字段、输出或函数；其他文件、scenario、CLI 和运行结果仍使用 `entry.member` 正式身份。双引号标签只负责 TUI、`explain` 和图表呈现，修改标签不会破坏引用。plot 中显式的 `as "标签"` 会覆盖成员的默认标签。
+别名可以指向输入、字段、输出或函数；其他文件、参数方案、CLI 和运行结果仍使用 `entry.member` 正式身份。双引号标签只负责 TUI、`explain` 和图表呈现，修改标签不会破坏引用。plot 中显式的 `as "标签"` 会覆盖成员的默认标签。
+
+## 作者定义分组、参数方案与显示方式
+
+工具不预先决定玩家应该按什么分类。作者可以把本条目的输出放入任意分组，并把常用输入组合保存为参数方案：
+
+```text
+groups:
+  single_target "单体":
+    expected_damage
+    damage_per_cast
+
+presets:
+  current "当前配装":
+    character.crit = 0.25
+  high_crit "高暴击":
+    character.crit = 0.40
+
+display:
+  expected_damage: integer
+  damage_per_cast: coefficient_percent digits 2
+```
+
+分组只影响选择器的顺序与检索，不改变数学含义。输出不必属于任何分组，一个输出也不能同时出现在两个分组中。参数方案属于普通 `entry`，引用时使用稳定名称 `entry.preset`；短名仅在工作区内唯一时可用。
+
+版本化离散数据可直接写成查表，并选择精确匹配或线性插值：
+
+```text
+tables:
+  rating "等级换算": dimensionless -> dimensionless:
+    1 = 10
+    3 = 30
+
+outputs:
+  exact: dimensionless = lookup(rating, level)
+  smooth: dimensionless = interpolate(rating, level)
+```
 
 ## 通用字段、函数、约束与分段表达式
 
@@ -214,27 +252,27 @@ outputs:
 
 ```text
 kt init DIRECTORY [--package none|wow]
-kt tui [SOURCE.kirin]
-kt new entry ID
-kt new skill ID
-kt new model ID
-kt new scenario ID
+kt tui [WORKSPACE|SOURCE.kirin]
+kt new entry ID [--template blank|data|model|semantics]
 kt new plot ID
 kt list [--json]
 kt show ID [--json]
 kt explain TARGET [--json]
 kt check [--timeout SECONDS] [--json]
-kt eval TARGET [--scenario ID] [--set ENTRY.INPUT=VALUE] [--save-run ID] [--json]
+kt eval TARGET [--preset ENTRY.PRESET] [--set ENTRY.INPUT=VALUE] [--save-run ID] [--json]
 kt simplify|expand|factor TARGET [--keep ENTRY.INPUT] [--json]
 kt diff TARGET --var ENTRY.INPUT [--json]
 kt solve TARGET --var ENTRY.INPUT --equals "VALUE [UNIT]" [--range START:END] [--json]
+kt solve-system --equation TARGET="VALUE [UNIT]" --var ENTRY.INPUT [...] [--json]
 kt scan --x ENTRY.INPUT --range START:END --points N --y TARGET [--y TARGET ...] [--out FILE.csv]
+kt grid --x ENTRY.INPUT --x-range START:END --x-points N \
+  --y ENTRY.INPUT --y-range START:END --y-points N --result TARGET [--out FILE.csv]
 kt plot --x ENTRY.INPUT --range START:END --points N --y TARGET --out FILE.svg
 kt plot --config PLOT_ID
 kt replay RUN_ID [--regenerate-artifacts] [--json]
 ```
 
-`kt explain` 展示展开表达式、限定输入、值域、定义域条件、量纲和依赖闭包。`kt check` 严格拒绝未知 schema 键，会验证默认值、scenario、组合约束、引用、循环、单位和绘图配置；可独立发现的错误会一次汇总，并尽量给出文件、行、列、条目和字段。
+`kt explain` 展示展开表达式、限定输入、值域、定义域条件、来源、游戏版本和依赖闭包。`kt check` 严格拒绝未知 schema 键，会验证默认值、参数方案、组合约束、引用、循环、版本一致性、单位和绘图配置；可独立发现的错误会一次汇总，并尽量给出文件、行、列、条目和字段。
 
 ## 示例工作区
 
@@ -247,12 +285,12 @@ kt replay RUN_ID [--regenerate-artifacts] [--json]
 ```bash
 cd "examples/虚构技能工作区"
 kt check
-kt eval combo.total --scenario baseline
+kt eval combo.total --preset presets.baseline
 kt simplify combo.total --keep combo.crit
 kt diff combo.total --var combo.crit
 kt solve combo.total --var combo.crit --equals "3000 damage" --range "0:1"
 kt scan --x combo.crit --range "0:0.6" --points 61 \
-  --y combo.total --scenario baseline --out results/damage.csv --force
+  --y combo.total --preset presets.baseline --out results/damage.csv --force
 kt plot --config crit_curve --force
 ```
 
@@ -260,7 +298,7 @@ kt plot --config crit_curve --force
 
 ## 扫描与绘图
 
-扫描和绘图使用完全相同的解析、约束、单位和求值路径。无效采样点保留错误并形成曲线断点，不会伪造为零。CSV 同时保存精确值、近似值、错误、单位、有效参数、精度和依赖 id。
+曲线、双属性网格和绘图使用完全相同的解析、约束、单位和求值路径。无效采样点保留错误，不会伪造为零。CSV 同时保存精确值、近似值、错误、单位、有效参数、精度和依赖 id。
 
 允许用户把不同单位的曲线画在同一纵轴；CLI 会给出非阻断警告，并保留每条曲线的真实单位，不进行隐式换算。
 
@@ -268,14 +306,14 @@ kt plot --config crit_curve --force
 
 - 输出必须位于工作区内；确需写到外部时显式使用 `--allow-outside-workspace`。
 - 已有 SVG、PNG 或 CSV 不会被覆盖；显式使用 `--force` 才能替换。
-- `scan`、`plot`、解析、引用展开及所有 SymPy 运算都受 `--timeout` 控制；超时会终止实际工作进程。
+- `scan`、`grid`、`plot`、求解、解析、引用展开及所有 SymPy 运算都受 `--timeout` 控制；超时会终止实际工作进程。
 
 保存的 plot 配置还支持 `title`、`x_label`、`y_label` 和 `curve_labels`。
 
 ## 运行记录与重放
 
 ```bash
-kt eval combo.total --scenario baseline --save-run before_change
+kt eval combo.total --preset presets.baseline --save-run before_change
 kt replay before_change --json
 ```
 
@@ -287,7 +325,7 @@ kt replay before_change --json
 - 成功结果或失败状态。
 - CSV/SVG/PNG 的内容哈希和大小。
 
-重放只读取记录中的快照，不读取当前 `entries/`、`scenarios/` 或 `plots/`。它会比较当前与记录中的依赖版本，并明确报告环境漂移；失败运行也能重放。绘图记录可使用 `--regenerate-artifacts` 在新路径重新生成产物，默认仍不覆盖已有文件。
+重放只读取记录中的快照，不读取当前 `entries/` 或 `plots/`。它会比较当前与记录中的依赖版本，并明确报告环境漂移；失败运行也能重放。绘图和网格记录可使用 `--regenerate-artifacts` 在新路径重新生成产物，默认仍不覆盖已有文件。
 
 v1 运行记录与 v2 不兼容，会明确报错，而不会假装能够保证复现。
 
@@ -297,19 +335,19 @@ v1 运行记录与 v2 不兼容，会明确报错，而不会假装能够保证�
 - `+ - * / **`、括号和显式函数调用。
 - 比较 `== != < <= > >=` 与布尔 `and or not`。
 - `abs`、`min`、`max`、`sqrt`、`floor`、`ceil`。
-- `if_else`、多分支 `piecewise` 和有明确整数上下界的有限 `sum`。
+- `if_else`、多分支 `piecewise` 和有明确整数上下界的有限 `sum`、`product`。
+- 版本化 `lookup` 精确查表和 `interpolate` 线性插值。
 - 固定数值/布尔字段、派生字段、说明字段、显式参数函数和输出。
-- 用户定义基础量纲、命名单位、整数值域、上下界和有限允许值。
-- 数值求值、化简、展开、因式分解、求导和单变量实数符号求解。
-- 一维精确等距扫描、多曲线 CSV、SVG 和 PNG。
+- 用户定义基础量纲、带精确比例的命名单位、整数值域、上下界和有限允许值；例如 `millisecond = 1/1000 * time`。
+- 数值求值、化简、展开、因式分解、求导、单变量实数符号求解，以及最多八个变量/方程的有限符号联立反求。
+- 一维精确等距扫描、多曲线 CSV/SVG/PNG，以及总计最多 10,000 点的双属性网格和热力图。
 
 除法、根式、负幂、零次幂和变量指数会保留必要的实数定义域条件。例如 `x/x` 化简为 `1` 后，`x != 0` 仍然保留。
 
 ## 已知边界
 
-- 没有单位比例换算；不同命名单位若声明为相同量纲，只检查兼容性，不自动缩放数值。
 - `solveset` 返回条件集合、无限集合或未完成集合时，命令返回 `incomplete` 和非零退出码；没有一般数值根搜索。
-- 不支持矩阵、一般方程组、不等式组、积分、极限或复杂优化。
+- 联立反求只接受有限符号解；不支持矩阵语言、不等式组、积分、极限或复杂优化。
 - 不支持隐式乘法；`^` 不表示乘方。
 - 不执行用户代码，不允许导入、下标、lambda、多层属性访问或未注册函数。
 

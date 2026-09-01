@@ -49,13 +49,12 @@ def extract_author_title(source: str, fallback: str) -> str:
 def _translated_message(message: str, code: str) -> str:
     exact_prefixes = (
         ("first declaration must be", "文件第一条声明必须是 `@kirin 1`。"),
-        ("second declaration must be", "第二条声明必须指定 `@entry`、`@scenario` 或 `@plot` 及其正式 ID。"),
+        ("second declaration must be", "第二条声明必须指定 `@entry` 或 `@plot` 及其正式 ID。"),
         ("input must use", "输入声明格式不正确。应写为 `ID [\"标签\"]: 类型 [= 默认值] [in 下限..上限]`。"),
         ("field must use", "字段声明格式不正确。固定值使用 `=`，派生公式使用 `:=`。"),
         ("function must use", "函数声明格式不正确。应写为 `ID [\"标签\"](参数) -> 单位 = 公式`。"),
         ("output must use", "输出声明格式不正确。应写为 `ID [\"标签\"]: 单位 = 公式`。"),
         ("alias must use", "别名声明格式不正确。应写为 `中文别名 = entry.member`。"),
-        ("scenario value must use", "场景参数应写为 `entry.input = 值`。"),
         ("tabs are not allowed", "结构化语法中不能使用 Tab，请改用空格缩进。"),
         ("content outside a section may not be indented", "章节之外的内容不能缩进。"),
         ("expected a directive", "这里需要指令、说明块、章节或 `键: 值`。"),
@@ -68,7 +67,7 @@ def _translated_message(message: str, code: str) -> str:
     patterns = (
         (r"^unknown directive @(.+)$", lambda m: f"未知指令 `@{m.group(1)}`。"),
         (r"^unknown entry section\(s\): (.+)$", lambda m: f"未知条目章节：{m.group(1)}。"),
-        (r"^unknown (?:scenario|plot) (?:section|key) '([^']+)'$", lambda m: f"未知章节或配置项 `{m.group(1)}`。"),
+        (r"^unknown plot (?:section|key) '([^']+)'$", lambda m: f"未知章节或配置项 `{m.group(1)}`。"),
         (r"^duplicate (.+)$", lambda m: f"存在重复声明：{m.group(1)}。"),
         (r"^undeclared variable '([^']+)'$", lambda m: f"没有声明变量 `{m.group(1)}`，请检查拼写或增加别名。"),
         (r"^missing reference to entry '([^']+)'$", lambda m: f"找不到条目 `{m.group(1)}`。"),

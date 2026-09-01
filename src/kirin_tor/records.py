@@ -18,8 +18,16 @@ from .engine import Engine
 from .errors import KTError, SchemaError, UnsupportedError, WorkspaceError
 from .kirin_syntax import parse_kirin_source
 from .limits import MAX_RUN_RECORD_BYTES
-from .operations import differentiate, evaluate, scan_values, solve_equation, transform
-from .plotting import render_plot, write_scan_csv
+from .operations import (
+    differentiate,
+    evaluate,
+    scan_grid,
+    scan_values,
+    solve_equation,
+    solve_system,
+    transform,
+)
+from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .timeout import run_with_timeout
 from .workspace import Workspace
 
@@ -212,12 +220,12 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
     operation = record["operation"]
     has_effective = "effective_parameters" in request
     parameters = request.get("effective_parameters", request.get("overrides", {}))
-    scenario = None if has_effective else request.get("scenario")
+    preset = None if has_effective else request.get("preset")
     if operation == "eval":
         return evaluate(
             engine,
             request["target"],
-            scenario=scenario,
+            preset=preset,
             overrides=parameters,
             precision=request["precision"],
             display_digits=request["display_digits"],
@@ -229,7 +237,7 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
         variants = [
             ComparisonVariant(
                 item["name"],
-                item.get("scenario"),
+                item.get("preset"),
                 item.get("overrides", {}),
             )
             for item in request["variants"]
@@ -247,7 +255,7 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             engine,
             operation,
             request["target"],
-            scenario=scenario,
+            preset=preset,
             overrides=parameters,
             keep=request.get("keep", []),
             timeout_seconds=request["timeout_seconds"],
@@ -257,7 +265,7 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             engine,
             request["target"],
             request["variable"],
-            scenario=scenario,
+            preset=preset,
             overrides=parameters,
             timeout_seconds=request["timeout_seconds"],
         )
@@ -268,9 +276,38 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             request["variable"],
             request["equals"],
             request.get("range"),
-            scenario=scenario,
+            preset=preset,
             overrides=parameters,
             precision=request["precision"],
+            timeout_seconds=request["timeout_seconds"],
+        )
+    if operation == "solve_system":
+        return solve_system(
+            engine,
+            [
+                (item["target"], item["equals"])
+                for item in request["equations"]
+            ],
+            request["variables"],
+            preset=preset,
+            overrides=parameters,
+            precision=request["precision"],
+            timeout_seconds=request["timeout_seconds"],
+        )
+    if operation == "grid":
+        return scan_grid(
+            engine,
+            request["x"],
+            request["x_range"],
+            request["x_points"],
+            request["y"],
+            request["y_range"],
+            request["y_points"],
+            request["target"],
+            preset=preset,
+            overrides=parameters,
+            precision=request["precision"],
+            display_digits=request["display_digits"],
             timeout_seconds=request["timeout_seconds"],
         )
     if operation in {"scan", "plot"}:
@@ -280,7 +317,7 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             request["range"],
             request["points"],
             request["targets"],
-            scenario=scenario,
+            preset=preset,
             overrides=parameters,
             precision=request["precision"],
             display_digits=request["display_digits"],
@@ -322,30 +359,41 @@ def replay(
 
     regenerated = {}
     if regenerate_artifacts:
-        if record["operation"] != "plot" or replayed.get("status") != "ok":
-            raise UnsupportedError("artifact regeneration requires a successful recorded plot operation")
-        suffix = record.get("artifacts", {}).get("out", {}).get("suffix", ".svg")
-        plot_path = out or (root / "results" / f"replay-{run_id}{suffix}")
-        request = record["request"]
-        regenerated["out"] = str(
-            run_with_timeout(
-                render_plot,
-                (
-                    replayed,
-                    Path(plot_path),
-                    force,
-                    request.get("title"),
-                    request.get("x_label"),
-                    request.get("y_label"),
-                    request.get("curve_labels", {}),
-                ),
-                request["timeout_seconds"],
+        if record["operation"] == "grid" and replayed.get("status") == "ok":
+            csv_path = out or data_out or (root / "results" / f"replay-{run_id}.csv")
+            regenerated["out"] = str(
+                write_grid_csv(replayed, Path(csv_path), overwrite=force)
             )
-        )
-        if data_out is not None or "data_out" in record.get("artifacts", {}):
-            csv_path = data_out or (root / "results" / f"replay-{run_id}.csv")
-            regenerated["data_out"] = str(write_scan_csv(replayed, Path(csv_path), overwrite=force))
-        regenerated["hashes"] = _artifact_metadata(regenerated)
+            regenerated["hashes"] = _artifact_metadata(regenerated)
+        elif record["operation"] != "plot" or replayed.get("status") != "ok":
+            raise UnsupportedError(
+                "artifact regeneration requires a successful recorded plot or grid operation"
+            )
+        else:
+            suffix = record.get("artifacts", {}).get("out", {}).get("suffix", ".svg")
+            plot_path = out or (root / "results" / f"replay-{run_id}{suffix}")
+            request = record["request"]
+            regenerated["out"] = str(
+                run_with_timeout(
+                    render_plot,
+                    (
+                        replayed,
+                        Path(plot_path),
+                        force,
+                        request.get("title"),
+                        request.get("x_label"),
+                        request.get("y_label"),
+                        request.get("curve_labels", {}),
+                    ),
+                    request["timeout_seconds"],
+                )
+            )
+            if data_out is not None or "data_out" in record.get("artifacts", {}):
+                csv_path = data_out or (root / "results" / f"replay-{run_id}.csv")
+                regenerated["data_out"] = str(
+                    write_scan_csv(replayed, Path(csv_path), overwrite=force)
+                )
+            regenerated["hashes"] = _artifact_metadata(regenerated)
 
     current_software = software_versions()
     recorded_software = record.get("software", {})

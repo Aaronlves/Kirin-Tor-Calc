@@ -52,11 +52,16 @@ from .authoring import (
 from .diagnostics import extract_author_title, format_tui_diagnostic
 from .engine import Engine
 from .errors import KTError, ParameterError, ValidationErrors, WorkspaceError
-from .operations import explain, scan_values, solve_equation
+from .operations import explain, scan_grid, scan_values, solve_equation, solve_system
 from .plotting import render_plot, write_scan_csv
 from .records import load_run, replay as replay_run
 from .schema import PlotConfig
-from .tui_components import NewDocumentScreen, UnsavedChangesScreen, VariantRow
+from .tui_components import (
+    NewDocumentScreen,
+    OverrideFormScreen,
+    UnsavedChangesScreen,
+    VariantRow,
+)
 from .workspace import DocumentDraft, Workspace, build_document_draft
 
 
@@ -97,12 +102,10 @@ class KirinTextArea(TextArea):
 
 def _source_template(path: Path) -> str:
     parent = path.parent.name
-    if parent == "scenarios":
-        kind = "scenario"
-    elif parent == "plots":
+    if parent == "plots":
         kind = "plot"
     else:
-        kind = "model"
+        kind = "entry"
     return build_document_draft(path.parents[1], kind, path.stem).source_text
 
 
@@ -111,7 +114,7 @@ def resolve_source_path(root: Path, requested: Optional[Path]) -> Path:
     root = root.resolve()
     if requested is None:
         candidates = []
-        for folder in ("entries", "scenarios", "plots"):
+        for folder in ("entries", "plots"):
             candidates.extend((root / folder).rglob("*.kirin"))
         if candidates:
             return sorted(path.resolve() for path in candidates)[0]
@@ -123,9 +126,9 @@ def resolve_source_path(root: Path, requested: Optional[Path]) -> Path:
     except ValueError as exc:
         raise WorkspaceError(f"TUI source must stay inside the workspace: {path}") from exc
     if path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
-        "entries", "scenarios", "plots"
+        "entries", "plots"
     }:
-        raise WorkspaceError("TUI source must be a .kirin file inside entries, scenarios, or plots")
+        raise WorkspaceError("TUI source must be a .kirin file inside entries or plots")
     return path
 
 
@@ -159,7 +162,7 @@ def _scan_plot(workspace: Workspace, config: PlotConfig) -> dict:
         f"{config.range_start}:{config.range_end}",
         config.points,
         config.y,
-        config.scenario,
+        config.preset,
     )
 
 
@@ -249,6 +252,50 @@ def build_terminal_plot_frames(
     return [render_terminal_plot(scan, config, width, height, limit) for limit in limits]
 
 
+def render_terminal_heatmap(grid: dict, width: int, height: int) -> Text:
+    """Render a compact two-input result grid with a stable character ramp."""
+    ramp = " .:-=+*#%@"
+    valid = [
+        float(row["value"]["approximate"])
+        for row in grid["rows"]
+        if row["value"]["error"] is None
+        and math.isfinite(float(row["value"]["approximate"]))
+    ]
+    if not valid:
+        raise ParameterError("heatmap has no valid finite points to preview")
+    low, high = min(valid), max(valid)
+    x_points = grid["x_points"]
+    y_points = grid["y_points"]
+    max_columns = max(2, min(width - 8, 100))
+    max_rows = max(2, min(height - 5, 35))
+    x_stride = max(1, math.ceil(x_points / max_columns))
+    y_stride = max(1, math.ceil(y_points / max_rows))
+    rendered = Text()
+    rendered.append(
+        f"{grid['target_label']} [{grid['unit']}]  min={low:.6g}  max={high:.6g}\n",
+        style="bold #e6bf68",
+    )
+    for y_index in reversed(range(0, y_points, y_stride)):
+        y_row = grid["rows"][y_index * x_points]
+        rendered.append(f"{float(y_row['y_approximate']):>7.3g} ", style="dim")
+        for x_index in range(0, x_points, x_stride):
+            value = grid["rows"][y_index * x_points + x_index]["value"]
+            if value["error"] is not None:
+                rendered.append("×", style="red")
+                continue
+            numeric = float(value["approximate"])
+            position = 0 if high == low else (numeric - low) / (high - low)
+            index = min(len(ramp) - 1, max(0, round(position * (len(ramp) - 1))))
+            rendered.append(ramp[index], style=f"color({39 + index * 18})")
+        rendered.append("\n")
+    rendered.append(
+        f"y: {grid.get('y_display_label') or grid['y']} [{grid['y_unit']}]  "
+        f"x: {grid.get('x_display_label') or grid['x']} [{grid['x_unit']}]",
+        style="dim",
+    )
+    return rendered
+
+
 class KirinTUI(App[None]):
     """Player-facing calculation, comparison, chart, and document workbench."""
 
@@ -307,6 +354,7 @@ class KirinTUI(App[None]):
     #calculation-input-help,
     #calculation-details,
     #solve-result,
+    #system-solve-result,
     #chart-status,
     #run-details {
         height: auto;
@@ -494,6 +542,7 @@ class KirinTUI(App[None]):
         self._last_comparison: Optional[dict] = None
         self._last_comparison_variants: list[ComparisonVariant] = []
         self._last_scan: Optional[dict] = None
+        self._loaded_plot_id: Optional[str] = None
         self._variant_counter = 2
         self._exit_after_save = False
         self._close_after_save: Optional[Path] = None
@@ -514,7 +563,7 @@ class KirinTUI(App[None]):
 
     def _source_options(self) -> list[tuple[Text, str]]:
         paths = set(self._buffers)
-        for folder in ("entries", "scenarios", "plots"):
+        for folder in ("entries", "plots"):
             paths.update(path.resolve() for path in (self.root / folder).rglob("*.kirin"))
         options = []
         for path in sorted(paths):
@@ -553,7 +602,7 @@ class KirinTUI(App[None]):
 
     def _all_source_texts(self) -> Dict[Path, str]:
         sources = dict(self._buffers)
-        for folder in ("entries", "scenarios", "plots"):
+        for folder in ("entries", "plots"):
             for path in (self.root / folder).rglob("*.kirin"):
                 resolved = path.resolve()
                 if resolved in sources:
@@ -578,6 +627,11 @@ class KirinTUI(App[None]):
             with TabPane("计算", id="calculate-pane"):
                 with Vertical(id="calculate-view"):
                     with Horizontal(classes="view-toolbar"):
+                        yield Input(
+                            placeholder="搜索结果名称、分组或正式 ID",
+                            id="target-filter",
+                            compact=True,
+                        )
                         yield Select(
                             [],
                             prompt="等待有效的输出定义",
@@ -607,6 +661,22 @@ class KirinTUI(App[None]):
                         )
                         yield Button("按基准方案反求", id="solve-target")
                     yield Static("可按第一个方案反求达到目标结果所需的输入。", id="solve-result")
+                    with Horizontal(classes="view-toolbar"):
+                        yield Input(
+                            placeholder="联立变量：entry.x, entry.y",
+                            id="system-variables",
+                            compact=True,
+                        )
+                        yield Input(
+                            placeholder="方程：entry.a=10; entry.b=20",
+                            id="system-equations",
+                            compact=True,
+                        )
+                        yield Button("联立反求", id="solve-system")
+                    yield Static(
+                        "联立反求使用第一个比较方案及其临时参数。",
+                        id="system-solve-result",
+                    )
                     yield Label("比较方案", classes="section-heading")
                     with VerticalScroll(id="variant-list"):
                         yield VariantRow(1, "基准")
@@ -622,6 +692,21 @@ class KirinTUI(App[None]):
             with TabPane("图表", id="charts-pane"):
                 with Vertical(id="charts-view"):
                     with Horizontal(classes="view-toolbar"):
+                        yield Select(
+                            [],
+                            prompt="选择已保存图表",
+                            allow_blank=True,
+                            id="saved-plot-select",
+                        )
+                        yield Button("载入图表", id="load-saved-plot", variant="primary")
+                    with Horizontal(classes="view-toolbar"):
+                        yield Select(
+                            [("曲线", "curve"), ("双属性热力图", "grid")],
+                            value="curve",
+                            allow_blank=False,
+                            id="chart-mode",
+                            compact=True,
+                        )
                         yield Select([], prompt="横轴输入", allow_blank=True, id="scan-x-select")
                         yield Input("0:1", placeholder="范围，例如 0:1", id="scan-range", compact=True)
                         yield Input("41", placeholder="点数", id="scan-points", compact=True)
@@ -629,8 +714,22 @@ class KirinTUI(App[None]):
                             [("默认参数", "__defaults__")],
                             value="__defaults__",
                             allow_blank=False,
-                            id="scan-scenario",
+                            id="scan-preset",
                         )
+                    with Horizontal(classes="view-toolbar"):
+                        yield Select(
+                            [], prompt="热力图纵轴输入", allow_blank=True, id="scan-second-axis"
+                        )
+                        yield Input(
+                            "0:1",
+                            placeholder="纵轴范围，例如 0:1",
+                            id="scan-second-range",
+                            compact=True,
+                        )
+                        yield Input(
+                            "21", placeholder="纵轴点数", id="scan-second-points", compact=True
+                        )
+                        yield Static("曲线模式会忽略这一行。", id="grid-help")
                     with Horizontal(classes="view-toolbar"):
                         yield Select([], prompt="结果输出", allow_blank=True, id="scan-y-select")
                         yield Input(
@@ -716,7 +815,7 @@ class KirinTUI(App[None]):
         editor = self.query_one("#editor", TextArea)
         editor.indent_width = 2
         comparison = self.query_one("#comparison-results", DataTable)
-        comparison.add_columns("方案", "场景", "结果", "差异", "变化", "状态")
+        comparison.add_columns("方案", "参数方案", "结果", "差异", "变化", "状态")
         scan_table = self.query_one("#scan-table", DataTable)
         scan_table.add_columns("横轴", "结果", "状态")
         runs_table = self.query_one("#runs-table", DataTable)
@@ -747,6 +846,13 @@ class KirinTUI(App[None]):
         self._queue_validation()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "chart-mode":
+            self.query_one("#grid-help", Static).update(
+                "请选择纵轴输入、范围和点数。"
+                if event.value == "grid"
+                else "曲线模式会忽略这一行。"
+            )
+            return
         if event.select.id == "motion-select" and isinstance(event.value, str):
             self.motion_mode = event.value
             self.motion_enabled = self.motion_mode != "off"
@@ -762,6 +868,12 @@ class KirinTUI(App[None]):
             return
         target = (self.root / event.value).resolve()
         self._switch_source(target)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "target-filter" or self._workspace_index is None:
+            return
+        selector = self.query_one("#target-select", Select)
+        self._set_select_options(selector, self._target_options(event.value))
 
     def _queue_validation(self, delay: float = 0.4) -> None:
         if self._validation_timer is not None:
@@ -867,20 +979,36 @@ class KirinTUI(App[None]):
         else:
             select.value = Select.NULL
 
+    def _target_options(self, query: str = ""):
+        if self._workspace_index is None:
+            return []
+        normalized = query.strip().casefold()
+        options = []
+        for item in self._workspace_index.targets:
+            group = item.group_label or "未分组"
+            searchable = f"{group} {item.label} {item.value} {item.unit}".casefold()
+            if normalized and normalized not in searchable:
+                continue
+            options.append(
+                (
+                    Text.assemble(
+                        (group, "bold #b99cff"),
+                        ("  /  ", "dim"),
+                        item.label,
+                        ("  ·  ", "dim"),
+                        (item.value, "dim"),
+                        (f"  [{item.unit}]", "dim"),
+                    ),
+                    item.value,
+                )
+            )
+        return options
+
     def _apply_workspace_index(self, index: WorkspaceIndex) -> None:
         self._workspace_index = index
-        target_options = [
-            (
-                Text.assemble(
-                    item.label,
-                    ("  ·  ", "dim"),
-                    (item.value, "dim"),
-                    (f"  [{item.unit}]", "dim"),
-                ),
-                item.value,
-            )
-            for item in index.targets
-        ]
+        target_options = self._target_options(
+            self.query_one("#target-filter", Input).value
+        )
         input_options = [
             (
                 Text.assemble(
@@ -894,21 +1022,27 @@ class KirinTUI(App[None]):
             for item in index.inputs
             if item.value_type == "number"
         ]
-        scenario_options = [("默认参数", "__defaults__")] + [
+        preset_options = [("默认参数", "__defaults__")] + [
             (
                 item.label if item.label != item.value else item.value,
                 item.value,
             )
-            for item in index.scenarios
+            for item in index.presets
         ]
         for selector_id in ("#target-select", "#scan-y-select", "#explain-target"):
             self._set_select_options(self.query_one(selector_id, Select), target_options)
         self._set_select_options(self.query_one("#scan-x-select", Select), input_options)
+        self._set_select_options(self.query_one("#scan-second-axis", Select), input_options)
         self._set_select_options(
-            self.query_one("#scan-scenario", Select), scenario_options, "__defaults__"
+            self.query_one("#scan-preset", Select), preset_options, "__defaults__"
         )
+        plot_options = [
+            (item.label if item.label != item.value else item.value, item.value)
+            for item in index.plots
+        ]
+        self._set_select_options(self.query_one("#saved-plot-select", Select), plot_options)
         for row in self.query(VariantRow):
-            row.set_scenarios(index.scenarios)
+            row.set_presets(index.presets)
         selected_target = self.query_one("#target-select", Select).value
         if isinstance(selected_target, str):
             self._update_calculation_inputs(selected_target)
@@ -1060,7 +1194,7 @@ class KirinTUI(App[None]):
 
     def _known_document_ids(self) -> set[str]:
         result = set(self._workspace_index.document_ids if self._workspace_index else ())
-        pattern = re.compile(r"^@(?:entry|scenario|plot)\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTILINE)
+        pattern = re.compile(r"^@(?:entry|plot)\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTILINE)
         for source in self._all_source_texts().values():
             match = pattern.search(source)
             if match:
@@ -1120,8 +1254,8 @@ class KirinTUI(App[None]):
             self.query_one("#calculation-details", Static).update("最多可以比较 8 个方案。")
             return
         self._variant_counter += 1
-        scenarios = self._workspace_index.scenarios if self._workspace_index else ()
-        row = VariantRow(self._variant_counter, f"方案 {self._variant_counter}", scenarios)
+        presets = self._workspace_index.presets if self._workspace_index else ()
+        row = VariantRow(self._variant_counter, f"方案 {self._variant_counter}", presets)
         await self.query_one("#variant-list", VerticalScroll).mount(row)
         row.query_one(".variant-name", Input).focus()
 
@@ -1195,13 +1329,11 @@ class KirinTUI(App[None]):
             return
         self._last_comparison = result
         for row in result["variants"]:
-            scenario = row.get("scenario") or "默认参数"
+            preset = row.get("preset") or "默认参数"
             if row["status"] == "ok":
                 calculated = row["result"]
-                exact = calculated["exact"]
-                approximate = calculated["approximate"]
-                rendered_result = exact if exact == approximate else f"{exact}\n≈ {approximate}"
-                delta = row.get("delta_exact") or "—"
+                rendered_result = calculated.get("formatted", calculated["approximate"])
+                delta = row.get("delta_approximate") or "—"
                 percent = (
                     f"{row['delta_percent']}%" if row.get("delta_percent") is not None else "—"
                 )
@@ -1216,7 +1348,7 @@ class KirinTUI(App[None]):
                 )
             table.add_row(
                 row["name"],
-                scenario,
+                preset,
                 rendered_result,
                 delta,
                 percent,
@@ -1233,6 +1365,8 @@ class KirinTUI(App[None]):
         button_id = event.button.id
         if event.button.has_class("variant-remove") and isinstance(event.button.parent, VariantRow):
             await self._remove_variant(event.button.parent)
+        elif event.button.has_class("variant-form") and isinstance(event.button.parent, VariantRow):
+            self._open_variant_form(event.button.parent)
         elif button_id in {"new-document", "new-document-toolbar"}:
             self.action_new_document()
         elif button_id == "add-variant":
@@ -1241,6 +1375,8 @@ class KirinTUI(App[None]):
             self.action_calculate()
         elif button_id == "solve-target":
             self.action_solve_target()
+        elif button_id == "solve-system":
+            self.action_solve_system()
         elif button_id == "save-documents":
             self.action_save()
         elif button_id == "validate-documents":
@@ -1249,6 +1385,8 @@ class KirinTUI(App[None]):
             self.action_export()
         elif button_id == "run-scan":
             self.action_run_scan()
+        elif button_id == "load-saved-plot":
+            self.action_load_saved_plot()
         elif button_id == "run-variant-scan":
             self.action_run_variant_scan()
         elif button_id == "create-plot-draft":
@@ -1261,6 +1399,26 @@ class KirinTUI(App[None]):
             self.action_save_run()
         elif button_id == "replay-run":
             self.action_replay_run()
+
+    def _open_variant_form(self, row: VariantRow) -> None:
+        target = self.query_one("#target-select", Select).value
+        if not isinstance(target, str) or self._workspace_index is None:
+            self.query_one("#calculation-details", Static).update(
+                "请先选择结果，再编辑相关参数。"
+            )
+            return
+        target_option = next(
+            (item for item in self._workspace_index.targets if item.value == target),
+            None,
+        )
+        if target_option is None:
+            return
+        relevant = set(target_option.inputs)
+        inputs = [item for item in self._workspace_index.inputs if item.value in relevant]
+        self.push_screen(
+            OverrideFormScreen(inputs, row.form_overrides),
+            row.set_form_overrides,
+        )
 
     def action_solve_target(self) -> None:
         target = self.query_one("#target-select", Select).value
@@ -1314,7 +1472,7 @@ class KirinTUI(App[None]):
                 variable,
                 equals,
                 range_text,
-                baseline.scenario,
+                baseline.preset,
                 baseline.normalized_overrides(),
             )
             self.call_from_thread(self._apply_solve, revision, baseline.name, result, None)
@@ -1357,10 +1515,105 @@ class KirinTUI(App[None]):
                 f"按方案“{baseline_name}”：只能得到未完成解集 {result.get('solution_set', '—')}。"
             )
 
+    def action_solve_system(self) -> None:
+        variables_text = self.query_one("#system-variables", Input).value
+        equations_text = self.query_one("#system-equations", Input).value
+        variables = [item.strip() for item in variables_text.split(",") if item.strip()]
+        equations = []
+        try:
+            for item in equations_text.split(";"):
+                item = item.strip()
+                if not item:
+                    continue
+                if item.count("=") != 1:
+                    raise ParameterError("每个联立方程必须使用 结果=目标值")
+                target, equals = (part.strip() for part in item.split("=", 1))
+                if not target or not equals:
+                    raise ParameterError("每个联立方程都需要结果和目标值")
+                equations.append((target, equals))
+            if not variables or not equations:
+                raise ParameterError("请输入联立变量和方程")
+            inputs = self._workspace_index.inputs if self._workspace_index else ()
+            baseline = next(iter(self.query(VariantRow))).request(inputs)
+        except (StopIteration, KTError) as exc:
+            message = "至少需要一个计算方案。" if isinstance(exc, StopIteration) else str(exc)
+            self.query_one("#system-solve-result", Static).update(Text(message, style="red"))
+            return
+        editor = self.query_one("#editor", TextArea)
+        overlays = dict(self._buffers)
+        overlays[self.source_path] = editor.text
+        self.query_one("#system-solve-result", Static).update("正在联立反求…")
+        self._solve_system_worker(
+            overlays, equations, variables, baseline, self._revision
+        )
+
+    @work(thread=True, exclusive=True, group="solve")
+    def _solve_system_worker(
+        self,
+        overlays: Dict[Path, str],
+        equations: Sequence[tuple[str, str]],
+        variables: Sequence[str],
+        baseline: ComparisonVariant,
+        revision: int,
+    ) -> None:
+        try:
+            workspace = Workspace.load_with_overlays(self.root, overlays)
+            Engine(workspace).validate_all()
+            result = solve_system(
+                Engine(workspace),
+                equations,
+                variables,
+                baseline.preset,
+                baseline.normalized_overrides(),
+            )
+            self.call_from_thread(
+                self._apply_system_solve, revision, baseline.name, result, None
+            )
+        except Exception as exc:
+            message = (
+                format_tui_diagnostic(exc, self.root, overlays)
+                if isinstance(exc, KTError)
+                else f"[内部错误] 联立反求意外失败。\n技术详情：{exc}"
+            )
+            self.call_from_thread(
+                self._apply_system_solve, revision, baseline.name, None, message
+            )
+
+    def _apply_system_solve(
+        self,
+        revision: int,
+        baseline_name: str,
+        result: Optional[dict],
+        error: Optional[str],
+    ) -> None:
+        if revision != self._revision:
+            return
+        output = self.query_one("#system-solve-result", Static)
+        if error or result is None:
+            output.update(Text(error or "联立反求失败。", style="red"))
+            return
+        if result.get("solution_kind") == "exact":
+            rendered = []
+            for solution in result.get("solutions", []):
+                rendered.append(
+                    "，".join(
+                        f"{name} = {value['exact']} [{value['unit']}]"
+                        for name, value in solution["values"].items()
+                    )
+                )
+            output.update(f"按方案“{baseline_name}”：" + "；".join(rendered))
+        elif result.get("solution_kind") == "no_solution_proven":
+            output.update(f"按方案“{baseline_name}”：没有满足输入范围的联立解。")
+        else:
+            output.update(
+                f"按方案“{baseline_name}”：只能得到未完成解 {result.get('solution_set', '—')}。"
+            )
+
     def action_run_scan(self) -> None:
+        mode = self.query_one("#chart-mode", Select).value
         axis = self.query_one("#scan-x-select", Select).value
         target = self.query_one("#scan-y-select", Select).value
-        scenario_value = self.query_one("#scan-scenario", Select).value
+        preset_value = self.query_one("#scan-preset", Select).value
         if not isinstance(axis, str) or not isinstance(target, str):
             self.query_one("#chart-status", Static).update("请选择横轴输入和结果输出。")
             return
@@ -1376,23 +1629,228 @@ class KirinTUI(App[None]):
             message = "点数必须是整数。" if isinstance(exc, ValueError) else str(exc)
             self.query_one("#chart-status", Static).update(Text(message, style="red"))
             return
-        scenario = None if scenario_value in {"__defaults__", Select.NULL} else str(scenario_value)
+        preset = None if preset_value in {"__defaults__", Select.NULL} else str(preset_value)
         editor = self.query_one("#editor", TextArea)
         overlays = dict(self._buffers)
         overlays[self.source_path] = editor.text
         preview = self.query_one("#scan-preview", Static)
-        self.query_one("#chart-status", Static).update("正在生成图表…")
+        if mode == "grid":
+            second_axis = self.query_one("#scan-second-axis", Select).value
+            try:
+                second_points = int(
+                    self.query_one("#scan-second-points", Input).value.strip()
+                )
+                second_range = self.query_one("#scan-second-range", Input).value.strip()
+                if not isinstance(second_axis, str):
+                    raise ParameterError("请选择热力图纵轴输入")
+            except (ValueError, KTError) as exc:
+                message = "纵轴点数必须是整数。" if isinstance(exc, ValueError) else str(exc)
+                self.query_one("#chart-status", Static).update(Text(message, style="red"))
+                return
+            self.query_one("#chart-status", Static).update("正在生成双属性热力图…")
+            self._grid_worker(
+                overlays,
+                axis,
+                range_text,
+                points,
+                second_axis,
+                second_range,
+                second_points,
+                target,
+                preset,
+                overrides,
+                self._revision,
+                max(preview.size.width - 2, 30),
+                max(preview.size.height - 2, 10),
+            )
+            return
+        self.query_one("#chart-status", Static).update("正在生成曲线…")
         self._scan_worker(
             overlays,
             axis,
             range_text,
             points,
             target,
-            scenario,
+            preset,
             overrides,
             self._revision,
             max(preview.size.width - 2, 30),
             max(preview.size.height - 2, 10),
+        )
+
+    @work(thread=True, exclusive=True, group="scan")
+    def _grid_worker(
+        self,
+        overlays: Dict[Path, str],
+        x: str,
+        x_range: str,
+        x_points: int,
+        y: str,
+        y_range: str,
+        y_points: int,
+        target: str,
+        preset: Optional[str],
+        overrides: Dict[str, str],
+        revision: int,
+        width: int,
+        height: int,
+    ) -> None:
+        try:
+            workspace = Workspace.load_with_overlays(self.root, overlays)
+            Engine(workspace).validate_all()
+            grid = scan_grid(
+                Engine(workspace),
+                x,
+                x_range,
+                x_points,
+                y,
+                y_range,
+                y_points,
+                target,
+                preset,
+                overrides,
+            )
+            rendered = render_terminal_heatmap(grid, width, height)
+            self.call_from_thread(self._apply_grid, revision, grid, rendered, None)
+        except Exception as exc:
+            message = (
+                format_tui_diagnostic(exc, self.root, overlays)
+                if isinstance(exc, KTError)
+                else f"[内部错误] 热力图计算意外失败。\n技术详情：{exc}"
+            )
+            self.call_from_thread(self._apply_grid, revision, None, None, message)
+
+    def _apply_grid(
+        self,
+        revision: int,
+        grid: Optional[dict],
+        rendered: Optional[Text],
+        error: Optional[str],
+    ) -> None:
+        if revision != self._revision:
+            return
+        table = self.query_one("#scan-table", DataTable)
+        table.clear(columns=True)
+        if error or grid is None or rendered is None:
+            table.add_columns("横轴", "纵轴", "结果", "状态")
+            self.query_one("#chart-status", Static).update(
+                Text(error or "热力图失败。", style="red")
+            )
+            return
+        self._last_scan = grid
+        self._loaded_plot_id = None
+        self.query_one("#scan-preview", Static).update(rendered)
+        table.add_columns("横轴", "纵轴", grid["target_label"], "状态")
+        for row in grid["rows"]:
+            value = row["value"]
+            table.add_row(
+                row["x"],
+                row["y"],
+                value.get("formatted") or value["exact"]
+                if value["error"] is None
+                else "—",
+                Text("有效", style="green")
+                if value["error"] is None
+                else Text("无效", style="red"),
+            )
+        self.query_one("#chart-status", Static).update(
+            f"热力图已计算 {grid['points']} 个组合，其中 {grid['valid_points']} 个有效。"
+        )
+
+    def action_load_saved_plot(self) -> None:
+        plot_id = self.query_one("#saved-plot-select", Select).value
+        if not isinstance(plot_id, str):
+            self.query_one("#chart-status", Static).update("请选择一个已保存图表。")
+            return
+        editor = self.query_one("#editor", TextArea)
+        overlays = dict(self._buffers)
+        overlays[self.source_path] = editor.text
+        preview = self.query_one("#scan-preview", Static)
+        self.query_one("#chart-status", Static).update("正在载入已保存图表…")
+        self._saved_plot_worker(
+            overlays,
+            plot_id,
+            self._revision,
+            max(preview.size.width - 2, 30),
+            max(preview.size.height - 2, 10),
+        )
+
+    @work(thread=True, exclusive=True, group="scan")
+    def _saved_plot_worker(
+        self,
+        overlays: Dict[Path, str],
+        plot_id: str,
+        revision: int,
+        width: int,
+        height: int,
+    ) -> None:
+        try:
+            workspace = Workspace.load_with_overlays(self.root, overlays)
+            Engine(workspace).validate_all()
+            config = workspace.get_plot(plot_id)
+            scan = _scan_plot(workspace, config)
+            rendered = render_terminal_plot(scan, config, width, height)
+            frames = (
+                build_terminal_plot_frames(
+                    scan,
+                    config,
+                    width,
+                    height,
+                    frame_count=3 if self.motion_mode == "reduced" else 8,
+                )
+                if self.motion_enabled
+                else []
+            )
+            self.call_from_thread(
+                self._apply_saved_plot,
+                revision,
+                config,
+                scan,
+                rendered,
+                frames,
+                None,
+            )
+        except Exception as exc:
+            message = (
+                format_tui_diagnostic(exc, self.root, overlays)
+                if isinstance(exc, KTError)
+                else f"[内部错误] 已保存图表载入失败。\n技术详情：{exc}"
+            )
+            self.call_from_thread(
+                self._apply_saved_plot,
+                revision,
+                None,
+                None,
+                None,
+                [],
+                message,
+            )
+
+    def _apply_saved_plot(
+        self,
+        revision: int,
+        config: Optional[PlotConfig],
+        scan: Optional[dict],
+        rendered: Optional[Text],
+        frames: Sequence[Text],
+        error: Optional[str],
+    ) -> None:
+        if revision != self._revision:
+            return
+        if error or config is None or scan is None or rendered is None:
+            self._apply_scan(revision, None, None, [], error or "图表载入失败。")
+            return
+        self._loaded_plot_id = config.id
+        self.query_one("#chart-mode", Select).value = "curve"
+        self.query_one("#scan-x-select", Select).value = config.x
+        self.query_one("#scan-range", Input).value = f"{config.range_start}:{config.range_end}"
+        self.query_one("#scan-points", Input).value = str(config.points)
+        self.query_one("#scan-preset", Select).value = config.preset or "__defaults__"
+        if config.y:
+            self.query_one("#scan-y-select", Select).value = config.y[0]
+        self._apply_scan(revision, scan, rendered, frames, None)
+        self.query_one("#chart-status", Static).update(
+            f"已载入图表“{config.title or config.id}”：{len(config.y)} 条曲线，{config.points} 个点。"
         )
 
     def action_run_variant_scan(self) -> None:
@@ -1436,7 +1894,7 @@ class KirinTUI(App[None]):
         range_text: str,
         points: int,
         target: str,
-        scenario: Optional[str],
+        preset: Optional[str],
         overrides: Dict[str, str],
         revision: int,
         width: int,
@@ -1451,7 +1909,7 @@ class KirinTUI(App[None]):
                 range_text,
                 points,
                 [target],
-                scenario,
+                preset,
                 overrides,
             )
             start, end = range_text.split(":", 1)
@@ -1468,7 +1926,7 @@ class KirinTUI(App[None]):
                 range_end=end,
                 points=points,
                 y=[target],
-                scenario=scenario,
+                preset=preset,
                 title="比较曲线",
             )
             rendered = render_terminal_plot(scan, config, width, height)
@@ -1532,7 +1990,7 @@ class KirinTUI(App[None]):
                 range_end=end,
                 points=points,
                 y=list(scan["targets"]),
-                scenario=None,
+                preset=None,
                 title="方案比较",
             )
             rendered = render_terminal_plot(scan, config, width, height)
@@ -1588,7 +2046,7 @@ class KirinTUI(App[None]):
             for target in targets:
                 value = row["values"][target]
                 if value["error"] is None:
-                    rendered_values.append(value["exact"])
+                    rendered_values.append(value.get("formatted") or value["exact"])
                 else:
                     rendered_values.append("—")
                     errors.append(value["error"])
@@ -1605,7 +2063,7 @@ class KirinTUI(App[None]):
         )
         message = f"已计算 {scan['points']} 个点：{valid_text}。"
         if scan.get("operation") == "scan_compare":
-            message += " 使用计算页中的方案设置；图表页的场景和临时参数未参与。"
+            message += " 使用计算页中的方案设置；图表页的参数方案和临时参数未参与。"
         if warnings:
             message += f" {warnings}"
         self.query_one("#chart-status", Static).update(message)
@@ -1636,12 +2094,14 @@ class KirinTUI(App[None]):
         plot_id = self.query_one("#scan-plot-id", Input).value.strip()
         axis = self.query_one("#scan-x-select", Select).value
         target = self.query_one("#scan-y-select", Select).value
-        scenario_value = self.query_one("#scan-scenario", Select).value
+        preset_value = self.query_one("#scan-preset", Select).value
         try:
             if self._last_scan is not None and self._last_scan.get("operation") == "scan_compare":
                 raise ParameterError(
                     "多方案比较图只能在工作台中查看；请先生成单方案图，再创建图表文档"
                 )
+            if self._last_scan is not None and self._last_scan.get("operation") == "grid":
+                raise ParameterError("双属性热力图目前只能在工作台查看或导出 CSV")
             if not isinstance(axis, str) or not isinstance(target, str):
                 raise ParameterError("请先选择横轴输入和结果输出")
             if not plot_id:
@@ -1651,10 +2111,10 @@ class KirinTUI(App[None]):
                 raise ParameterError("范围必须使用 START:END")
             start, end = range_text.split(":", 1)
             points = int(self.query_one("#scan-points", Input).value.strip())
-            scenario = (
+            preset = (
                 None
-                if scenario_value in {"__defaults__", Select.NULL}
-                else str(scenario_value)
+                if preset_value in {"__defaults__", Select.NULL}
+                else str(preset_value)
             )
             draft = build_document_draft(
                 self.root,
@@ -1665,7 +2125,7 @@ class KirinTUI(App[None]):
                 plot_range_start=start,
                 plot_range_end=end,
                 plot_points=points,
-                plot_scenario=scenario,
+                plot_preset=preset,
             )
             if draft.document_id in self._known_document_ids():
                 raise WorkspaceError(f"文档 ID 已存在：{draft.document_id}")
@@ -1742,6 +2202,15 @@ class KirinTUI(App[None]):
                 + ("、".join(result["dependency_ids"]) if result["dependency_ids"] else "无"),
             ]
         )
+        provenance = result.get("provenance", [])
+        if provenance:
+            lines.extend(["", "版本与来源："])
+            for item in provenance:
+                version = item.get("game_version") or "未声明版本"
+                status = item.get("status") or "未声明状态"
+                lines.append(f"- {item['entry']}：{version} · {status}")
+                for source in item.get("sources", []):
+                    lines.append(f"  · {source.get('citation', source)}")
         output.update("\n".join(lines))
 
     def _refresh_runs(self) -> None:

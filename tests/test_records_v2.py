@@ -18,7 +18,7 @@ def test_replay_reports_version_drift_without_using_current_entries(
     recorded = runner.invoke(
         app,
         [
-            "eval", "combo.total", "--scenario", "baseline",
+            "eval", "combo.total", "--preset", "baseline",
             "--save-run", "versioned", "--json",
         ],
     )
@@ -49,7 +49,7 @@ def test_plot_record_hashes_and_regenerates_artifacts_from_snapshots(
         app,
         [
             "plot", "--x", "combo.crit", "--range", "0:0.6", "--points", "7",
-            "--y", "combo.total", "--scenario", "baseline",
+            "--y", "combo.total", "--preset", "baseline",
             "--out", "results/recorded.svg", "--data-out", "results/recorded.csv",
             "--save-run", "plot_record", "--json",
         ],

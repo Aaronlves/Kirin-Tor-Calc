@@ -19,12 +19,12 @@ from conftest import load_kirin, write_kirin
 def test_required_math_acceptance(example_workspace: Path) -> None:
     engine = Engine(Workspace.load(example_workspace))
 
-    numeric = evaluate(engine, "combo.total", scenario="baseline")
+    numeric = evaluate(engine, "combo.total", preset="baseline")
     assert numeric["exact"] == "2750"
     assert numeric["unit"] == "damage"
 
-    symbolic = transform(engine, "simplify", "combo.total", scenario="baseline", keep={"crit"})
-    prepared = engine.prepare("combo.total", scenario_id="baseline", keep={"crit"})
+    symbolic = transform(engine, "simplify", "combo.total", preset="baseline", keep={"crit"})
+    prepared = engine.prepare("combo.total", preset_id="presets.baseline", keep={"crit"})
     crit = engine.input_symbol("combo.crit", prepared.value.inputs["combo.crit"])
     assert sp.simplify(prepared.expr - 2200 * (1 + crit)) == 0
 
@@ -85,7 +85,7 @@ def test_display_name_and_file_move_do_not_break_stable_reference(example_worksp
     write_kirin(moved, content)
     old_path.unlink()
 
-    result = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", scenario="baseline")
+    result = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", preset="baseline")
     assert result["exact"] == "2750"
 
 
@@ -106,7 +106,7 @@ def test_plot_and_csv_use_scan_data(example_workspace: Path) -> None:
 
 def test_saved_run_replays_embedded_old_definitions(example_workspace: Path) -> None:
     workspace = Workspace.load(example_workspace)
-    result = evaluate(Engine(workspace), "combo.total", scenario="baseline")
+    result = evaluate(Engine(workspace), "combo.total", preset="baseline")
     request = {
         "target": "combo.total",
         "precision": 30,
@@ -120,7 +120,7 @@ def test_saved_run_replays_embedded_old_definitions(example_workspace: Path) -> 
     skill = load_kirin(skill_path)
     skill["fields"]["base_damage"]["value"] = "1100"
     write_kirin(skill_path, skill)
-    current = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", scenario="baseline")
+    current = evaluate(Engine(Workspace.load(example_workspace)), "combo.total", preset="baseline")
     assert current["exact"] == "2875"
 
     # Replay discovers only the marker and record; even an invalid current source file is ignored.

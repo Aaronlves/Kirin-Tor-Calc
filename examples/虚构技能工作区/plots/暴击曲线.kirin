@@ -9,6 +9,6 @@ points: 61
 
 y:
   combo.total
-scenario: baseline
+preset: presets.baseline
 export-svg: "results/damage.svg"
 export-csv: "results/damage.csv"

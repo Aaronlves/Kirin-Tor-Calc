@@ -18,8 +18,17 @@ from .application import (
 from .engine import Engine
 from .errors import KTError, ParameterError, UnsupportedError
 from .limits import DEFAULT_TIMEOUT_SECONDS
-from .operations import differentiate, evaluate, explain, scan_values, solve_equation, transform
-from .plotting import render_plot, write_scan_csv
+from .operations import (
+    differentiate,
+    evaluate,
+    explain,
+    scan_grid,
+    scan_values,
+    solve_equation,
+    solve_system,
+    transform,
+)
+from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .records import replay as replay_run
 from .timeout import run_with_timeout
 from .workspace import (
@@ -27,7 +36,6 @@ from .workspace import (
     Workspace,
     create_entry_template,
     create_plot_template,
-    create_scenario_template,
     initialize,
 )
 
@@ -38,7 +46,7 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
-new_app = typer.Typer(help="Create an entry from a minimal schema-v1 template.")
+new_app = typer.Typer(help="Create an entry or plot from a minimal Kirin v1 template.")
 app.add_typer(new_app, name="new")
 
 
@@ -81,19 +89,27 @@ def version_command() -> None:
 def tui_command(
     source: Optional[Path] = typer.Argument(
         None,
-        help="Kirin source path relative to the workspace; defaults to the first .kirin document.",
+        help="Workspace directory or Kirin source path; defaults to the current workspace.",
     ),
 ) -> None:
     """Open the player calculation, chart, document, diagnostics, and runs workbench."""
     def action():
-        root = Workspace.find_root()
+        requested = source
+        if requested is not None and requested.expanduser().is_dir():
+            root = requested.expanduser().resolve()
+            requested = None
+        elif requested is not None and requested.expanduser().is_absolute():
+            requested = requested.expanduser().resolve()
+            root = Workspace.find_root(requested.parent)
+        else:
+            root = Workspace.find_root()
         try:
             from .tui import run_tui
         except ModuleNotFoundError as exc:
             raise UnsupportedError(
                 "TUI dependencies are not installed; install 'kirin-tor-cli[tui]'"
             ) from exc
-        run_tui(root, source)
+        run_tui(root, requested)
 
     _execute(action)
 
@@ -122,31 +138,15 @@ def _new_entry(entry_type: str, entry_id: str) -> None:
     _execute(action)
 
 
-@new_app.command("skill")
-def new_skill(entry_id: str) -> None:
-    """Create a skill/data entry template."""
-    _new_entry("skill", entry_id)
-
-
-@new_app.command("model")
-def new_model(entry_id: str) -> None:
-    """Create a combination model template."""
-    _new_entry("model", entry_id)
-
-
 @new_app.command("entry")
-def new_entry(entry_id: str) -> None:
+def new_entry(
+    entry_id: str,
+    template: str = typer.Option(
+        "model", "--template", help="Starting template: blank, data, model, or semantics."
+    ),
+) -> None:
     """Create a game-neutral entry template."""
-    _new_entry("entry", entry_id)
-
-
-@new_app.command("scenario")
-def new_scenario(scenario_id: str) -> None:
-    """Create a parameter scenario template."""
-    def action():
-        typer.echo(str(create_scenario_template(Workspace.discover(), scenario_id)))
-
-    _execute(action)
+    _new_entry(template, entry_id)
 
 
 @new_app.command("plot")
@@ -230,7 +230,7 @@ def check_command(
 @app.command("eval")
 def eval_command(
     target: str,
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set", help="Override NAME=VALUE; repeatable."),
     precision: int = typer.Option(30, "--precision"),
     display_digits: int = typer.Option(12, "--display-digits"),
@@ -238,13 +238,13 @@ def eval_command(
     save_run_id: Optional[str] = typer.Option(None, "--save-run"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Evaluate an output numerically using defaults < scenario < --set."""
+    """Evaluate an output numerically using defaults < preset < --set."""
     def action():
         workspace = Workspace.discover()
         overrides = _parse_sets(set_values)
         request = {
             "target": target,
-            "scenario": scenario,
+            "preset": preset,
             "overrides": overrides,
             "precision": precision,
             "display_digits": display_digits,
@@ -255,10 +255,15 @@ def eval_command(
             save_run_id,
             "eval",
             request,
-            lambda: evaluate(Engine(workspace), target, scenario, overrides, precision, display_digits, timeout),
-            [scenario] if scenario else [],
+            lambda: evaluate(Engine(workspace), target, preset, overrides, precision, display_digits, timeout),
+            [preset] if preset else [],
         )
-        _emit(result, json_output, f"{result['exact']} {result['unit']} (≈ {result['approximate']})")
+        _emit(
+            result,
+            json_output,
+            f"{result.get('formatted', result['approximate'])} [{result['unit']}]"
+            f"\nexact: {result['exact']}",
+        )
 
     _execute(action, json_output)
 
@@ -266,7 +271,7 @@ def eval_command(
 def _transform_command(
     operation: str,
     target: str,
-    scenario: Optional[str],
+    preset: Optional[str],
     set_values: List[str],
     keep: List[str],
     timeout: float,
@@ -278,7 +283,7 @@ def _transform_command(
         overrides = _parse_sets(set_values)
         request = {
             "target": target,
-            "scenario": scenario,
+            "preset": preset,
             "overrides": overrides,
             "keep": keep,
             "timeout_seconds": timeout,
@@ -288,8 +293,8 @@ def _transform_command(
             save_run_id,
             operation,
             request,
-            lambda: transform(Engine(workspace), operation, target, scenario, overrides, keep, timeout),
-            [scenario] if scenario else [],
+            lambda: transform(Engine(workspace), operation, target, preset, overrides, keep, timeout),
+            [preset] if preset else [],
         )
         _emit(result, json_output, f"{result['expression']} [{result['unit']}]")
 
@@ -299,7 +304,7 @@ def _transform_command(
 @app.command("simplify")
 def simplify_command(
     target: str,
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     keep: List[str] = typer.Option([], "--keep", help="Retain this declared variable; repeatable."),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
@@ -307,13 +312,13 @@ def simplify_command(
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Simplify an output or ad-hoc expression."""
-    _transform_command("simplify", target, scenario, set_values, keep, timeout, save_run_id, json_output)
+    _transform_command("simplify", target, preset, set_values, keep, timeout, save_run_id, json_output)
 
 
 @app.command("expand")
 def expand_command(
     target: str,
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     keep: List[str] = typer.Option([], "--keep"),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
@@ -321,13 +326,13 @@ def expand_command(
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Expand an output or ad-hoc expression."""
-    _transform_command("expand", target, scenario, set_values, keep, timeout, save_run_id, json_output)
+    _transform_command("expand", target, preset, set_values, keep, timeout, save_run_id, json_output)
 
 
 @app.command("factor")
 def factor_command(
     target: str,
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     keep: List[str] = typer.Option([], "--keep"),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
@@ -335,14 +340,14 @@ def factor_command(
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Factor an output or ad-hoc expression."""
-    _transform_command("factor", target, scenario, set_values, keep, timeout, save_run_id, json_output)
+    _transform_command("factor", target, preset, set_values, keep, timeout, save_run_id, json_output)
 
 
 @app.command("diff")
 def diff_command(
     target: str,
     variable: str = typer.Option(..., "--var"),
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
     save_run_id: Optional[str] = typer.Option(None, "--save-run"),
@@ -355,7 +360,7 @@ def diff_command(
         request = {
             "target": target,
             "variable": variable,
-            "scenario": scenario,
+            "preset": preset,
             "overrides": overrides,
             "timeout_seconds": timeout,
         }
@@ -364,8 +369,8 @@ def diff_command(
             save_run_id,
             "diff",
             request,
-            lambda: differentiate(Engine(workspace), target, variable, scenario, overrides, timeout),
-            [scenario] if scenario else [],
+            lambda: differentiate(Engine(workspace), target, variable, preset, overrides, timeout),
+            [preset] if preset else [],
         )
         _emit(result, json_output, f"{result['expression']} [{result['unit']}]")
 
@@ -378,7 +383,7 @@ def solve_command(
     variable: str = typer.Option(..., "--var"),
     equals: str = typer.Option(..., "--equals", help="Target value, optionally followed by a unit."),
     range_text: Optional[str] = typer.Option(None, "--range"),
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     precision: int = typer.Option(30, "--precision"),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
@@ -394,7 +399,7 @@ def solve_command(
             "variable": variable,
             "equals": equals,
             "range": range_text,
-            "scenario": scenario,
+            "preset": preset,
             "overrides": overrides,
             "precision": precision,
             "timeout_seconds": timeout,
@@ -404,8 +409,8 @@ def solve_command(
             save_run_id,
             "solve",
             request,
-            lambda: solve_equation(Engine(workspace), target, variable, equals, range_text, scenario, overrides, precision, timeout),
-            [scenario] if scenario else [],
+            lambda: solve_equation(Engine(workspace), target, variable, equals, range_text, preset, overrides, precision, timeout),
+            [preset] if preset else [],
         )
         if result["solution_kind"] in {"exact", "numeric_approximate"}:
             human = ", ".join(solution["exact"] for solution in result["solutions"])
@@ -421,13 +426,87 @@ def solve_command(
     _execute(action, json_output)
 
 
+@app.command("solve-system")
+def solve_system_command(
+    equations: List[str] = typer.Option(
+        ..., "--equation", help="Repeat TARGET=VALUE, with an optional unit after VALUE."
+    ),
+    variables: List[str] = typer.Option(..., "--var"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
+    set_values: List[str] = typer.Option([], "--set"),
+    precision: int = typer.Option(30, "--precision"),
+    timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
+    save_run_id: Optional[str] = typer.Option(None, "--save-run"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Solve up to eight linked equations for up to eight player inputs."""
+
+    def action():
+        workspace = Workspace.discover()
+        parsed_equations = []
+        for equation in equations:
+            if equation.count("=") != 1:
+                raise ParameterError("system equation must use TARGET=VALUE")
+            target, equals = (part.strip() for part in equation.split("=", 1))
+            if not target or not equals:
+                raise ParameterError("system equation requires both TARGET and VALUE")
+            parsed_equations.append((target, equals))
+        overrides = _parse_sets(set_values)
+        request = {
+            "equations": [
+                {"target": target, "equals": equals}
+                for target, equals in parsed_equations
+            ],
+            "variables": variables,
+            "preset": preset,
+            "overrides": overrides,
+            "precision": precision,
+            "timeout_seconds": timeout,
+        }
+        result = _recorded_compute(
+            workspace,
+            save_run_id,
+            "solve_system",
+            request,
+            lambda: solve_system(
+                Engine(workspace),
+                parsed_equations,
+                variables,
+                preset,
+                overrides,
+                precision,
+                timeout,
+            ),
+            [preset] if preset else [],
+        )
+        if result["solution_kind"] == "exact":
+            lines = []
+            for solution in result["solutions"]:
+                lines.append(
+                    ", ".join(
+                        f"{name}={value['exact']} {value['unit']}"
+                        for name, value in solution["values"].items()
+                    )
+                )
+            human = "\n".join(lines)
+        elif result["solution_kind"] == "no_solution_proven":
+            human = "No solution satisfies the declared input domains."
+        else:
+            human = f"Incomplete system solve: {result.get('solution_set')}"
+        _emit(result, json_output, human)
+        if result["status"] == "incomplete":
+            raise typer.Exit(code=1)
+
+    _execute(action, json_output)
+
+
 @app.command("scan")
 def scan_command(
     x: str = typer.Option(..., "--x"),
     range_text: str = typer.Option(..., "--range"),
     points: int = typer.Option(..., "--points"),
     targets: List[str] = typer.Option(..., "--y"),
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     out: Optional[str] = typer.Option(None, "--out", help="CSV output path."),
     precision: int = typer.Option(30, "--precision"),
@@ -447,7 +526,7 @@ def scan_command(
             "range": range_text,
             "points": points,
             "targets": targets,
-            "scenario": scenario,
+            "preset": preset,
             "overrides": overrides,
             "precision": precision,
             "display_digits": display_digits,
@@ -460,7 +539,7 @@ def scan_command(
 
         def compute_scan() -> dict:
             computed = scan_values(
-                Engine(workspace), x, range_text, points, targets, scenario, overrides,
+                Engine(workspace), x, range_text, points, targets, preset, overrides,
                 precision, display_digits, timeout
             )
             if output_path:
@@ -473,7 +552,7 @@ def scan_command(
             "scan",
             request,
             compute_scan,
-            [scenario] if scenario else [],
+            [preset] if preset else [],
         )
         human_lines = ["x\t" + "\t".join(targets)]
         for row in result["rows"]:
@@ -488,13 +567,94 @@ def scan_command(
     _execute(action, json_output)
 
 
+@app.command("grid")
+def grid_command(
+    x: str = typer.Option(..., "--x"),
+    x_range: str = typer.Option(..., "--x-range"),
+    x_points: int = typer.Option(..., "--x-points"),
+    y: str = typer.Option(..., "--y"),
+    y_range: str = typer.Option(..., "--y-range"),
+    y_points: int = typer.Option(..., "--y-points"),
+    target: str = typer.Option(..., "--result"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
+    set_values: List[str] = typer.Option([], "--set"),
+    out: Optional[str] = typer.Option(None, "--out", help="CSV output path."),
+    precision: int = typer.Option(30, "--precision"),
+    display_digits: int = typer.Option(12, "--display-digits"),
+    timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
+    force: bool = typer.Option(False, "--force"),
+    allow_outside: bool = typer.Option(False, "--allow-outside-workspace"),
+    save_run_id: Optional[str] = typer.Option(None, "--save-run"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Scan two inputs and produce heatmap-ready rows."""
+
+    def action():
+        workspace = Workspace.discover()
+        overrides = _parse_sets(set_values)
+        output_path = _artifact_path(workspace, out, allow_outside) if out else None
+        if output_path:
+            _preflight_artifacts([output_path], force)
+        request = {
+            "x": x,
+            "x_range": x_range,
+            "x_points": x_points,
+            "y": y,
+            "y_range": y_range,
+            "y_points": y_points,
+            "target": target,
+            "preset": preset,
+            "overrides": overrides,
+            "precision": precision,
+            "display_digits": display_digits,
+            "timeout_seconds": timeout,
+            "out": out,
+        }
+
+        def compute_grid() -> dict:
+            result = scan_grid(
+                Engine(workspace),
+                x,
+                x_range,
+                x_points,
+                y,
+                y_range,
+                y_points,
+                target,
+                preset,
+                overrides,
+                precision,
+                display_digits,
+                timeout,
+            )
+            if output_path:
+                result["out"] = str(write_grid_csv(result, output_path, overwrite=force))
+            return result
+
+        result = _recorded_compute(
+            workspace,
+            save_run_id,
+            "grid",
+            request,
+            compute_grid,
+            [preset] if preset else [],
+        )
+        human = (
+            f"Grid: {result['valid_points']}/{result['points']} valid points"
+            + (f"\nCSV: {result['out']}" if "out" in result else "")
+        )
+        _emit(result, json_output, human)
+
+    _execute(action, json_output)
+
+
 @app.command("plot")
 def plot_command(
     x: Optional[str] = typer.Option(None, "--x"),
     range_text: Optional[str] = typer.Option(None, "--range"),
     points: Optional[int] = typer.Option(None, "--points"),
     targets: List[str] = typer.Option([], "--y"),
-    scenario: Optional[str] = typer.Option(None, "--scenario"),
+    preset: Optional[str] = typer.Option(None, "--preset"),
     set_values: List[str] = typer.Option([], "--set"),
     out: Optional[str] = typer.Option(None, "--out"),
     data_out: Optional[str] = typer.Option(None, "--data-out"),
@@ -511,7 +671,7 @@ def plot_command(
     def action():
         workspace = Workspace.discover()
         chosen_x, chosen_range, chosen_points = x, range_text, points
-        chosen_targets, chosen_scenario = list(targets), scenario
+        chosen_targets, chosen_preset = list(targets), preset
         chosen_out, chosen_data_out = out, data_out
         title = x_label = y_label = None
         curve_labels = {}
@@ -521,7 +681,7 @@ def plot_command(
             chosen_range = chosen_range or f"{saved.range_start}:{saved.range_end}"
             chosen_points = chosen_points or saved.points
             chosen_targets = chosen_targets or saved.y
-            chosen_scenario = chosen_scenario or saved.scenario
+            chosen_preset = chosen_preset or saved.preset
             chosen_out = chosen_out or saved.out
             chosen_data_out = chosen_data_out or saved.data_out
             title, x_label, y_label = saved.title, saved.x_label, saved.y_label
@@ -534,7 +694,7 @@ def plot_command(
             "range": chosen_range,
             "points": chosen_points,
             "targets": chosen_targets,
-            "scenario": chosen_scenario,
+            "preset": chosen_preset,
             "overrides": overrides,
             "precision": precision,
             "display_digits": display_digits,
@@ -547,7 +707,7 @@ def plot_command(
             "y_label": y_label,
             "curve_labels": curve_labels,
         }
-        extra_ids = [item for item in (chosen_scenario, config) if item]
+        extra_ids = [item for item in (chosen_preset, config) if item]
         plot_path = _artifact_path(workspace, chosen_out, allow_outside)
         data_path = (
             _artifact_path(workspace, chosen_data_out, allow_outside) if chosen_data_out else None
@@ -561,7 +721,7 @@ def plot_command(
                 chosen_range,
                 chosen_points,
                 chosen_targets,
-                chosen_scenario,
+                chosen_preset,
                 overrides,
                 precision,
                 display_digits,

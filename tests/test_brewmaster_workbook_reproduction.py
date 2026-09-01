@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from kirin_tor.engine import Engine
-from kirin_tor.operations import evaluate, scan_values
+from kirin_tor.operations import evaluate, scan_grid, scan_values, solve_system
 from kirin_tor.plotting import render_plot, write_scan_csv
 from kirin_tor.workspace import Workspace
 
@@ -58,6 +58,79 @@ def test_damage_and_defense_tables_match_workbook_cached_values() -> None:
     }
     for target, expected in defense_values.items():
         _assert_value(engine, target, expected)
+
+
+def test_dodge_expectation_is_dynamic_and_feeds_the_defense_table() -> None:
+    workspace = Workspace.load(EXAMPLE_ROOT)
+    baseline = evaluate(Engine(workspace), "dodge_expectation.expected_dodge")
+    no_severity = evaluate(
+        Engine(workspace),
+        "dodge_expectation.expected_dodge",
+        overrides={"dodge_expectation.stagger_severity_bonus": "0"},
+    )
+    more_mastery = evaluate(
+        Engine(workspace),
+        "dodge_expectation.expected_dodge",
+        overrides={"damage_table.mastery_rating": "1000"},
+    )
+    assert float(baseline["approximate"]) == pytest.approx(0.513206348075, rel=1e-10)
+    assert baseline["formatted"] == "51.32%"
+    assert float(no_severity["approximate"]) == pytest.approx(0.470923646427, rel=1e-10)
+    assert float(more_mastery["approximate"]) == pytest.approx(0.528299367690, rel=1e-10)
+
+    less_dodge_reduction = evaluate(
+        Engine(workspace),
+        "defense_table.expected_physical_reduction",
+        overrides={"dodge_expectation.stagger_severity_bonus": "0"},
+    )
+    baseline_reduction = evaluate(
+        Engine(workspace), "defense_table.expected_physical_reduction"
+    )
+    assert float(less_dodge_reduction["approximate"]) < float(
+        baseline_reduction["approximate"]
+    )
+
+
+def test_brewmaster_sources_groups_and_presets_are_player_visible_metadata() -> None:
+    workspace = Workspace.load(EXAMPLE_ROOT)
+    assert workspace.get_preset("builds.current").label == "当前表格"
+    assert workspace.get_preset("single_target").qualified_id == "builds.single_target"
+    assert workspace.entries["damage_table"].groups["predicted_damage"].label == "预测伤害"
+    assert workspace.entries["defense_table"].groups["mitigation"].label == "减伤与躲闪"
+    assert workspace.entries["aoe_table"].groups["dpc"].label == "DPC"
+    for entry_id in ("damage_table", "defense_table", "aoe_table", "dodge_expectation"):
+        source = workspace.entries[entry_id].sources[0]
+        assert source["verified_at"] == "2026-09-01"
+        assert source["game_version"] == "12.0.1.65617"
+
+
+def test_real_brewmaster_model_supports_linked_solve_and_two_stat_grid() -> None:
+    workspace = Workspace.load(EXAMPLE_ROOT)
+    solved = solve_system(
+        Engine(workspace),
+        [
+            ("damage_table.base_attack_power", "15986671/4600 attack_power"),
+            ("damage_table.versatility", "119/900"),
+        ],
+        ["damage_table.mastery_rating", "damage_table.versatility_rating"],
+    )
+    values = solved["solutions"][0]["values"]
+    assert values["damage_table.mastery_rating"]["exact"] == "609"
+    assert values["damage_table.versatility_rating"]["exact"] == "714"
+
+    grid = scan_grid(
+        Engine(workspace),
+        "damage_table.mastery_rating",
+        "500:700",
+        3,
+        "damage_table.versatility_rating",
+        "600:800",
+        3,
+        "damage_table.tiger_palm_damage",
+    )
+    assert grid["valid_points"] == 9
+    assert grid["rows"][0]["value"]["formatted"] == "11,256"
+    assert grid["rows"][-1]["value"]["formatted"] == "12,039"
 
 
 def test_aoe_table_matches_workbook_at_representative_target_counts() -> None:
@@ -119,7 +192,7 @@ def test_aoe_plot_performs_a_real_scan_and_export(tmp_path: Path) -> None:
         f"{plot.range_start}:{plot.range_end}",
         plot.points,
         plot.y,
-        plot.scenario,
+        plot.preset,
     )
 
     csv_path = write_scan_csv(scan, copied_root / "results" / "aoe-dpc.csv")

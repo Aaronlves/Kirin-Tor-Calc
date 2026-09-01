@@ -14,7 +14,7 @@ from .schema import (
     Document,
     Entry,
     PlotConfig,
-    Scenario,
+    Preset,
     build_semantic_registry,
     parse_document,
     require_identifier,
@@ -24,7 +24,8 @@ from .units import UnitRegistry
 
 
 MARKER = "kirin.workspace"
-DOCUMENT_DRAFT_KINDS = ("entry", "skill", "model", "scenario", "plot")
+DOCUMENT_DRAFT_KINDS = ("entry", "plot")
+ENTRY_TEMPLATE_KINDS = ("blank", "data", "model", "semantics")
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,12 @@ class Workspace:
         return {key: value for key, value in self.documents.items() if isinstance(value, Entry)}
 
     @property
-    def scenarios(self) -> Dict[str, Scenario]:
-        return {key: value for key, value in self.documents.items() if isinstance(value, Scenario)}
+    def presets(self) -> Dict[str, Preset]:
+        result: Dict[str, Preset] = {}
+        for entry in self.entries.values():
+            for preset in entry.presets.values():
+                result[preset.qualified_id] = preset
+        return result
 
     @property
     def plots(self) -> Dict[str, PlotConfig]:
@@ -113,9 +118,9 @@ class Workspace:
             except ValueError as exc:
                 raise WorkspaceError(f"editor source must stay inside the workspace: {source_path}") from exc
             if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
-                "entries", "scenarios", "plots"
+                "entries", "plots"
             }:
-                raise WorkspaceError("editor source must be a .kirin file inside entries, scenarios, or plots")
+                raise WorkspaceError("editor source must be a .kirin file inside entries or plots")
             resolved_overlays[source_path] = source_text
         paths = cls._document_paths(root)
         for source_path in resolved_overlays:
@@ -156,7 +161,7 @@ class Workspace:
     @staticmethod
     def _document_paths(root: Path) -> list[Path]:
         paths = []
-        for folder in ("entries", "scenarios", "plots"):
+        for folder in ("entries", "plots"):
             directory = root / folder
             if directory.exists():
                 paths.extend(path for path in directory.rglob("*.kirin") if path.is_file())
@@ -280,11 +285,10 @@ class Workspace:
                 ) from exc
             if source_path.suffix.lower() != ".kirin" or not relative.parts or relative.parts[0] not in {
                 "entries",
-                "scenarios",
                 "plots",
             }:
                 raise WorkspaceError(
-                    "editor source must be a .kirin file inside entries, scenarios, or plots"
+                    "editor source must be a .kirin file inside entries or plots"
                 )
             resolved_overlays[source_path] = source_text
         paths = cls._document_paths(root)
@@ -366,15 +370,19 @@ class Workspace:
             raise ReferenceError(f"{entry_id!r} is a {document.type}, not a data entry")
         return document
 
-    def get_scenario(self, scenario_id: Optional[str]) -> Optional[Scenario]:
-        if scenario_id is None:
+    def get_preset(self, preset_id: Optional[str]) -> Optional[Preset]:
+        if preset_id is None:
             return None
-        document = self.documents.get(scenario_id)
-        if document is None:
-            raise ReferenceError(f"missing scenario {scenario_id!r}")
-        if not isinstance(document, Scenario):
-            raise ReferenceError(f"{scenario_id!r} is not a scenario")
-        return document
+        presets = self.presets
+        if preset_id in presets:
+            return presets[preset_id]
+        matches = [preset for preset in presets.values() if preset.id == preset_id]
+        if not matches:
+            raise ReferenceError(f"missing preset {preset_id!r}")
+        if len(matches) > 1:
+            choices = ", ".join(sorted(preset.qualified_id for preset in matches))
+            raise ReferenceError(f"preset {preset_id!r} is ambiguous; use one of: {choices}")
+        return matches[0]
 
     def get_plot(self, plot_id: str) -> PlotConfig:
         document = self.documents.get(plot_id)
@@ -401,7 +409,7 @@ def initialize(root: Path, package_name: str = "none") -> Path:
     package_path = root / "entries" / f"{package_name}_semantics.kirin"
     if package_name != "none" and package_path.exists():
         raise WorkspaceError(f"initialization would overwrite an existing file: {package_path}")
-    for folder in ("entries", "scenarios", "plots", "runs", "results"):
+    for folder in ("entries", "plots", "runs", "results"):
         (root / folder).mkdir(exist_ok=True)
     with marker.open("x", encoding="utf-8") as handle:
         handle.write(f"@kirin-workspace 1\ninitial-package: {package_name}\n")
@@ -423,7 +431,8 @@ def build_document_draft(
     plot_range_start: str = "0",
     plot_range_end: str = "1",
     plot_points: int = 101,
-    plot_scenario: Optional[str] = None,
+    plot_preset: Optional[str] = None,
+    entry_template: str = "model",
 ) -> DocumentDraft:
     """Build the canonical CLI/TUI source template without writing it."""
     require_identifier(document_id, "id", SourceLocation(entry_id=document_id))
@@ -431,29 +440,38 @@ def build_document_draft(
         raise SchemaError(
             "new document template must be one of: " + ", ".join(DOCUMENT_DRAFT_KINDS)
         )
+    if document_kind == "entry" and entry_template not in ENTRY_TEMPLATE_KINDS:
+        raise SchemaError(
+            "entry template must be one of: " + ", ".join(ENTRY_TEMPLATE_KINDS)
+        )
     root = root.resolve()
-    if document_kind in {"entry", "skill", "model"}:
+    if document_kind == "entry":
         path = root / "entries" / f"{document_id}.kirin"
-    elif document_kind == "scenario":
-        path = root / "scenarios" / f"{document_id}.kirin"
     else:
         path = root / "plots" / f"{document_id}.kirin"
 
-    if document_kind in {"entry", "skill"}:
+    if document_kind == "entry" and entry_template == "blank":
         source_text = f"""@kirin 1
 @entry {document_id}
-@template {document_kind}
+@template entry
 
 // {document_id}
 
 ---
-Edit this fictional template.
+说明这个条目的数据、公式和适用范围。
 ---
+"""
+    elif document_kind == "entry" and entry_template == "data":
+        source_text = f"""@kirin 1
+@entry {document_id}
+@template data
+
+// {document_id}
 
 fields:
   base_value: dimensionless = 0
 """
-    elif document_kind == "model":
+    elif document_kind == "entry" and entry_template == "model":
         source_text = f"""@kirin 1
 @entry {document_id}
 @template model
@@ -466,13 +484,21 @@ inputs:
 outputs:
   result: dimensionless = x
 """
-    elif document_kind == "scenario":
+    elif document_kind == "entry":
         source_text = f"""@kirin 1
-@scenario {document_id}
+@entry {document_id}
+@template semantics
 
 // {document_id}
 
-values:
+dimensions:
+  value
+
+units:
+  value = value
+
+domains:
+  nonnegative: number[dimensionless] in 0..*
 """
     else:
         targets = tuple(plot_targets)
@@ -480,7 +506,7 @@ values:
             raise SchemaError("new plot template requires at least one output target")
         if isinstance(plot_points, bool) or not isinstance(plot_points, int) or plot_points < 2:
             raise SchemaError("new plot template points must be an integer of at least 2")
-        scenario_line = f"scenario: {plot_scenario}\n\n" if plot_scenario else ""
+        preset_line = f"preset: {plot_preset}\n\n" if plot_preset else ""
         target_lines = "\n".join(f"  {target}" for target in targets)
         source_text = f"""@kirin 1
 @plot {document_id}
@@ -491,7 +517,7 @@ x: {plot_x}
 range: {plot_range_start}..{plot_range_end}
 points: {plot_points}
 
-{scenario_line}y:
+{preset_line}y:
 {target_lines}
 
 export-svg: \"results/{document_id}.svg\"
@@ -514,13 +540,20 @@ def create_document_template(workspace: Workspace, document_kind: str, document_
 
 
 def create_entry_template(workspace: Workspace, entry_type: str, entry_id: str) -> Path:
-    if entry_type not in {"entry", "skill", "model"}:
-        raise SchemaError("new entry template must be entry, skill, or model")
-    return create_document_template(workspace, entry_type, entry_id)
-
-
-def create_scenario_template(workspace: Workspace, scenario_id: str) -> Path:
-    return create_document_template(workspace, "scenario", scenario_id)
+    template = entry_type
+    if template not in ENTRY_TEMPLATE_KINDS:
+        raise SchemaError(
+            "entry template must be one of: " + ", ".join(ENTRY_TEMPLATE_KINDS)
+        )
+    draft = build_document_draft(workspace.root, "entry", entry_id, entry_template=template)
+    if entry_id in workspace.documents:
+        raise WorkspaceError(f"document id already exists: {entry_id}")
+    if draft.path.exists():
+        raise WorkspaceError(f"file already exists: {draft.path}")
+    draft.path.parent.mkdir(parents=True, exist_ok=True)
+    with draft.path.open("x", encoding="utf-8") as handle:
+        handle.write(draft.source_text)
+    return draft.path
 
 
 def create_plot_template(workspace: Workspace, plot_id: str) -> Path:

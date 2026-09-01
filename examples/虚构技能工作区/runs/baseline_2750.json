@@ -1,11 +1,11 @@
 {
   "run_format_version": 2,
   "run_id": "baseline_2750",
-  "created_at": "2026-08-31T20:10:51.105692+00:00",
+  "created_at": "2026-09-01T05:40:44.879127+00:00",
   "operation": "eval",
   "request": {
     "target": "combo.total",
-    "scenario": "baseline",
+    "preset": "presets.baseline",
     "overrides": {},
     "precision": 30,
     "display_digits": 12,
@@ -16,25 +16,10 @@
   },
   "definitions": [
     {
-      "id": "baseline",
-      "source_sha256": "6a59da4aec973ee832aeca2a1b58ae7325e731e0eb6f3f12f804c2aea914789b",
-      "content_sha256": "83b9c1c3dfb1c0e1e1dcf42b3b1c8f3d69553861508bef0236dc9fcc58cc3946",
-      "source_text": "@kirin 1\n@scenario baseline\n\n// 基线参数（虚构）\n\nvalues:\n  combo.crit = 0.25\n",
-      "content": {
-        "schema_version": 1,
-        "id": "baseline",
-        "name": "baseline",
-        "type": "scenario",
-        "values": {
-          "combo.crit": "0.25"
-        }
-      }
-    },
-    {
       "id": "combo",
-      "source_sha256": "57824554284bfa433c5ad0ee9189ba57c765af020d2a65d1cf2a086d0ccf0e28",
-      "content_sha256": "4632eb7a3694550a72aa2e2964bdbb12a1801bd9790fcda781490b4410d098f4",
-      "source_text": "@kirin 1\n@entry combo\n@template model\n@game-version fictional\n@status example_only\n\n// 双技能组合（虚构）\n\n---\n完全虚构的组合验收模型。\n---\n\naliases:\n  技能甲 = skill_a.expected\n  技能乙 = skill_b.expected\n\ninputs:\n  crit \"暴击率\": probability = 0.10 in 0..1\n\noutputs:\n  total \"组合期望伤害\": damage = 技能甲(crit) + 2 * 技能乙(crit)\n",
+      "source_sha256": "e08c11d7a4e9c18d5b56683d39307dfdd2147ad92586a292de9f4372509a219a",
+      "content_sha256": "8d2a04afe35e7e2291fe81f2bfdd9f575e6b91adfa5ab5e94ca4102ad0bfa8ad",
+      "source_text": "@kirin 1\n@entry combo\n@template model\n@game-version fictional\n@status example_only\n\n// 双技能组合（虚构）\n\n---\n完全虚构的组合验收模型。\n---\n\naliases:\n  技能甲 = skill_a.expected\n  技能乙 = skill_b.expected\n\ninputs:\n  crit \"暴击率\": probability = 0.10 in 0..1\n\noutputs:\n  total \"组合期望伤害\": damage = 技能甲(crit) + 2 * 技能乙(crit)\n\ngroups:\n  damage \"伤害\":\n    total\n\ndisplay:\n  total: integer\n",
       "content": {
         "schema_version": 1,
         "id": "combo",
@@ -56,7 +41,8 @@
           "total": {
             "expression": "技能甲(crit) + 2 * 技能乙(crit)",
             "unit": "damage",
-            "label": "组合期望伤害"
+            "label": "组合期望伤害",
+            "display": "integer"
           }
         },
         "description": "完全虚构的组合验收模型。",
@@ -66,6 +52,14 @@
         "aliases": {
           "技能甲": "skill_a.expected",
           "技能乙": "skill_b.expected"
+        },
+        "groups": {
+          "damage": {
+            "label": "伤害",
+            "outputs": [
+              "total"
+            ]
+          }
         }
       }
     },
@@ -126,6 +120,41 @@
               "unit": "dimensionless",
               "min": "1",
               "integer": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "presets",
+      "source_sha256": "3f6811dfdc14fa54ae3615800f9c8b24f3d8510b1b6df35c973aaf54c5911c84",
+      "content_sha256": "0761d3e3003a839804c75207b172fb4ac8aa246aed906e795d6d5c0ab7ed6fa9",
+      "source_text": "@kirin 1\n@entry presets\n@template data\n@game-version fictional\n@status example_only\n\n// 参数方案（虚构）\n\npresets:\n  baseline \"基线\":\n    combo.crit = 0.25\n\n  no_talent \"关闭天赋\":\n    aoe_pattern.targets = 4\n    aoe_pattern.talent_enabled = false\n",
+      "content": {
+        "schema_version": 1,
+        "id": "presets",
+        "name": "presets",
+        "type": "entry",
+        "inputs": {},
+        "constraints": [],
+        "fields": {},
+        "functions": {},
+        "outputs": {},
+        "template": "data",
+        "game_version": "fictional",
+        "validation_status": "example_only",
+        "presets": {
+          "baseline": {
+            "label": "基线",
+            "values": {
+              "combo.crit": "0.25"
+            }
+          },
+          "no_talent": {
+            "label": "关闭天赋",
+            "values": {
+              "aoe_pattern.targets": "4",
+              "aoe_pattern.talent_enabled": false
             }
           }
         }
@@ -218,7 +247,7 @@
   ],
   "software": {
     "kirin_tor_cli": "0.2.0",
-    "kirin_tor_implementation_sha256": "5f67a5410327e342205320ed1b700080c8b5eb01574704fee42c1df2e190d3a0",
+    "kirin_tor_implementation_sha256": "419123657b5064d058d42030d4e00f5a290ff8feccab912843fdb9e6dc1b649a",
     "python": "3.9.6",
     "platform": "darwin",
     "sympy": "1.14.0",
@@ -239,6 +268,9 @@
     "target": "combo.total",
     "exact": "2750",
     "approximate": "2750.00000000",
+    "formatted": "2,750",
+    "display_format": "integer",
+    "display_digits_player": 6,
     "precision": 30,
     "display_digits": 12,
     "unit": "damage",
