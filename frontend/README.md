@@ -22,5 +22,5 @@ without changing the user-facing `kt web` command.
 The Playwright suite builds the current frontend, serves it against a disposable copy of the
 fictional example workspace, and covers document switching, completion insertion, read-only
 automatic result, chart, and formula projections, chart expansion, diagnostic navigation,
-source traceability, persisted document focus modes, keyboard graph navigation, creation validation, and external-change
+source traceability, persisted document focus modes, directional local-graph exploration, keyboard graph navigation, creation validation, and external-change
 recovery. It never writes to the example workspace itself.

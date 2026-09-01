@@ -139,8 +139,16 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await focusChoice("仅预览").click();
     await page.getByRole("tab", { name: "关系", exact: true }).click();
     const localGraph = page.locator(".local-graph-stage .canvas-data-fallback");
+    const directionChoice = (label: string) => page.locator(".local-graph-toolbar .mantine-SegmentedControl-label").filter({ hasText: label });
+    await expect(page.getByRole("radio", { name: "全部" })).toBeChecked();
     await localGraph.locator("summary").click();
+    await expect(localGraph.getByRole("button").filter({ hasText: "combo.total" })).toContainText("当前文档");
+    await directionChoice("使用者").click();
+    await expect(localGraph.getByRole("button").filter({ hasText: "skill_a.expected" })).toHaveCount(0);
+    await directionChoice("依赖").click();
+    await expect(localGraph.getByRole("button").filter({ hasText: "skill_a.expected" })).toBeVisible();
     await localGraph.getByRole("button").filter({ hasText: "combo.total" }).click();
+    await expect(page.locator(".local-graph-selection")).toContainText("3 个依赖 · 0 个使用者");
     await page.locator(".local-graph-selection").click();
     await expect(page.getByRole("radio", { name: "分栏" })).toBeChecked();
     await expect(activeLine).toContainText('total "组合期望伤害"');

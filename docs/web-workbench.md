@@ -9,7 +9,7 @@ The server binds only to a loopback address. Each process creates a random sessi
 ## Views and CLI parity
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates.
-- Relationship Graph derives global document and member projections from validated expression references and provides source navigation. Members include inputs, fields, functions, tables, finite distributions, bounded recurrences, finite state models, and outputs. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data.
+- Relationship Graph derives global document and member projections from validated expression references and provides source navigation. Members include inputs, fields, functions, tables, finite distributions, bounded recurrences, finite state models, and outputs. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
 - Runs is a workspace drawer for replay and explicit artifact regeneration.
 - Packages is a workspace drawer for add, add-path, list, update, remove, restore, verify, Package new/check, and workspace initialization.
 

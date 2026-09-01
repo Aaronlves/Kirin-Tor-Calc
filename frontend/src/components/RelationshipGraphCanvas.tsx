@@ -32,12 +32,14 @@ const categoryColors: Record<string, string> = {
   state_model: "#6fa7a0",
   output: "#7599b2",
 };
+const emptyRootIds: string[] = [];
 
 interface RelationshipGraphCanvasProps {
   nodes: RelationshipNode[];
   edges: RelationshipEdge[];
   compact?: boolean;
   layout?: "circular" | "force";
+  rootIds?: string[];
   selectedId?: string | null;
   onSelect?(id: string): void;
 }
@@ -56,6 +58,7 @@ export function RelationshipGraphCanvas({
   edges,
   compact = false,
   layout = "force",
+  rootIds = emptyRootIds,
   selectedId = null,
   onSelect,
 }: RelationshipGraphCanvasProps) {
@@ -65,6 +68,7 @@ export function RelationshipGraphCanvas({
     [nodes],
   );
   const nodeMap = useMemo(() => new Map(sortedNodes.map((node) => [node.id, node])), [sortedNodes]);
+  const rootIdSet = useMemo(() => new Set(rootIds), [rootIds]);
   const connectionCounts = useMemo(() => {
     const counts = new Map<string, { dependencies: number; users: number }>();
     for (const node of sortedNodes) counts.set(node.id, { dependencies: 0, users: 0 });
@@ -104,7 +108,8 @@ export function RelationshipGraphCanvas({
           if (item.dataType !== "node" || !item.data?.id) return "公式依赖";
           const node = nodeMap.get(item.data.id);
           if (!node) return "";
-          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:#99958b">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}</span>`;
+          const scope = rootIdSet.has(node.id) ? " · 当前文档" : "";
+          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:#99958b">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}${scope}</span>`;
         },
       },
       legend: compact ? undefined : [{
@@ -126,11 +131,11 @@ export function RelationshipGraphCanvas({
           name: (labelCounts.get(node.label) || 0) > 1 ? `${node.document_id}.${node.label}` : node.label,
           selected: node.id === selectedId,
           category: categoryIndex.get(categoryLabels[node.kind] || node.kind) ?? 0,
-          symbolSize: Math.min(compact ? 21 : 32, (compact ? 11 : 15) + Math.sqrt(degree.get(node.id) || 1) * 3),
+          symbolSize: Math.min(compact ? 23 : 34, (compact ? 11 : 15) + Math.sqrt(degree.get(node.id) || 1) * 3 + (rootIdSet.has(node.id) ? 2 : 0)),
           itemStyle: {
             color: categoryColors[node.kind] || "#8d887d",
-            borderColor: "#171612",
-            borderWidth: 1,
+            borderColor: rootIdSet.has(node.id) ? "#df8665" : "#171612",
+            borderWidth: rootIdSet.has(node.id) ? 2 : 1,
           },
           label: {
             show: sortedNodes.length <= (compact ? 18 : 45),
@@ -171,7 +176,7 @@ export function RelationshipGraphCanvas({
       observer.disconnect();
       chart.dispose();
     };
-  }, [compact, edges, layout, nodeMap, onSelect, selectedId, sortedNodes]);
+  }, [compact, edges, layout, nodeMap, onSelect, rootIdSet, selectedId, sortedNodes]);
 
   return (
     <div className={`relationship-visualization${compact ? " is-compact" : ""}`}>
@@ -189,7 +194,7 @@ export function RelationshipGraphCanvas({
                   onClick={() => onSelect?.(node.id)}
                 >
                   <strong>{node.label}</strong>
-                  <small>{node.id} · {categoryLabels[node.kind] || node.kind} · {count?.dependencies || 0} 个依赖 · {count?.users || 0} 个使用者</small>
+                  <small>{node.id} · {categoryLabels[node.kind] || node.kind} · {count?.dependencies || 0} 个依赖 · {count?.users || 0} 个使用者{rootIdSet.has(node.id) ? " · 当前文档" : ""}</small>
                 </button>
               </div>
             );
