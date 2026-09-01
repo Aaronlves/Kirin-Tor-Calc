@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const sessionUrl = "/?token=kirin-e2e-token";
@@ -426,5 +426,42 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(editor).toContainText("// external edit");
     await expect(editor).not.toContainText("// local workbench draft");
     await expect(page.getByRole("button", { name: "保存全部" }).first()).toBeDisabled();
+  });
+
+  test("空工作区展示只读教程并只复制为未保存草稿", async ({ page, browserName }) => {
+    const entries = resolve(".e2e-workspace", "entries");
+    const backup = resolve(".e2e-workspace", "entries-tutorial-backup");
+    await rename(entries, backup);
+    await mkdir(entries);
+    try {
+      await page.goto(sessionUrl);
+      await expect(page.getByLabel("Kirin 入门")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "从一份真正的 Kirin 源码开始" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "三个虚构、游戏中立的练习" })).toBeVisible();
+      expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
+      if (browserName !== "firefox") {
+        await expect(page.locator(".workspace-welcome")).toHaveScreenshot("empty-workspace-welcome.png", {
+          animations: "disabled",
+          maxDiffPixelRatio: 0.08,
+          stylePath: resolve("tests/e2e/screenshot.css"),
+        });
+      }
+
+      await page.getByRole("button", { name: "开始基础教程" }).click();
+      const tutorial = page.getByRole("dialog", { name: "教程与示例" });
+      await expect(tutorial.getByRole("heading", { name: "基础公式" })).toBeVisible();
+      await expect(tutorial.locator(".tutorial-source pre")).toContainText("@entry tutorial_basic");
+      await expect(tutorial).toContainText("只读 · 尚未进入当前工作区");
+
+      await tutorial.getByRole("textbox", { name: "文档 ID" }).fill("my_first_model");
+      await tutorial.getByRole("button", { name: "复制为未保存草稿" }).click();
+      const editor = page.getByRole("textbox", { name: "Kirin 源码：教程 1：基础公式" });
+      await expect(editor).toContainText("@entry my_first_model");
+      await expect(page.getByText("已修改", { exact: true })).toBeVisible();
+      await expect(access(resolve(entries, "my_first_model.kirin"))).rejects.toThrow();
+    } finally {
+      await rm(entries, { recursive: true, force: true });
+      await rename(backup, entries);
+    }
   });
 });

@@ -1,0 +1,40 @@
+@kirin 1
+@entry tutorial_variants
+@status tutorial
+
+// 教程 2：参数方案与比较
+
+---
+完全虚构、游戏中立的教学数据。
+参数方案只保存对正式输入的具名赋值，不改变输入本身的身份。
+---
+
+inputs:
+  base "基础值": number[dimensionless] = 100 in 0..*
+  rate "增长率": probability = 0.20
+  bonus "固定增量": number[dimensionless] = 10 in 0..*
+
+fields:
+  scaled "比例结果": dimensionless = base * (1 + rate)
+
+outputs:
+  proportional "比例方案": dimensionless = scaled
+  combined "组合方案": dimensionless = scaled + bonus
+
+groups:
+  comparison "方案比较":
+    proportional
+    combined
+
+presets:
+  baseline "基线假设":
+    tutorial_variants.rate = 0.20
+    tutorial_variants.bonus = 10
+
+  alternative "另一组假设":
+    tutorial_variants.rate = 0.35
+    tutorial_variants.bonus = 5
+
+display:
+  proportional: number digits 2
+  combined: number digits 2

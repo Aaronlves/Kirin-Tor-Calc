@@ -68,6 +68,7 @@ from .templates import (
     save_workspace_template,
 )
 from .timeout import run_with_timeout
+from .tutorials import list_tutorials
 from .workspace import Workspace, initialize
 
 
@@ -406,6 +407,7 @@ class Workbench:
                 "workspace": str(self.root),
                 "documents": documents,
                 "templates": [item.as_dict() for item in list_templates(self.root)],
+                "tutorials": [item.as_dict() for item in list_tutorials()],
                 "packages": package_summary(locked_workspace_resolution(self.root))["packages"],
                 "runs": self.list_runs(),
                 "validation": validation,
@@ -530,6 +532,7 @@ class Workbench:
                 "path": draft.path.relative_to(self.root).as_posix(),
                 "kind": draft.kind,
                 "id": draft.document_id,
+                "title": extract_author_title(draft.source_text, draft.document_id),
                 "text": draft.source_text,
             }
 

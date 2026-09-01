@@ -27,7 +27,7 @@ source traceability, persisted document focus modes, find/replace, symbol outlin
 definition and reference navigation, validated rename, parameter hints, safe formatting, directional
 local-graph exploration, keyboard graph navigation, searchable and contextual syntax-reference examples,
 workspace search/replace, change review, document duplication, creation validation, draft-session recovery,
-and external-change recovery. Chromium, Firefox, and WebKit run the functional suite; axe-core checks key
+empty-workspace tutorial viewing and draft copying, and external-change recovery. Chromium, Firefox, and WebKit run the functional suite; axe-core checks key
 surfaces and Chromium/WebKit keep layout screenshots. The server uses a disposable copy of the example
 workspace, so tests never write to the checked-in example itself.
 

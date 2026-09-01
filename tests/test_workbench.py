@@ -38,6 +38,41 @@ export-svg: "results/build.svg"
     return root
 
 
+def test_bundled_tutorials_are_read_only_valid_sources_and_copy_to_drafts(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "empty-workspace")
+    workbench = Workbench(root)
+    bootstrap = workbench.bootstrap()
+
+    assert bootstrap["documents"] == []
+    assert [item["id"] for item in bootstrap["tutorials"]] == [
+        "basic-model",
+        "preset-comparison",
+        "scan-chart",
+    ]
+    assert all(item["source"].startswith("@kirin 1\n@entry ") for item in bootstrap["tutorials"])
+    tutorial_templates = {
+        item["value"]: item for item in bootstrap["templates"] if item["origin"] == "tutorial"
+    }
+    assert set(tutorial_templates) == {
+        "tutorial:basic-model",
+        "tutorial:preset-comparison",
+        "tutorial:scan-chart",
+    }
+    assert all(item["source_path"] is None for item in tutorial_templates.values())
+
+    for index, tutorial in enumerate(bootstrap["tutorials"], start=1):
+        document_id = f"copied_tutorial_{index}"
+        draft = workbench.create_document(tutorial["template"], document_id)
+        assert draft["path"] == f"entries/{document_id}.kirin"
+        assert draft["title"].startswith(f"教程 {index}")
+        assert f"@entry {document_id}" in draft["text"]
+        assert tutorial["document_id"] not in draft["text"]
+        assert workbench.validate({draft["path"]: draft["text"]})["status"] == "ok"
+        assert not (root / draft["path"]).exists()
+
+
 def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     workbench = Workbench(root)

@@ -204,6 +204,17 @@ export interface TemplateItem {
   [key: string]: unknown;
 }
 
+export interface TutorialItem {
+  id: string;
+  title: string;
+  description: string;
+  document_id: string;
+  duration: string;
+  learning_points: string[];
+  template: string;
+  source: string;
+}
+
 export interface RunItem {
   id: string;
   operation?: string;
@@ -234,6 +245,7 @@ export interface BootstrapPayload {
   workspace: string;
   documents: DocumentItem[];
   templates: TemplateItem[];
+  tutorials: TutorialItem[];
   packages: InstalledPackage[];
   runs: RunItem[];
   validation: ValidationResult;

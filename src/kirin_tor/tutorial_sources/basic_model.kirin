@@ -1,0 +1,24 @@
+@kirin 1
+@entry tutorial_basic
+@status tutorial
+
+// 教程 1：基础公式
+
+---
+完全虚构、游戏中立的教学数据。
+修改输入默认值后，预览会从当前草稿自动更新。
+---
+
+inputs:
+  unit_price "单价": number[dimensionless] = 12 in 0..*
+  quantity "数量": number[dimensionless] = 5 in 0..100 integer
+  discount "折扣": probability = 0.10
+
+fields:
+  subtotal "小计": dimensionless = unit_price * quantity
+
+outputs:
+  total "折后总价": dimensionless = subtotal * (1 - discount)
+
+display:
+  total: number digits 2

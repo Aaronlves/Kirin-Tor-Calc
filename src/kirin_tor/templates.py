@@ -11,6 +11,7 @@ from .diagnostics import extract_author_title
 from .errors import SchemaError, WorkspaceError
 from .package_store import locked_workspace_resolution
 from .schema import require_identifier
+from .tutorials import list_tutorials
 from .workspace import DocumentDraft, Workspace, build_document_draft
 
 
@@ -37,7 +38,11 @@ class TemplateInfo:
             "label": self.label,
             "kind": self.kind,
             "origin": self.origin,
-            "source_path": str(self.source_path) if self.source_path else None,
+            "source_path": (
+                str(self.source_path)
+                if self.source_path and self.origin in {"workspace", "package"}
+                else None
+            ),
             "package_name": self.package_name,
             "package_version": self.package_version,
             "error": self.error,
@@ -105,6 +110,17 @@ def list_templates(root: Path) -> Tuple[TemplateInfo, ...]:
         TemplateInfo(f"builtin:{template_id}", template_id, label, kind, "builtin")
         for template_id, label, kind in _BUILTINS
     ]
+    result.extend(
+        TemplateInfo(
+            tutorial.template_value,
+            tutorial.tutorial_id,
+            tutorial.title,
+            "entry",
+            "tutorial",
+            source_path=tutorial.source_path,
+        )
+        for tutorial in list_tutorials()
+    )
     for kind, path in _template_files(root):
         relative = path.relative_to(root / TEMPLATE_DIRECTORY).as_posix()
         result.append(

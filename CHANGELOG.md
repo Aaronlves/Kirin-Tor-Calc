@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added an empty-workspace welcome surface and a persistent tutorial library with three strictly validated, game-neutral `.kirin` examples; viewing remains read-only and explicit copying creates only an unsaved source draft.
 - Prevented deleted game starters and obsolete modules from leaking out of a stale setuptools build directory; distribution CI now seeds an old layout and verifies the resulting wheel member-for-member against the current game-neutral source tree.
 - Added visible insertion-cursor, active-line, focused/unfocused text-selection states, plus live line/column and selection counts in the editor status bar.
 - Added an in-app, read-only Kirin syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.

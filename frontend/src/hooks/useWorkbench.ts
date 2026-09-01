@@ -363,14 +363,14 @@ export function useWorkbench() {
   }, [externalConflict]);
 
   const createDocument = useCallback(async (template: string, documentId: string) => {
-    const result = await request<{ path: string; kind: string; id: string; text: string }>("/api/document/create", {
+    const result = await request<{ path: string; kind: string; id: string; title?: string; text: string }>("/api/document/create", {
       template,
       document_id: documentId,
     });
     const item: DocumentItem = {
       key: result.path,
       path: result.path,
-      title: result.id,
+      title: result.title ?? result.id,
       kind: result.kind,
       read_only: false,
       source_sha256: null,

@@ -304,6 +304,8 @@ The Documents view retains an in-memory buffer for every opened document and val
 - modified and valid: result, chart, formula, and relationship projections use the draft without writing it;
 - saved and valid: the buffer matches the atomic on-disk write.
 
+An empty workspace instead shows three bundled, game-neutral tutorials as read-only `.kirin` source. They do not participate in workspace loading or validation. Explicitly copying one replaces its example `@entry` ID and self-qualified references, then opens the result as an ordinary unsaved draft.
+
 The document preview evaluates declared outputs from source-declared defaults and reveals a chart only when that document defines `x/range/points/y`. Result and chart selectors choose a read-only projection; the inspector does not expose temporary parameter fields. Unsaved but valid overlays may be explored, but durable run records require saved sources. Save All validates and atomically saves every modified buffer.
 
 The Relationship Graph derives member-level edges from parsed formulas and aggregates them into a document-level projection. The document inspector uses the same graph data for a local zero-, one-, or two-hop projection; no relationship is guessed from comments or keyword overlap.

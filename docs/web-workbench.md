@@ -15,13 +15,14 @@ The workbench keeps the following authority boundary:
 | Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
 | Completion and symbol index | No | Rebuilt in memory | Tolerant authoring projection, not validation evidence |
 | Bundled syntax reference | No | Versioned frontend content | Searchable writing aid whose examples are checked by the current validator |
+| Bundled tutorial source | No | Versioned application resource | Game-neutral learning source; excluded from the workspace until explicitly copied |
 | Result, chart, formula, diagnostic, and relationship inspector | No | Ephemeral | Derived projection of the current valid workspace overlay |
 | `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
 | Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
 
 ## Views and CLI parity
 
-- Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates.
+- Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates. An empty workspace replaces the three-pane editor with a welcome surface for the bundled basic-model, preset-comparison, and scan/chart tutorials.
 - Relationship Graph derives global document and member projections from validated expression references and provides source navigation. Members include inputs, fields, functions, tables, finite distributions, bounded recurrences, finite state models, and outputs. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
 - Syntax Reference is a read-only drawer opened from the navigation rail, workspace menu, or command palette. It searches Chinese labels, canonical syntax terms, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
 - Workspace Search searches local drafts, disk sources, and locked Package sources together. Replace All skips Package sources and returns ordinary unsaved local overlays; it never writes directly to disk. Change Review compares every dirty buffer with its opening or creation baseline before Save All and separately exposes read-only Git log and working-tree summaries when the workspace belongs to a repository.
@@ -33,6 +34,8 @@ Advanced CLI operations remain available through the shared workbench operation 
 Browser operations run as isolated local jobs with explicit queued/running/completed/failed/cancelled states. The header reports active jobs and their current stage and can terminate their process trees; server-side mathematical timeouts remain a second independent bound. The UI reports truthful stages rather than estimating an unsupported completion percentage.
 
 The Web adapter accepts valid unsaved document overlays for validation and non-durable exploration. A run record cannot be created until its documents have been saved, so the immutable record always names durable source authority.
+
+Bundled tutorials are complete `.kirin` files, not form state or an alternate semantic model. Viewing one reads only the installed application resource. Copying asks for a formal document ID, replaces the example header and self-qualified references through the ordinary template expander, and returns an unsaved local draft. The source is not written until the author invokes Save All.
 
 Artifact paths stay inside the workspace by default and existing files are not overwritten. Document chart export and replay expose separate explicit controls for overwrite and working outside the workspace, matching the corresponding CLI authority expansion.
 
@@ -85,6 +88,7 @@ The spacing scale is 4, 8, 12, 16, 24, and 32 px. Toolbars are 48 px high; butto
 Templates are complete Entry source skeletons used only at creation time. A template may include optional chart fields. The workbench lists:
 
 - built-in game-neutral skeletons;
+- bundled game-neutral tutorial sources;
 - workspace templates under `templates/entries`;
 - read-only Package templates at the same relative paths inside locked Package content.
 
@@ -104,6 +108,6 @@ Closing or refreshing the browser with dirty buffers triggers the browser's unsa
 
 ## Verification boundary
 
-The Playwright acceptance suite verifies the three remembered focus modes, document switching and creation validation, completion insertion, current-document and workspace replacement, save review, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic read-only result/chart/formula projection, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, and explicit external-change handling. It runs against Chromium, Firefox, and WebKit; axe-core checks the main authoring surface and syntax drawer, while Chromium and WebKit retain visual layout baselines. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web adapter, authoring index, source validation, and strict validation of every bundled syntax-reference example.
+The Playwright acceptance suite verifies the empty-workspace tutorial flow, the three remembered focus modes, document switching and creation validation, completion insertion, current-document and workspace replacement, save review, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic read-only result/chart/formula projection, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, and explicit external-change handling. It runs against Chromium, Firefox, and WebKit; axe-core checks the welcome surface, main authoring surface, and syntax drawer, while Chromium and WebKit retain visual layout baselines. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web adapter, authoring index, source validation, and strict validation of every bundled tutorial and syntax-reference example.
 
 CI runs the Python matrix plus TypeScript checking, all three browser projects, accessibility checks, visual baselines, packaged-asset synchronization, explicit JavaScript/CSS bundle budgets, and a 100-document validation benchmark. These establish regression and bounded performance evidence for the tested fixtures. They do not by themselves establish human usability acceptance, every operating-system/browser combination, or a mobile product contract below the documented minimum width.

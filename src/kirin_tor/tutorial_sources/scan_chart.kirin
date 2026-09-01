@@ -1,0 +1,34 @@
+@kirin 1
+@entry tutorial_curve
+@status tutorial
+
+// 教程 3：扫描与图表
+
+---
+完全虚构、游戏中立的教学数据。
+图表是当前源码的只读投影；修改扫描配置不会创建另一份计算定义。
+---
+
+inputs:
+  investment "投入": number[dimensionless] = 0 in 0..10
+
+fields:
+  base "基础收益": dimensionless = 10
+
+outputs:
+  linear "线性收益": dimensionless = base + 3 * investment
+  diminishing "递减收益": dimensionless = base + 8 * (sqrt(investment + 1) - 1)
+
+x: tutorial_curve.investment
+range: 0..10
+points: 21
+
+y:
+  tutorial_curve.linear as "线性收益"
+  tutorial_curve.diminishing as "递减收益"
+
+title: "投入与收益（虚构）"
+x-label: "投入"
+y-label: "收益"
+export-svg: "results/tutorial-curve.svg"
+export-csv: "results/tutorial-curve.csv"

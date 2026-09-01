@@ -26,6 +26,8 @@ def expected_package_files(repository: Path) -> dict[str, bytes]:
         relative = path.relative_to(source)
         if path.suffix == ".py" or (
             relative.parts[0] == "web_assets" and path.suffix in WEB_ASSET_SUFFIXES
+        ) or (
+            relative.parts[0] == "tutorial_sources" and path.suffix == ".kirin"
         ):
             member = str(PurePosixPath(PACKAGE, *relative.parts))
             expected[member] = path.read_bytes()
