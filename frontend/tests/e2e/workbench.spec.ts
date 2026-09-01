@@ -185,6 +185,37 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
   });
 
+  test("光标、活动行和文本选择具有可见且可读的交互状态", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    await editor.press(`${modKey}+f`);
+    await page.locator('.cm-search input[name="search"]').fill("combo.total");
+    await page.locator('.cm-search button[name="next"]').click();
+    await page.keyboard.press("Escape");
+    await editor.focus();
+
+    const cursorStatus = page.locator(".editor-cursor-status");
+    await expect(cursorStatus).toHaveText("已选 11 字符");
+    const selection = page.locator(".cm-selectionBackground").first();
+    await expect(selection).toBeVisible();
+    await expect(selection).toHaveCSS("background-color", "rgb(112, 69, 54)");
+    await expect(page.locator(".cm-activeLine")).toHaveCSS("box-shadow", /rgb\(143, 84, 63\)/);
+
+    await page.getByRole("button", { name: "工作区" }).click();
+    await expect(selection).toBeVisible();
+    await expect(selection).toHaveCSS("background-color", "rgb(63, 53, 47)");
+    await page.keyboard.press("Escape");
+
+    await editor.focus();
+    await editor.press("ArrowRight");
+    await expect(cursorStatus).toHaveText(/行 \d+，列 \d+/);
+    const cursor = page.locator(".cm-cursor-primary");
+    await expect(cursor).toBeAttached();
+    await expect(cursor).toHaveCSS("border-left-color", "rgb(240, 139, 102)");
+    await expect(cursor).toHaveCSS("border-left-width", "2px");
+  });
+
   test("编辑器提供查找、大纲、源码联动、引用与安全重命名", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);

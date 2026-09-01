@@ -70,6 +70,11 @@ export interface EditorCursorContext {
   containerSymbolId: string | null;
   callSymbolId: string | null;
   activeParameter: number | null;
+  line: number;
+  column: number;
+  selectionCharacters: number;
+  selectionLines: number;
+  selectionRanges: number;
 }
 
 const topLevelSections = new Set([
@@ -127,6 +132,15 @@ function callContext(state: EditorState, authoring: AuthoringIndex, documentKey:
   return {
     symbolId: target?.id ?? null,
     activeParameter: match[2].split(",").length,
+  };
+}
+
+function selectionMetrics(state: EditorState) {
+  const ranges = state.selection.ranges.filter((range) => !range.empty);
+  return {
+    characters: ranges.reduce((total, range) => total + Array.from(state.sliceDoc(range.from, range.to)).length, 0),
+    lines: ranges.reduce((total, range) => total + state.doc.lineAt(range.to).number - state.doc.lineAt(range.from).number + 1, 0),
+    ranges: ranges.length,
   };
 }
 
@@ -247,9 +261,18 @@ const editorTheme = EditorView.theme({
     padding: "18px 0 64px",
   },
   ".cm-line": { padding: "0 22px" },
-  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "#d97757" },
-  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "#49352d" },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeft: "2px solid #f08b66",
+    marginLeft: "-1px",
+  },
+  ".cm-selectionBackground": { backgroundColor: "#3f352f !important" },
+  "&.cm-focused .cm-selectionBackground": { backgroundColor: "#704536 !important" },
+  ".cm-content ::selection": { backgroundColor: "#704536 !important" },
   ".cm-activeLine": { backgroundColor: "#171714" },
+  "&.cm-focused .cm-activeLine": {
+    backgroundColor: "#1b1916",
+    boxShadow: "inset 2px 0 #8f543f",
+  },
   ".cm-gutters": {
     backgroundColor: "#11110f",
     color: "#8b9188",
@@ -411,7 +434,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       return true;
     };
     const reportCursor = (view: EditorView) => {
-      const position = view.state.selection.main.head;
+      const selection = view.state.selection.main;
+      const position = selection.head;
       const line = view.state.doc.lineAt(position);
       const target = targetAtPosition(view.state, authoringRef.current, documentKey, position);
       const container = authoringRef.current.symbols.find((item) => (
@@ -421,11 +445,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         && item.kind !== "alias"
       ));
       const call = callContext(view.state, authoringRef.current, documentKey, position);
+      const selected = selectionMetrics(view.state);
       cursorContextRef.current({
         symbolId: target?.id ?? null,
         containerSymbolId: container?.id ?? null,
         callSymbolId: call.symbolId,
         activeParameter: call.activeParameter,
+        line: line.number,
+        column: codePointColumn(line.text, position - line.from),
+        selectionCharacters: selected.characters,
+        selectionLines: selected.lines,
+        selectionRanges: selected.ranges,
       });
     };
 
@@ -576,11 +606,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     const target = targetAtPosition(view.state, authoring, documentKey, position);
     const container = authoring.symbols.find((item) => item.definition.key === documentKey && item.definition.line === line.number && item.outline_level === 2);
     const call = callContext(view.state, authoring, documentKey, position);
+    const selected = selectionMetrics(view.state);
     cursorContextRef.current({
       symbolId: target?.id ?? null,
       containerSymbolId: container?.id ?? null,
       callSymbolId: call.symbolId,
       activeParameter: call.activeParameter,
+      line: line.number,
+      column: codePointColumn(line.text, position - line.from),
+      selectionCharacters: selected.characters,
+      selectionLines: selected.lines,
+      selectionRanges: selected.ranges,
     });
   }, [authoring, documentKey]);
 

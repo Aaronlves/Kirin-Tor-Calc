@@ -166,6 +166,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .code-editor .cm-content, .code-editor .cm-line { color: #eeeae1; }
 .editor-statusbar { display: flex; height: 28px; min-height: 28px; align-items: center; justify-content: flex-end; gap: var(--kt-space-3); padding: 0 var(--kt-space-3); border-top: 1px solid var(--kt-line-soft); background: var(--kt-panel); color: var(--kt-muted-quiet); font: 10px var(--mantine-font-family-monospace); }
 .editor-signature-hint { min-width: 0; flex: 1; overflow: hidden; color: var(--kt-text-subtle); text-overflow: ellipsis; white-space: nowrap; }
+.editor-cursor-status { min-width: 72px; color: #aaa69c; text-align: right; }
+.editor-cursor-status.is-selection { color: #f0a080; font-weight: 650; }
 .menu-shortcut { margin-left: 12px; color: var(--kt-muted-quiet); font: 10px var(--mantine-font-family-monospace); }
 .outline-popover { border-color: var(--kt-line); border-radius: 0; background: #171714; }
 .outline-list, .reference-list { display: grid; }

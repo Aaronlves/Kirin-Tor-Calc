@@ -115,7 +115,17 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [documentLifecycleAction, setDocumentLifecycleAction] = useState<"move" | "duplicate" | "remove" | null>(null);
   const [documentLifecycleValue, setDocumentLifecycleValue] = useState("");
   const [documentLifecycleRunning, setDocumentLifecycleRunning] = useState(false);
-  const [cursorContext, setCursorContext] = useState<EditorCursorContext>({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null });
+  const [cursorContext, setCursorContext] = useState<EditorCursorContext>({
+    symbolId: null,
+    containerSymbolId: null,
+    callSymbolId: null,
+    activeParameter: null,
+    line: 1,
+    column: 1,
+    selectionCharacters: 0,
+    selectionLines: 0,
+    selectionRanges: 0,
+  });
   const editorRef = useRef<CodeEditorHandle>(null);
 
   const current = controller.currentDocument;
@@ -170,7 +180,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   }, [current?.key, currentExplainTargetSignature]);
 
   useEffect(() => {
-    setCursorContext({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null });
+    setCursorContext({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null, line: 1, column: 1, selectionCharacters: 0, selectionLines: 0, selectionRanges: 0 });
     setOutlineFilter("");
     setReferenceTarget(null);
     setRenameTarget(null);
@@ -605,6 +615,14 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <div className="editor-statusbar">
                 <span>{currentDiagnostics.length ? `${currentDiagnostics.length} 个当前文档问题` : "当前文档有效"}</span>
                 <span className="editor-signature-hint">{callSymbol?.signature ? `${callSymbol.signature}${cursorContext.activeParameter ? ` · 参数 ${cursorContext.activeParameter}` : ""}` : "Kirin 文档"}</span>
+                <span
+                  className={`editor-cursor-status${cursorContext.selectionCharacters ? " is-selection" : ""}`}
+                  aria-live="polite"
+                >
+                  {cursorContext.selectionCharacters
+                    ? `${cursorContext.selectionRanges > 1 ? `${cursorContext.selectionRanges} 处 · ` : ""}已选 ${cursorContext.selectionCharacters} 字符${cursorContext.selectionLines > 1 ? ` / ${cursorContext.selectionLines} 行` : ""}`
+                    : `行 ${cursorContext.line}，列 ${cursorContext.column}`}
+                </span>
                 <span>UTF-8</span>
                 {!current.read_only && <span>补全 ⌃Space · 定义 F12 · 引用 ⇧F12 · 改名 F2</span>}
               </div>

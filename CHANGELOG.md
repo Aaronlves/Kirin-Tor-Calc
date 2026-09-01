@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added visible insertion-cursor, active-line, focused/unfocused text-selection states, plus live line/column and selection counts in the editor status bar.
 - Added an in-app, read-only Kirin syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.
 - Added workspace-wide search and draft-only replacement, save-before-write change review with read-only Git history, contextual syntax-reference links, and base/draft/disk three-way conflict merging.
 - Added clean-workspace document path moves, validated duplication into a new unsaved entry, and dependency-safe removal into a recoverable `.kirin` trash area; entry IDs, aliases, and mathematical semantics remain source-authored.
