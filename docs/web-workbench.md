@@ -6,6 +6,18 @@
 
 The server binds only to a loopback address. Each process creates a random session token, transfers it to browser session storage on first load, and removes it from the visible URL. API requests require that token and an allowed local Host and Origin. Responses disable caching, framing, referrer forwarding, MIME sniffing, inline scripts, and cross-origin connections. Runtime-generated CSS is allowed because CodeMirror mounts its base and theme styles dynamically; executable scripts remain same-origin packaged assets.
 
+The workbench keeps the following authority boundary:
+
+| State or surface | Author-editable | Persistence | Authority role |
+| --- | --- | --- | --- |
+| Local `.kirin` buffer | Yes | Unsaved overlay until Save All | The only editable definition source |
+| Local `.kirin` file | Through validated Save All | Durable workspace content | Authoritative local definition |
+| Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
+| Completion and symbol index | No | Rebuilt in memory | Tolerant authoring projection, not validation evidence |
+| Result, chart, formula, diagnostic, and relationship inspector | No | Ephemeral | Derived projection of the current valid workspace overlay |
+| `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
+| Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
+
 ## Views and CLI parity
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates.
@@ -21,13 +33,28 @@ Artifact paths stay inside the workspace by default and existing files are not o
 
 ## Text-first interaction
 
-The document inspector is read-only: Preview and Formula derive automatically from the current valid draft and its source-declared defaults. Output and Result/Chart selectors choose which projection to inspect; they do not supply calculation parameters or modify source. Temporary parameter trials are not exposed in the inspector. Explicit export controls remain separate because paths, overwrite, and workspace-boundary expansion require an intentional author action.
+The document inspector is read-only: Preview and Formula derive automatically from the current valid draft and its source-declared defaults. It must not expose temporary-parameter, preset, timeout, or other calculation-input fields, and it must not require Calculate, Generate Chart, or Explain Formula actions. Output and Result/Chart selectors choose which projection to inspect; they do not supply calculation parameters or modify source. To change the inspector's default result, the author edits an input default in `.kirin`; reusable alternatives remain named source presets consumed by explicit calculation workflows rather than inspector state. Explicit export controls remain separate because paths, overwrite, and workspace-boundary expansion require an intentional author action.
 
 Diagnostics live beside the document editor rather than in a duplicate top-level page. They retain stable codes and source locations, add Chinese author-facing explanations, and navigate back to the failing document and position. Formula expansion appears in the same document context.
 
 Preview results, chart definitions, formula explanations, diagnostics, and relationship nodes expose source navigation when their validated projection carries a source coordinate. Navigation restores Split focus mode, opens the authoritative `.kirin` document when necessary, and focuses the defining line instead of creating an editable projection.
 
-The editor adds a tolerant authoring projection over complete or incomplete drafts. `Mod+F` opens find/replace, `Mod+G` jumps to a line, `Mod+Shift+O` opens the current-document symbol outline, and the fold gutter collapses sections and prose blocks. Hover shows a symbol's canonical identity, kind, signature, and unit or domain detail; the status bar shows the active function signature and parameter number. `F12` or Mod-click navigates to a definition, `Shift+F12` lists definitions, direct references, and alias-mediated uses, and `F2` performs a validated rename of a writable formal member. The command palette also searches documents and symbols across the workspace.
+The editor adds a tolerant authoring projection over complete or incomplete drafts. This projection may offer navigation and completion while strict workspace validation is failing, but it does not make an incomplete draft executable or saveable.
+
+| Command | Shortcut | Contract |
+| --- | --- | --- |
+| Save All | `Mod+S` | Strictly validates and atomically saves all writable drafts |
+| Completion | `Ctrl+Space` | Searches built-ins, snippets, disk sources, and in-memory drafts |
+| Find/replace | `Mod+F` | Edits the current in-memory document |
+| Go to line | `Mod+G` | Navigates within the current document |
+| Document outline | `Mod+Shift+O` | Navigates the tolerant current-document symbol index |
+| Safe formatting | `Mod+Shift+F` | Normalizes safe whitespace without schema re-rendering |
+| Go to definition | `F12` or Mod-click | Opens the indexed source definition, including another document |
+| Definitions and references | `Shift+F12` | Lists definitions, direct references, and alias-mediated uses |
+| Validated rename | `F2` | Produces validated writable overlays; it never edits Package source |
+| Workspace command/open search | `Mod+K` or `Mod+P` | Searches views, tools, documents, and symbols |
+
+The fold gutter collapses sections and prose blocks. Hover shows a symbol's canonical identity, kind, signature, and unit or domain detail; the status bar shows the active function signature and parameter number. The command palette also exposes Editor Only, Split, and Preview Only layout modes. Focus mode is remembered locally and changes only layout visibility, never source or projection semantics.
 
 Safe rename updates the definition, local short references, and qualified cross-document references together while retaining Chinese aliases. It first produces ordinary in-memory `.kirin` overlays and validates the resulting workspace; Package definitions and Package source remain read-only. Formatting is deliberately source-preserving: it normalizes indentation tabs, trailing whitespace outside prose fences, excess blank lines, and the final newline without re-rendering or deleting comments. Known full-width punctuation diagnostics expose an explicit quick fix but are never rewritten automatically.
 
@@ -65,3 +92,9 @@ Every opened local document has an original source hash and an in-memory buffer.
 While drafts are dirty, the workbench atomically mirrors at most 100 drafts and 5 MiB into ignored control state at `.kirin/workbench-recovery.json`. This cache is not source authority, is never evaluated independently, and is cleared after a successful Save All. A later workbench process restores a matching draft as an unsaved overlay; if the recorded base hash differs from disk, it opens the same explicit conflict comparison instead of silently choosing a version. CodeMirror undo history is retained when switching among documents during the current browser session.
 
 Closing or refreshing the browser with dirty buffers triggers the browser's unsaved-change warning. Stopping the terminal process stops the server; there is no background daemon or remote account state.
+
+## Verification boundary
+
+The Playwright acceptance suite verifies the three remembered focus modes, document switching and creation validation, completion insertion, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic read-only result/chart/formula projection, source traceability, diagnostic quick fixes, keyboard-readable graph data, draft recovery, and explicit external-change handling. Python tests separately cover the workbench services, Web adapter, authoring index, and source validation.
+
+Those automated checks establish implementation regression coverage. They do not by themselves establish human usability acceptance, visual quality on every browser, a mobile product contract below the documented minimum width, or a frontend performance budget.
