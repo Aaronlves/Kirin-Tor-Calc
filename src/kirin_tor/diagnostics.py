@@ -11,6 +11,7 @@ from .errors import KTError, SourceLocation, ValidationErrors
 
 ERROR_TITLES = {
     "workspace_error": "工作区错误",
+    "package_error": "社区 Package 错误",
     "schema_error": "语法错误",
     "expression_error": "公式错误",
     "reference_error": "引用错误",
@@ -83,6 +84,7 @@ def _translated_message(message: str, code: str) -> str:
 
     fallbacks = {
         "workspace_error": "工作区无法加载或不符合约定。",
+        "package_error": "社区 Package 的声明、版本、依赖、缓存或内容校验失败。",
         "schema_error": "源文件不符合 Kirin 语法或结构约定。",
         "expression_error": "公式无法解析，或使用了不允许的结构。",
         "reference_error": "引用无法解析到正式条目或成员。",

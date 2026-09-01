@@ -8,7 +8,25 @@ from kirin_tor.workspace import Workspace, initialize
 
 
 def _build_wow_mechanics_workspace(root: Path) -> Path:
-    root = initialize(root, "wow")
+    root = initialize(root)
+    (root / "entries" / "fixture_game_semantics.kirin").write_text(
+        """@kirin 1
+@entry fixture_game_semantics
+@template semantics
+
+// Test-owned fictional game semantics; not supplied by the Kirin core.
+
+dimensions:
+  damage
+  armor
+
+units:
+  damage = damage
+  armor = armor
+  damage_per_time = damage / time
+""",
+        encoding="utf-8",
+    )
     (root / "entries" / "combat_math.kirin").write_text(
         """@kirin 1
 @entry combat_math

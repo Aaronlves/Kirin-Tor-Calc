@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kirin-tor-cli"
-version = "0.2.0"
+version = "0.3.0"
 description = "A game-neutral, file-driven structured mathematics CLI for theorycrafting"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,6 +13,7 @@ authors = [{ name = "Kirin Tor contributors" }]
 dependencies = [
   "matplotlib>=3.8,<3.10",
   "sympy>=1.13,<1.15",
+  "tomli>=2,<3; python_version < '3.11'",
   "typer>=0.12,<1",
 ]
 
@@ -28,9 +29,6 @@ kt = "kirin_tor.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-"kirin_tor.packages" = ["*.kirin"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

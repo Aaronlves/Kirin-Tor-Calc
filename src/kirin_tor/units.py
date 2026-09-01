@@ -63,13 +63,38 @@ class DomainSpec:
 
 
 class UnitRegistry:
-    """A workspace-owned registry populated by ordinary entry declarations."""
+    """Game-neutral mathematical vocabulary plus workspace declarations."""
 
     def __init__(self) -> None:
-        self.dimensions: Dict[str, dict] = {}
-        self.units: Dict[str, Dimension] = {"dimensionless": DIMENSIONLESS}
-        self.unit_scales: Dict[str, Fraction] = {"dimensionless": Fraction(1)}
-        self.domains: Dict[str, DomainSpec] = {}
+        time = Dimension.from_mapping({"time": Fraction(1)})
+        self.dimensions: Dict[str, dict] = {
+            "time": {"name": "Time", "description": "Game-neutral physical time."}
+        }
+        self.units: Dict[str, Dimension] = {
+            "dimensionless": DIMENSIONLESS,
+            "time": time,
+            "second": time,
+            "millisecond": time,
+        }
+        self.unit_scales: Dict[str, Fraction] = {
+            "dimensionless": Fraction(1),
+            "time": Fraction(1),
+            "second": Fraction(1),
+            "millisecond": Fraction(1, 1000),
+        }
+        self.domains: Dict[str, DomainSpec] = {
+            "probability": DomainSpec("probability", "number", "dimensionless", "0", "1"),
+            "nonnegative_integer": DomainSpec(
+                "nonnegative_integer", "number", "dimensionless", "0", None, True
+            ),
+            "positive_integer": DomainSpec(
+                "positive_integer", "number", "dimensionless", "1", None, True
+            ),
+            "count": DomainSpec("count", "number", "dimensionless", "0", None, True),
+        }
+        self.builtin_dimensions = frozenset(self.dimensions)
+        self.builtin_units = frozenset(self.units)
+        self.builtin_domains = frozenset(self.domains)
         self._dimension_locations: Dict[str, SourceLocation] = {}
         self._unit_locations: Dict[str, SourceLocation] = {}
         self._domain_locations: Dict[str, SourceLocation] = {}
@@ -130,7 +155,12 @@ class UnitRegistry:
                 )
 
             if semantic_key(self.domains[spec.name]) != semantic_key(spec):
-                previous = self._domain_locations[spec.name].render()
+                previous_location = self._domain_locations.get(spec.name)
+                previous = (
+                    previous_location.render()
+                    if previous_location is not None
+                    else "the game-neutral mathematical core"
+                )
                 raise SchemaError(
                     f"domain {spec.name!r} conflicts with its declaration at {previous}", location
                 )
@@ -163,6 +193,10 @@ class UnitRegistry:
         if exact_names:
             if "dimensionless" in exact_names:
                 return "dimensionless"
+            if len(dimension.powers) == 1:
+                dimension_name, exponent = dimension.powers[0]
+                if exponent == 1 and dimension_name in exact_names:
+                    return dimension_name
             return exact_names[0]
         return dimension.render()
 

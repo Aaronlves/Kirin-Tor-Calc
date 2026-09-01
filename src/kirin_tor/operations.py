@@ -930,6 +930,17 @@ def _explain_core(workspace: Workspace, target: str) -> dict:
                 "game_version": entry.game_version,
                 "status": entry.validation_status,
                 "sources": list(entry.sources),
+                "package": (
+                    {
+                        "source": entry.package_origin.source,
+                        "name": entry.package_origin.name,
+                        "version": entry.package_origin.version,
+                        "resolved": entry.package_origin.resolved,
+                        "content_sha256": entry.package_origin.content_sha256,
+                    }
+                    if entry.package_origin is not None
+                    else None
+                ),
             }
             for entry in (
                 workspace.entries[entry_id]

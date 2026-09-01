@@ -32,8 +32,27 @@ def _entry(entry_id: str, **sections) -> dict:
 
 
 def _build_capability_workspace(root: Path) -> Path:
-    initialize(root, "wow")
+    initialize(root)
     entries = root / "entries"
+
+    (entries / "fixture_game_semantics.kirin").write_text(
+        """@kirin 1
+@entry fixture_game_semantics
+@template semantics
+
+// Test-owned fictional game semantics; not supplied by the Kirin core.
+
+dimensions:
+  damage
+  attack_power
+
+units:
+  damage = damage
+  attack_power = attack_power
+  damage_per_attack_power = damage / attack_power
+""",
+        encoding="utf-8",
+    )
 
     write_kirin(
         entries / "character.kirin",

@@ -66,9 +66,7 @@ def _file_hash(path: Path) -> str:
 def software_versions() -> dict:
     package_root = Path(__file__).resolve().parent
     implementation = hashlib.sha256()
-    implementation_files = sorted(package_root.glob("*.py")) + sorted(
-        (package_root / "packages").glob("*.kirin")
-    )
+    implementation_files = sorted(package_root.glob("*.py"))
     for path in implementation_files:
         implementation.update(str(path.relative_to(package_root)).encode("utf-8"))
         implementation.update(b"\0")
@@ -121,15 +119,23 @@ def save_run(
         if document_id not in workspace.documents:
             raise WorkspaceError(f"cannot snapshot missing document {document_id!r}")
         document = workspace.documents[document_id]
-        snapshots.append(
-            {
-                "id": document.id,
-                "source_sha256": document.sha256,
-                "content_sha256": _canonical_hash(document.raw),
-                "source_text": document.raw_text,
-                "content": document.raw,
+        snapshot = {
+            "id": document.id,
+            "source_sha256": document.sha256,
+            "content_sha256": _canonical_hash(document.raw),
+            "source_text": document.raw_text,
+            "content": document.raw,
+        }
+        if document.package_origin is not None:
+            snapshot["package"] = {
+                "source": document.package_origin.source,
+                "name": document.package_origin.name,
+                "version": document.package_origin.version,
+                "namespace": document.package_origin.namespace,
+                "resolved": document.package_origin.resolved,
+                "content_sha256": document.package_origin.content_sha256,
             }
-        )
+        snapshots.append(snapshot)
     record = {
         "run_format_version": RUN_FORMAT_VERSION,
         "run_id": run_id,

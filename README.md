@@ -2,7 +2,7 @@
 
 Kirin Tor CLI 是一个游戏中立、文件驱动的结构化数学工作台。它面向希望保存数据、公式、参数方案和图表，而不想编写程序的理论计算用户。
 
-公开文档只有两类：保存数据、公式和参数方案的 `entry`，以及保存图表配置的 `plot`。角色、技能、天赋、目标衰减、组合公式以及其他游戏机制都由用户用普通条目表达；内核不会把任何游戏、职业或机制写死。两类文档和用户声明的数学语义统一使用 `.kirin` 源文件。可选的 WoW 初始化包也只是遵守同一公开语法的普通数据文件，没有额外执行权限。
+公开文档只有两类：保存数据、公式和参数方案的 `entry`，以及保存图表配置的 `plot`。角色、技能、天赋、目标衰减、组合公式以及其他游戏机制都由社区用普通条目表达；内核不会把任何游戏、职业或机制写死。两类文档和用户声明的数学语义统一使用 `.kirin` 源文件。社区可以在各自的 GitHub 仓库中发布只含数据的 Package，Kirin Tor 负责校验、锁定、组合和计算，而不取得具体游戏数据的权威。
 
 这不是战斗模拟器：没有事件队列、随机战斗模拟、完整 APL、Boss 时间轴或自动循环优化器。
 
@@ -37,6 +37,7 @@ pytest
 @entry fictional_effect
 
 // 虚构效果
+// damage 由当前工作区或社区 Package 声明，不是内核内置游戏语义。
 
 ---
 这段文字只用于说明技能。
@@ -81,25 +82,51 @@ TUI 的状态、诊断类别和常见错误说明默认使用中文。诊断保�
 
 完整的日常流程和保留边界见 [TUI 玩家视角验收](docs/tui-player-acceptance.md)。针对当前《魔兽世界》式阈值、层数、触发、周期、充能、目标软上限和状态过程的边界结论，见 [游戏机制计算能力审查](docs/game-mechanics-capability-audit.md)。
 
-## 创建工作区与选择数据包
+## 创建游戏中立工作区
 
-空白、游戏中立的工作区：
-
-```bash
-kt init my-math --package none
-```
-
-包含 WoW 基础语义的工作区：
+新工作区永远是游戏中立的：
 
 ```bash
-kt init my-wow-math --package wow
+kt init my-math
 ```
 
-`wow` 包会复制一个普通的 `entries/wow_semantics.kirin`，其中声明 `time`、`damage`、`attack_power`、`healing`、`armor`、`resource` 等量纲和常用值域。用户可以查看、修改、删除或替换它；包不能注册 Python 代码，也不能绕过安全解析器。
+核心不再提供任何内置游戏数据。它只提供数值、布尔值、精确运算、量纲代数、通用表达式，以及 `time`、`second`、`millisecond`、`probability`、`count`、`nonnegative_integer` 和 `positive_integer` 等游戏中立数学词汇。`damage`、`healing`、`attack_power`、资源、职业、技能和版本数据必须由工作区或社区 Package 声明。
+
+## GitHub 社区 Package
+
+任何人都可以用模板创建独立 Package：
+
+```bash
+kt package new my-community-package \
+  --name community.example \
+  --namespace community_example
+kt package check my-community-package
+```
+
+作者把仓库推送到 GitHub 并发布精确版本 tag 后，用户可以安装：
+
+```bash
+cd my-math
+kt package add example github:OWNER/REPOSITORY 1.0.0
+kt package list
+kt package verify
+```
+
+本地开发使用：
+
+```bash
+kt package add-path example ../my-community-package
+```
+
+`kirin.packages.toml` 是用户声明的直接依赖，`kirin.lock` 锁定完整依赖图、Git commit 和内容摘要，`.kirin/packages/` 是可重建的只读缓存。普通工作区加载永不隐式联网；缺失缓存使用 `kt package restore` 显式恢复。Package 文档在 TUI 中只读，运行记录仍嵌入所用定义，因此移除 Package 后也能重放。
+
+Package 必须使用 manifest 声明的 namespace 前缀导出文档和数学语义，不得引用未声明的 Package 或工作区本地定义。它不能注册 Python、安装脚本、Git hook 或其他可执行能力。完整协议见 [Kirin community package protocol v1](docs/package-system-v1.md)。
+
+社区作者不需要把内容提交进 Kirin Tor 核心仓库：他们在自己的 GitHub 仓库中接受 issue、Pull Request 和共同维护，发布后把安装地址分享给用户即可。Kirin Tor 维护的是“游戏知识如何表达、组合、验证和计算”的公共协议，不裁定“某个游戏具体包含什么”。
 
 ## 用户定义基础数学语义
 
-除内核固有的数值、布尔值和 `dimensionless` 外，命名量纲、单位和可复用值域均可由任意普通条目声明：
+除内核固有的游戏中立数学词汇外，命名量纲、单位和可复用值域均可由任意普通条目声明：
 
 ```text
 @kirin 1
@@ -251,7 +278,14 @@ outputs:
 ## 常用命令
 
 ```text
-kt init DIRECTORY [--package none|wow]
+kt init DIRECTORY
+kt package new DIRECTORY --name NAME --namespace NAMESPACE
+kt package check [DIRECTORY]
+kt package add ALIAS github:OWNER/REPOSITORY VERSION
+kt package add-path ALIAS DIRECTORY
+kt package remove ALIAS
+kt package update ALIAS [VERSION]
+kt package restore|verify|list
 kt tui [WORKSPACE|SOURCE.kirin]
 kt new entry ID [--template blank|data|model|semantics]
 kt new plot ID
@@ -320,7 +354,7 @@ kt replay before_change --json
 运行记录格式 v2 保存：
 
 - 操作、原始请求和实际生效的限定参数。
-- 依赖闭包及所有语义声明条目的完整原始源文本、结构内容和双重哈希。
+- 依赖闭包及所有语义声明条目的完整原始源文本、结构内容和双重哈希；社区定义还带有 Package 来源、版本、提交和内容摘要。
 - 定义域条件、假设、单位、精度、依赖版本和内核实现哈希。
 - 成功结果或失败状态。
 - CSV/SVG/PNG 的内容哈希和大小。

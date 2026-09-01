@@ -24,7 +24,7 @@
 
 ## 已由自动化测试证明的能力
 
-`tests/test_game_mechanics_capabilities.py` 用虚构数值构建真实 `--package wow` 工作区，加载并校验 Kirin source，然后执行精确求值和扫描。它不是对游戏数值的断言，只证明下列公式形状可以运行：
+`tests/test_game_mechanics_capabilities.py` 用测试自身声明的虚构游戏语义和数值构建游戏中立工作区，加载并校验 Kirin source，然后执行精确求值和扫描。核心不提供 WoW 数据；该测试也不是对游戏数值的断言，只证明下列公式形状可以运行：
 
 | 机制形状 | Kirin 写法 | 能力结论 |
 | --- | --- | --- |

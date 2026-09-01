@@ -8,6 +8,9 @@
 
 ```text
 kirin.workspace
+kirin.packages.toml    # 可选，用户声明的直接 Package 依赖
+kirin.lock             # 可选，生成的精确依赖锁
+.kirin/packages/       # 可删除、可恢复的内容寻址缓存
 entries/
 plots/
 runs/
@@ -18,10 +21,9 @@ results/
 
 ```text
 @kirin-workspace 1
-initial-package: none
 ```
 
-`initial-package` 只记录初始化选择，不给予任何运行时权限。`entries/` 和 `plots/` 递归发现 `.kirin` 文件；文件名、子目录和 `//` 标题注释都不构成引用身份。
+新工作区没有游戏选择。旧工作区中的 `initial-package` 仍可作为惰性迁移元数据读取，但不再具有运行时权限。`entries/` 和 `plots/` 递归发现本地 `.kirin` 文件；锁定 Package 的同类源文件通过同一解析器合并加载。文件名、子目录和 `//` 标题注释都不构成引用身份。
 
 文档 id、字段、输入、函数、局部参数、量纲、单位和值域名称遵守 `[A-Za-z_][A-Za-z0-9_]*`，且不得以 `__` 开头。参数方案和绘图轴可以使用 `entry_id.input_name`。
 
@@ -43,7 +45,9 @@ initial-package: none
 
 解析器严格拒绝未知指令、章节、重复成员和不一致缩进。`//` 行完全不进入结构模型；`---` 围栏内容只进入文档说明。
 
-## 3. 用户声明的数学语义
+## 3. 数学核心与用户声明的语义
+
+核心内置游戏中立的 `dimensionless`、`time`、`second`、`millisecond`、`probability`、`count`、`nonnegative_integer` 和 `positive_integer`。这些名称只表达数学或物理结构，不表达任何具体游戏机制。
 
 ### 3.1 量纲与单位
 
@@ -83,9 +87,9 @@ domains:
 
 输入可以收窄命名值域，但不能放宽它。
 
-### 3.3 初始化包
+### 3.3 社区 Package
 
-`kt init --package wow` 复制普通的 `entries/wow_semantics.kirin`。它使用相同的解析、冲突和安全规则，不包含 Python 钩子。`--package none` 只保留内核固有的 `dimensionless`、数值和布尔语义。
+核心不再包含游戏初始化包。社区 Package 通过 `kirin.package.toml` 声明精确版本、namespace 和依赖，经 GitHub commit 与内容摘要锁定后，从 `.kirin/packages/` 只读加载。Package 中的文档、量纲、单位和值域必须使用其 namespace 前缀；不同 Package 不能隐式覆盖，也不能引用未声明的依赖或工作区本地定义。完整格式和权威边界见 [Package protocol v1](package-system-v1.md)。
 
 ## 4. 输入与稳定参数身份
 

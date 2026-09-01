@@ -57,6 +57,10 @@ class WorkspaceError(KTError):
     code = "workspace_error"
 
 
+class PackageError(KTError):
+    code = "package_error"
+
+
 class SchemaError(KTError):
     code = "schema_error"
 

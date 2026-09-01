@@ -28,7 +28,7 @@ from .limits import (
     MAX_NUMERIC_PRECISION,
     MAX_SCAN_POINTS,
 )
-from .schema import Entry, InputSpec, PlotConfig, Preset, _parse_input
+from .schema import Document, Entry, InputSpec, PlotConfig, Preset, _parse_input
 from .units import DIMENSIONLESS, Dimension
 from .workspace import Workspace
 
@@ -271,6 +271,7 @@ class Engine:
                 raise ReferenceError(f"entry {entry_id!r} has no mathematical field or output {member!r}")
             self._check_expanded_size(value.expr)
             self._check_dependency_count(value)
+            self._check_package_dependency_scope(entry, value, entry.location(member))
             self._member_cache[key] = value
             return MathValue(
                 value.expr,
@@ -341,6 +342,7 @@ class Engine:
             value.dependencies.add(entry.id)
             self._check_expanded_size(value.expr)
             self._check_dependency_count(value)
+            self._check_package_dependency_scope(entry, value, location)
             return value
         finally:
             self._stack.pop()
@@ -480,6 +482,32 @@ class Engine:
             raise ExpressionError(
                 f"expanded dependency closure exceeds {MAX_DEPENDENCY_DOCUMENTS} entries"
             )
+
+    def _check_package_dependency_scope(
+        self, owner: Document, value: MathValue, location: SourceLocation
+    ) -> None:
+        origin = owner.package_origin
+        if origin is None:
+            return
+        allowed = self.workspace.allowed_package_sources(origin.source)
+        if allowed is None:
+            return
+        for dependency_id in value.dependencies:
+            dependency = self.workspace.entries.get(dependency_id)
+            if dependency is None or dependency.id == owner.id:
+                continue
+            dependency_origin = dependency.package_origin
+            if dependency_origin is None:
+                raise SchemaError(
+                    f"package {origin.name!r} references workspace-local entry {dependency_id!r}",
+                    location,
+                )
+            if dependency_origin.source not in allowed:
+                raise SchemaError(
+                    f"package {origin.name!r} references undeclared package source "
+                    f"{dependency_origin.source!r} through {dependency_id!r}",
+                    location,
+                )
 
     def _check_dependency_versions(self, value: MathValue, location: SourceLocation) -> None:
         versions = {
@@ -688,8 +716,16 @@ class Engine:
                     target_entry_id, target_member = target.split(".", 1)
                     target_entry = self.workspace.get_entry(target_entry_id)
                     if target_member in target_entry.functions:
+                        self._check_package_dependency_scope(
+                            entry,
+                            MathValue(sp.Integer(0), dependencies={target_entry_id}),
+                            entry.location(f"aliases.{alias}"),
+                        )
                         return
-                    self.resolve_member(target_entry_id, target_member)
+                    value = self.resolve_member(target_entry_id, target_member)
+                    self._check_package_dependency_scope(
+                        entry, value, entry.location(f"aliases.{alias}")
+                    )
 
                 capture(f"{entry.id}.aliases.{alias}", validate_alias, count=False)
             for spec in entry.inputs.values():
@@ -754,6 +790,7 @@ class Engine:
         for preset_reference, preset in self.workspace.presets.items():
             def validate_preset(preset=preset):
                 seen = set()
+                referenced_entries = set()
                 for name, text in preset.values.items():
                     key = self.resolve_input_key(name, all_inputs)
                     if key in seen:
@@ -761,10 +798,17 @@ class Engine:
                             f"preset {preset.qualified_id!r} assigns {key!r} more than once"
                         )
                     seen.add(key)
+                    referenced_entries.add(key.rsplit(".", 1)[0])
                     spec = all_inputs[key]
                     self._check_constraint(spec, self._parse_parameter_value(spec, text))
                 for entry in self.workspace.entries.values():
                     self._validate_entry_constraint_values(entry, preset)
+                owner = self.workspace.get_entry(preset.owner_id)
+                self._check_package_dependency_scope(
+                    owner,
+                    MathValue(sp.Integer(0), dependencies=referenced_entries | {owner.id}),
+                    preset.location or owner.location(f"presets.{preset.id}"),
+                )
 
             capture(preset_reference, validate_preset)
         for plot in self.workspace.plots.values():
@@ -789,6 +833,11 @@ class Engine:
                     elif canonical != target_axis:
                         raise ParameterError("plot curves do not share one stable axis input")
                 self._check_dependency_versions(
+                    MathValue(sp.Integer(0), dependencies=plot_dependencies),
+                    plot.location("y"),
+                )
+                self._check_package_dependency_scope(
+                    plot,
                     MathValue(sp.Integer(0), dependencies=plot_dependencies),
                     plot.location("y"),
                 )

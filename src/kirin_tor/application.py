@@ -28,6 +28,9 @@ class TargetOption:
     group_label: Optional[str] = None
     display: str = "number"
     digits: Optional[int] = None
+    package_name: Optional[str] = None
+    package_version: Optional[str] = None
+    package_source: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +189,9 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                     group.label if group else None,
                     entry.outputs[name].get("display", "number"),
                     entry.outputs[name].get("digits"),
+                    entry.package_origin.name if entry.package_origin else None,
+                    entry.package_origin.version if entry.package_origin else None,
+                    entry.package_origin.source if entry.package_origin else None,
                 )
             )
     presets = tuple(
@@ -305,6 +311,15 @@ def compare_variants(
         "display_digits": display_digits,
         "display_format": target_option.display,
         "display_digits_player": target_option.digits,
+        "package_origin": (
+            {
+                "name": target_option.package_name,
+                "version": target_option.package_version,
+                "source": target_option.package_source,
+            }
+            if target_option.package_source is not None
+            else None
+        ),
         "variants": rows,
         "dependency_ids": dependency_ids,
     }

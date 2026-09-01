@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added the v1 data-only community Package protocol with strict TOML manifests, exact dependency versions, namespace ownership, transactional workspace requirements, deterministic JSON lockfiles, and content-addressed read-only caches.
+- Added direct GitHub release resolution pinned to full commits, bounded safe archive extraction, canonical content hashes, offline verification, explicit restore/update/remove commands, and immutable local-package snapshots.
+- Added `kt package new` and `kt package check` author workflows with a GitHub Actions template; community repositories remain the source authority and package code or hooks are never executed.
+- Made new workspaces entirely game-neutral, removed the bundled WoW starter, and moved probability, integer/count domains, and physical time units into the game-neutral mathematical core.
+- Added package provenance to CLI/TUI views and immutable run snapshots, enforced declared package dependency and semantic boundaries, and preserved replay after package removal.
+
 - Added the author-facing `.kirin` v1 source format as the sole workspace authority for entries, plots, dimensions, units, and domains.
 - Added the `kirin.workspace` marker plus the `.kirin` WoW starter package and examples.
 - Switched `kt new` templates to `.kirin` and added in-memory workspace overlays for unsaved editor validation.

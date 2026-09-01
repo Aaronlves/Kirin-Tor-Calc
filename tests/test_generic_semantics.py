@@ -272,3 +272,25 @@ def test_exact_zero_is_unit_polymorphic_but_nonzero_is_not(tmp_path: Path) -> No
     write_kirin(root / "entries" / "zero.kirin", entry)
     with pytest.raises(UnitError, match="incompatible units"):
         Engine(Workspace.load(root)).validate_all()
+def test_game_neutral_mathematical_vocabulary_is_built_in(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "builtin-math")
+    (root / "entries" / "neutral.kirin").write_text(
+        """@kirin 1
+@entry neutral
+
+inputs:
+  chance: probability = 25/100
+  repetitions: count = 2
+  duration: number[millisecond] = 500
+
+outputs:
+  elapsed: time = repetitions * duration
+  weighted: dimensionless = chance * repetitions
+""",
+        encoding="utf-8",
+    )
+    workspace = Workspace.load(root)
+    engine = Engine(workspace)
+    assert evaluate(engine, "neutral.elapsed")["exact"] == "1"
+    assert evaluate(engine, "neutral.elapsed")["unit"] == "time"
+    assert evaluate(engine, "neutral.weighted")["exact"] == "1/2"

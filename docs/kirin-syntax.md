@@ -98,6 +98,11 @@ member labels by default; an explicit plot `as "LABEL"` still takes precedence.
 
 ## Dimensions, units, and domains
 
+The mathematical core always provides `dimensionless`, physical `time`, `second`,
+`millisecond`, and the game-neutral domains `probability`, `count`,
+`nonnegative_integer`, and `positive_integer`. It does not provide damage, healing,
+attributes, resources, classes, or any other game vocabulary.
+
 Any entry may declare shared mathematical semantics:
 
 ```text
@@ -119,6 +124,12 @@ domains:
 Unit expressions allow a positive exact scale, dimension names, multiplication, division, and exact integer or rational powers. Values are converted to one exact canonical scale during calculation and converted back to the declared unit for results, scans, tables, bounds, and solves. For example, `500 * millisecond + 1 * time` is exactly `3/2 time`.
 
 Expressions use the existing restricted Kirin Tor expression language. They do not acquire assignment, imports, arbitrary Python calls, or implicit multiplication.
+
+Community Package sources use the same syntax and parser. Package protocol v1 requires every
+exported document, dimension, unit, and domain to begin with the manifest namespace prefix;
+cross-Package references continue using those stable prefixed IDs. Package sources are read-only
+inside a consuming workspace and cannot install executable extensions. See
+[Kirin community package protocol v1](package-system-v1.md).
 
 ## Groups, presets, tables, and display
 

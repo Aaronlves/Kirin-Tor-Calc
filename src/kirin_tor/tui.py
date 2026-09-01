@@ -109,6 +109,14 @@ def _source_template(path: Path) -> str:
     return build_document_draft(path.parents[1], kind, path.stem).source_text
 
 
+def _is_package_cache_source(root: Path, path: Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return len(relative.parts) >= 3 and relative.parts[:2] == (".kirin", "packages")
+
+
 def resolve_source_path(root: Path, requested: Optional[Path]) -> Path:
     """Resolve a TUI source path without allowing it to leave the workspace."""
     root = root.resolve()
@@ -577,6 +585,8 @@ class KirinTUI(App[None]):
             title = extract_author_title(source, path.stem)
             if not path.exists():
                 state = ("  新建", "bold #e6bf68")
+            elif _is_package_cache_source(self.root, path):
+                state = ("  社区 Package · 只读", "bold #72c7dd")
             elif path in self._buffers and source != self._saved_text(path):
                 state = ("  已修改", "bold #ffcf70")
             else:
@@ -611,7 +621,22 @@ class KirinTUI(App[None]):
                     sources[resolved] = resolved.read_text(encoding="utf-8")
                 except (OSError, UnicodeError):
                     continue
+        try:
+            locked_workspace = Workspace.load(self.root)
+        except KTError:
+            locked_workspace = None
+        if locked_workspace is not None:
+            for document in locked_workspace.documents.values():
+                if document.read_only:
+                    sources.setdefault(document.path.resolve(), document.raw_text)
         return sources
+
+    def _workspace_overlays(self) -> Dict[Path, str]:
+        return {
+            path: text
+            for path, text in self._buffers.items()
+            if not _is_package_cache_source(self.root, path)
+        }
 
     def compose(self) -> ComposeResult:
         relative = str(self.source_path.relative_to(self.root))
@@ -650,7 +675,7 @@ class KirinTUI(App[None]):
                             id="solve-variable",
                         )
                         yield Input(
-                            placeholder="目标结果，例如 3000 damage",
+                            placeholder="目标结果，例如 3000 或 3/2 time",
                             id="solve-equals",
                             compact=True,
                         )
@@ -773,7 +798,10 @@ class KirinTUI(App[None]):
                         yield Button("导出图表", id="export-document")
                     with Horizontal(id="body"):
                         yield KirinTextArea.code_editor(
-                            self._buffers[self.source_path], id="editor", soft_wrap=False
+                            self._buffers[self.source_path],
+                            id="editor",
+                            soft_wrap=False,
+                            read_only=_is_package_cache_source(self.root, self.source_path),
                         )
                         with Vertical(id="side"):
                             yield Static("当前文档无需图表预览。", id="preview")
@@ -883,8 +911,9 @@ class KirinTUI(App[None]):
     def _start_validation(self) -> None:
         editor = self.query_one("#editor", TextArea)
         preview = self.query_one("#preview", Static)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         self._validate_worker(
             overlays,
             self.source_path,
@@ -986,7 +1015,12 @@ class KirinTUI(App[None]):
         options = []
         for item in self._workspace_index.targets:
             group = item.group_label or "未分组"
-            searchable = f"{group} {item.label} {item.value} {item.unit}".casefold()
+            package_label = (
+                f"{item.package_name}@{item.package_version}"
+                if item.package_name and item.package_version
+                else ""
+            )
+            searchable = f"{group} {item.label} {item.value} {item.unit} {package_label}".casefold()
             if normalized and normalized not in searchable:
                 continue
             options.append(
@@ -998,6 +1032,7 @@ class KirinTUI(App[None]):
                         ("  ·  ", "dim"),
                         (item.value, "dim"),
                         (f"  [{item.unit}]", "dim"),
+                        (f"  ·  {package_label}", "#72c7dd") if package_label else "",
                     ),
                     item.value,
                 )
@@ -1243,6 +1278,7 @@ class KirinTUI(App[None]):
         self._switching_document = True
         try:
             editor.load_text(self._buffers[target])
+            editor.read_only = _is_package_cache_source(self.root, target)
         finally:
             self._switching_document = False
         self.query_one("#status", Static).update("正在校验…")
@@ -1279,8 +1315,9 @@ class KirinTUI(App[None]):
             )
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         self._last_comparison_variants = variants
         self.query_one("#calculation-details", Static).update("正在计算…")
         self._comparison_worker(overlays, target, variants, self._revision, self._dirty_count())
@@ -1355,7 +1392,13 @@ class KirinTUI(App[None]):
                 status,
                 height=2,
             )
-        source_note = "未保存草稿" if dirty_count else "已保存文档"
+        package_origin = result.get("package_origin")
+        if package_origin:
+            source_note = (
+                f"只读社区 Package {package_origin['name']}@{package_origin['version']}"
+            )
+        else:
+            source_note = "未保存草稿" if dirty_count else "已保存文档"
         dependencies = "、".join(result.get("dependency_ids", [])) or "无跨文档依赖"
         self.query_one("#calculation-details", Static).update(
             f"依据：{source_note} · 单位：{result['unit']} · 依赖：{dependencies}"
@@ -1439,8 +1482,9 @@ class KirinTUI(App[None]):
             self.query_one("#solve-result", Static).update(Text(message, style="red"))
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         self.query_one("#solve-result", Static).update("正在反求输入…")
         self._solve_worker(
             overlays,
@@ -1540,8 +1584,9 @@ class KirinTUI(App[None]):
             self.query_one("#system-solve-result", Static).update(Text(message, style="red"))
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         self.query_one("#system-solve-result", Static).update("正在联立反求…")
         self._solve_system_worker(
             overlays, equations, variables, baseline, self._revision
@@ -1631,8 +1676,9 @@ class KirinTUI(App[None]):
             return
         preset = None if preset_value in {"__defaults__", Select.NULL} else str(preset_value)
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         preview = self.query_one("#scan-preview", Static)
         if mode == "grid":
             second_axis = self.query_one("#scan-second-axis", Select).value
@@ -1763,8 +1809,9 @@ class KirinTUI(App[None]):
             self.query_one("#chart-status", Static).update("请选择一个已保存图表。")
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         preview = self.query_one("#scan-preview", Static)
         self.query_one("#chart-status", Static).update("正在载入已保存图表…")
         self._saved_plot_worker(
@@ -1870,8 +1917,9 @@ class KirinTUI(App[None]):
             self.query_one("#chart-status", Static).update(Text(message, style="red"))
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         preview = self.query_one("#scan-preview", Static)
         self.query_one("#chart-status", Static).update("正在比较计算页中的方案…")
         self._variant_scan_worker(
@@ -2143,8 +2191,9 @@ class KirinTUI(App[None]):
             self.query_one("#explain-output", Static).update("请先选择一个结果输出。")
             return
         editor = self.query_one("#editor", TextArea)
-        overlays = dict(self._buffers)
-        overlays[self.source_path] = editor.text
+        overlays = self._workspace_overlays()
+        if not _is_package_cache_source(self.root, self.source_path):
+            overlays[self.source_path] = editor.text
         self.query_one("#explain-output", Static).update("正在读取公式和依赖…")
         self._explain_worker(overlays, target, self._revision)
 
@@ -2209,6 +2258,12 @@ class KirinTUI(App[None]):
                 version = item.get("game_version") or "未声明版本"
                 status = item.get("status") or "未声明状态"
                 lines.append(f"- {item['entry']}：{version} · {status}")
+                package = item.get("package")
+                if package:
+                    lines.append(
+                        f"  社区 Package：{package['name']}@{package['version']} · "
+                        f"{package['source']} · {package['resolved']}"
+                    )
                 for source in item.get("sources", []):
                     lines.append(f"  · {source.get('citation', source)}")
         output.update("\n".join(lines))
@@ -2467,9 +2522,15 @@ class KirinTUI(App[None]):
         editor.focus()
 
     def action_save(self) -> None:
+        if _is_package_cache_source(self.root, self.source_path):
+            self.query_one("#status", Static).update("社区 Package 文档是只读的")
+            self.query_one("#diagnostics", Static).update(
+                "要修改此定义，请在它的 GitHub 源仓库中提交变更并发布新版本。"
+            )
+            return
         text = self.query_one("#editor", TextArea).text
         source_path = self.source_path
-        overlays = dict(self._buffers)
+        overlays = self._workspace_overlays()
         overlays[source_path] = text
         dirty = {path: value for path, value in overlays.items() if value != self._saved_text(path)}
         revision = self._revision
@@ -2537,9 +2598,15 @@ class KirinTUI(App[None]):
         self._queue_validation(delay=0.05)
 
     def action_export(self) -> None:
+        if _is_package_cache_source(self.root, self.source_path):
+            self.query_one("#status", Static).update("社区 Package 文档是只读的")
+            self.query_one("#diagnostics", Static).update(
+                "可以在图表页探索或导出计算结果，但不能从消费工作区改写 Package 源文档。"
+            )
+            return
         text = self.query_one("#editor", TextArea).text
         source_path = self.source_path
-        overlays = dict(self._buffers)
+        overlays = self._workspace_overlays()
         overlays[source_path] = text
         dirty = {path: value for path, value in overlays.items() if value != self._saved_text(path)}
         revision = self._revision

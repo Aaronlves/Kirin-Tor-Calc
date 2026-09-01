@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.resources
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
@@ -13,6 +12,7 @@ from .kirin_syntax import load_kirin_document, parse_kirin_source, render_kirin_
 from .schema import (
     Document,
     Entry,
+    PackageOrigin,
     PlotConfig,
     Preset,
     build_semantic_registry,
@@ -20,6 +20,8 @@ from .schema import (
     require_identifier,
 )
 from .limits import MAX_SOURCE_BYTES, MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_SOURCE_BYTES
+from .package_manifest import package_source_paths
+from .package_store import PackageResolution, locked_workspace_resolution
 from .units import UnitRegistry
 
 
@@ -39,9 +41,16 @@ class DocumentDraft:
 
 
 class Workspace:
-    def __init__(self, root: Path, documents: Iterable[Document], units: Optional[UnitRegistry] = None):
+    def __init__(
+        self,
+        root: Path,
+        documents: Iterable[Document],
+        units: Optional[UnitRegistry] = None,
+        package_resolution: Optional[PackageResolution] = None,
+    ):
         self.root = root.resolve()
         self.units = units or UnitRegistry()
+        self.package_resolution = package_resolution
         self.documents: Dict[str, Document] = {}
         for document in documents:
             if document.id in self.documents:
@@ -51,6 +60,7 @@ class Workspace:
                     SourceLocation(path=str(document.path), entry_id=document.id),
                 )
             self.documents[document.id] = document
+        self._validate_package_semantic_scopes()
 
     @property
     def entries(self) -> Dict[str, Entry]:
@@ -68,6 +78,139 @@ class Workspace:
     def plots(self) -> Dict[str, PlotConfig]:
         return {key: value for key, value in self.documents.items() if isinstance(value, PlotConfig)}
 
+    def allowed_package_sources(self, source: str) -> Optional[set[str]]:
+        """Return one package's declared dependency closure, or None for snapshots."""
+        if self.package_resolution is None:
+            return None
+        packages = self.package_resolution.by_source()
+        if source not in packages:
+            return {source}
+        result: set[str] = set()
+        pending = [source]
+        while pending:
+            candidate = pending.pop()
+            if candidate in result:
+                continue
+            result.add(candidate)
+            package = packages.get(candidate)
+            if package is not None:
+                pending.extend(item.source for item in package.manifest.dependencies)
+        return result
+
+    def _validate_package_semantic_scopes(self) -> None:
+        if self.package_resolution is None:
+            return
+        owners: Dict[str, Dict[str, set[Optional[str]]]] = {
+            "dimension": {},
+            "unit": {},
+            "domain": {},
+        }
+        section_kinds = {
+            "dimensions": "dimension",
+            "units": "unit",
+            "domains": "domain",
+        }
+        for document in self.entries.values():
+            origin_source = document.package_origin.source if document.package_origin else None
+            for section, kind in section_kinds.items():
+                declarations = document.semantics.get(section, {})
+                if not isinstance(declarations, dict):
+                    continue
+                for name in declarations:
+                    owners[kind].setdefault(name, set()).add(origin_source)
+
+        for kind, declarations in owners.items():
+            for name, declared_by in declarations.items():
+                package_sources = {source for source in declared_by if source is not None}
+                if package_sources and (None in declared_by or len(package_sources) > 1):
+                    raise SchemaError(
+                        f"package {kind} {name!r} collides across authority boundaries"
+                    )
+
+        def check(document: Entry, kind: str, name: Optional[str], field: str) -> None:
+            if name is None or document.package_origin is None:
+                return
+            builtin = {
+                "dimension": self.units.builtin_dimensions,
+                "unit": self.units.builtin_units,
+                "domain": self.units.builtin_domains,
+            }[kind]
+            if name in builtin:
+                return
+            declared_by = owners[kind].get(name, set())
+            allowed = self.allowed_package_sources(document.package_origin.source) or {
+                document.package_origin.source
+            }
+            if None in declared_by:
+                raise SchemaError(
+                    f"package {document.package_origin.name!r} uses workspace-local {kind} {name!r}",
+                    document.location(field),
+                )
+            unavailable = sorted(
+                source for source in declared_by if source is not None and source not in allowed
+            )
+            if unavailable:
+                raise SchemaError(
+                    f"package {document.package_origin.name!r} uses {kind} {name!r} from undeclared "
+                    f"package source {unavailable[0]!r}",
+                    document.location(field),
+                )
+
+        for document in self.entries.values():
+            if document.package_origin is None:
+                continue
+            for name, spec in document.inputs.items():
+                check(document, "domain", spec.domain_name, f"inputs.{name}")
+                check(document, "unit", spec.unit_name, f"inputs.{name}")
+            for name, data in document.fields.items():
+                if data.get("kind") != "info":
+                    check(document, "unit", data.get("unit", "dimensionless"), f"fields.{name}")
+            for name, data in document.functions.items():
+                check(document, "unit", data.get("unit", "dimensionless"), f"functions.{name}")
+                for parameter, raw in data.get("parameters", {}).items():
+                    check(document, "domain", raw.get("domain"), f"functions.{name}.parameters.{parameter}")
+                    parameter_unit = raw.get("unit", "dimensionless")
+                    if parameter_unit in self.units.domains:
+                        check(
+                            document,
+                            "domain",
+                            parameter_unit,
+                            f"functions.{name}.parameters.{parameter}",
+                        )
+                    else:
+                        check(
+                            document,
+                            "unit",
+                            parameter_unit,
+                            f"functions.{name}.parameters.{parameter}",
+                        )
+            for name, table in document.tables.items():
+                check(document, "unit", table.input_unit, f"tables.{name}")
+                check(document, "unit", table.output_unit, f"tables.{name}")
+            for name, data in document.outputs.items():
+                check(document, "unit", data.get("unit", "dimensionless"), f"outputs.{name}")
+            units = document.semantics.get("units", {})
+            if isinstance(units, dict):
+                for unit_name, raw in units.items():
+                    if isinstance(raw, dict):
+                        for dimension_name in raw.get("dimensions", {}):
+                            check(
+                                document,
+                                "dimension",
+                                dimension_name,
+                                f"semantics.units.{unit_name}",
+                            )
+            domains = document.semantics.get("domains", {})
+            if isinstance(domains, dict):
+                for domain_name, raw in domains.items():
+                    if isinstance(raw, dict):
+                        check(
+                            document,
+                            "unit",
+                            raw.get("unit", "dimensionless"),
+                            f"semantics.domains.{domain_name}",
+                        )
+
     @classmethod
     def find_root(cls, start: Optional[Path] = None) -> Path:
         current = (start or Path.cwd()).resolve()
@@ -81,22 +224,35 @@ class Workspace:
         return cls.load(cls.find_root(start))
 
     @classmethod
-    def load(cls, root: Path) -> "Workspace":
+    def load(
+        cls, root: Path, package_resolution: Optional[PackageResolution] = None
+    ) -> "Workspace":
         root = root.resolve()
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
         cls._validate_marker(root)
-        paths = cls._document_paths(root)
+        package_resolution = package_resolution or locked_workspace_resolution(root)
+        paths = cls._document_paths(root, package_resolution)
+        origins = cls._package_origins(package_resolution)
         raw_documents = []
         for path in paths:
             raw, text, digest, positions = cls._load_source_document(path)
+            cls._validate_package_source(raw, path, origins.get(path))
             raw_documents.append((raw, text, digest, path, positions))
         registry = build_semantic_registry(raw_documents)
         documents = [
-            parse_document(raw, text, digest, path, registry, positions)
+            parse_document(
+                raw,
+                text,
+                digest,
+                path,
+                registry,
+                positions,
+                package_origin=origins.get(path),
+            )
             for raw, text, digest, path, positions in raw_documents
         ]
-        return cls(root, documents, registry)
+        return cls(root, documents, registry, package_resolution)
 
     @classmethod
     def load_with_overlay(cls, root: Path, source_path: Path, source_text: str) -> "Workspace":
@@ -110,6 +266,8 @@ class Workspace:
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
         cls._validate_marker(root)
+        package_resolution = locked_workspace_resolution(root)
+        origins = cls._package_origins(package_resolution)
         resolved_overlays: Dict[Path, str] = {}
         for source_path, source_text in overlays.items():
             source_path = source_path.resolve()
@@ -122,7 +280,7 @@ class Workspace:
             }:
                 raise WorkspaceError("editor source must be a .kirin file inside entries or plots")
             resolved_overlays[source_path] = source_text
-        paths = cls._document_paths(root)
+        paths = cls._document_paths(root, package_resolution)
         for source_path in resolved_overlays:
             if source_path not in paths:
                 paths.append(source_path)
@@ -144,13 +302,22 @@ class Workspace:
             raw, text, digest, positions = cls._load_source_document(
                 path, resolved_overlays.get(path)
             )
+            cls._validate_package_source(raw, path, origins.get(path))
             raw_documents.append((raw, text, digest, path, positions))
         registry = build_semantic_registry(raw_documents)
         documents = [
-            parse_document(raw, text, digest, path, registry, positions)
+            parse_document(
+                raw,
+                text,
+                digest,
+                path,
+                registry,
+                positions,
+                package_origin=origins.get(path),
+            )
             for raw, text, digest, path, positions in raw_documents
         ]
-        return cls(root, documents, registry)
+        return cls(root, documents, registry, package_resolution)
 
     @staticmethod
     def _load_source_document(path: Path, text_override: Optional[str] = None):
@@ -159,13 +326,18 @@ class Workspace:
         return load_kirin_document(path, text_override)
 
     @staticmethod
-    def _document_paths(root: Path) -> list[Path]:
+    def _document_paths(
+        root: Path, package_resolution: Optional[PackageResolution] = None
+    ) -> list[Path]:
         paths = []
         for folder in ("entries", "plots"):
             directory = root / folder
             if directory.exists():
                 paths.extend(path for path in directory.rglob("*.kirin") if path.is_file())
-        result = sorted(set(paths))
+        if package_resolution is not None:
+            for package in package_resolution.packages:
+                paths.extend(package_source_paths(package.root))
+        result = sorted(set(path.resolve() for path in paths))
         if len(result) > MAX_WORKSPACE_DOCUMENTS:
             raise WorkspaceError(
                 f"workspace exceeds {MAX_WORKSPACE_DOCUMENTS} source documents"
@@ -176,6 +348,48 @@ class Workspace:
                 f"workspace sources exceed {MAX_WORKSPACE_SOURCE_BYTES} total bytes"
             )
         return result
+
+    @staticmethod
+    def _package_origins(package_resolution: PackageResolution) -> Dict[Path, PackageOrigin]:
+        result: Dict[Path, PackageOrigin] = {}
+        for package in package_resolution.packages:
+            origin = PackageOrigin(
+                source=package.source,
+                name=package.manifest.name,
+                version=package.manifest.version,
+                namespace=package.manifest.namespace,
+                resolved=package.resolved,
+                content_sha256=package.content_sha256,
+            )
+            for path in package_source_paths(package.root):
+                result[path.resolve()] = origin
+        return result
+
+    @staticmethod
+    def _validate_package_source(
+        raw: dict, path: Path, origin: Optional[PackageOrigin]
+    ) -> None:
+        if origin is None:
+            return
+        prefix = origin.namespace + "_"
+        document_id = raw.get("id")
+        if not isinstance(document_id, str) or not document_id.startswith(prefix):
+            raise SchemaError(
+                f"package document id must start with namespace prefix {prefix!r}",
+                SourceLocation(path=str(path), entry_id=document_id if isinstance(document_id, str) else None),
+            )
+        semantics = raw.get("semantics", {})
+        if isinstance(semantics, dict):
+            for section in ("dimensions", "units", "domains"):
+                declarations = semantics.get(section, {})
+                if not isinstance(declarations, dict):
+                    continue
+                for name in declarations:
+                    if not isinstance(name, str) or not name.startswith(prefix):
+                        raise SchemaError(
+                            f"package {section[:-1]} name must start with namespace prefix {prefix!r}",
+                            SourceLocation(path=str(path), entry_id=document_id, field=f"semantics.{section}.{name}"),
+                        )
 
     @staticmethod
     def _validate_marker(root: Path) -> None:
@@ -215,18 +429,7 @@ class Workspace:
                     "workspace initial-package must appear once with a value",
                     SourceLocation(path=str(marker), line=number, column=1),
                 )
-            if value not in AVAILABLE_PACKAGES:
-                raise SchemaError(
-                    "workspace initial-package must be one of: "
-                    + ", ".join(sorted(AVAILABLE_PACKAGES)),
-                    SourceLocation(path=str(marker), line=number, column=1),
-                )
             seen.add(key)
-        if "initial-package" not in seen:
-            raise SchemaError(
-                "workspace marker requires initial-package",
-                SourceLocation(path=str(marker), line=1, column=1),
-            )
 
     @classmethod
     def load_for_check(cls, root: Path) -> "Workspace":
@@ -235,11 +438,14 @@ class Workspace:
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
         cls._validate_marker(root)
+        package_resolution = locked_workspace_resolution(root)
+        origins = cls._package_origins(package_resolution)
         raw_documents = []
         errors = []
-        for path in cls._document_paths(root):
+        for path in cls._document_paths(root, package_resolution):
             try:
                 raw, text, digest, positions = cls._load_source_document(path)
+                cls._validate_package_source(raw, path, origins.get(path))
                 raw_documents.append((raw, text, digest, path, positions))
             except KTError as exc:
                 errors.append(exc)
@@ -253,14 +459,24 @@ class Workspace:
         documents = []
         for raw, text, digest, path, positions in raw_documents:
             try:
-                documents.append(parse_document(raw, text, digest, path, registry, positions))
+                documents.append(
+                    parse_document(
+                        raw,
+                        text,
+                        digest,
+                        path,
+                        registry,
+                        positions,
+                        package_origin=origins.get(path),
+                    )
+                )
             except KTError as exc:
                 errors.append(exc)
         try:
-            workspace = cls(root, documents, registry)
+            workspace = cls(root, documents, registry, package_resolution)
         except KTError as exc:
             errors.append(exc)
-            workspace = cls(root, [], registry)
+            workspace = cls(root, [], registry, package_resolution)
         if errors:
             raise ValidationErrors(errors)
         return workspace
@@ -274,6 +490,8 @@ class Workspace:
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
         cls._validate_marker(root)
+        package_resolution = locked_workspace_resolution(root)
+        origins = cls._package_origins(package_resolution)
         resolved_overlays: Dict[Path, str] = {}
         for source_path, source_text in overlays.items():
             source_path = source_path.resolve()
@@ -291,7 +509,7 @@ class Workspace:
                     "editor source must be a .kirin file inside entries or plots"
                 )
             resolved_overlays[source_path] = source_text
-        paths = cls._document_paths(root)
+        paths = cls._document_paths(root, package_resolution)
         for source_path in resolved_overlays:
             if source_path not in paths:
                 paths.append(source_path)
@@ -318,6 +536,7 @@ class Workspace:
                 raw, text, digest, positions = cls._load_source_document(
                     path, resolved_overlays.get(path)
                 )
+                cls._validate_package_source(raw, path, origins.get(path))
                 raw_documents.append((raw, text, digest, path, positions))
             except KTError as exc:
                 errors.append(exc)
@@ -329,14 +548,24 @@ class Workspace:
         documents = []
         for raw, text, digest, path, positions in raw_documents:
             try:
-                documents.append(parse_document(raw, text, digest, path, registry, positions))
+                documents.append(
+                    parse_document(
+                        raw,
+                        text,
+                        digest,
+                        path,
+                        registry,
+                        positions,
+                        package_origin=origins.get(path),
+                    )
+                )
             except KTError as exc:
                 errors.append(exc)
         try:
-            workspace = cls(root, documents, registry)
+            workspace = cls(root, documents, registry, package_resolution)
         except KTError as exc:
             errors.append(exc)
-            workspace = cls(root, [], registry)
+            workspace = cls(root, [], registry, package_resolution)
         if errors:
             raise ValidationErrors(errors)
         return workspace
@@ -346,6 +575,7 @@ class Workspace:
         documents = []
         virtual_root = Path("/snapshot")
         raw_documents = []
+        origins: Dict[Path, PackageOrigin] = {}
         for index, snapshot in enumerate(snapshots):
             raw = snapshot.get("content")
             if not isinstance(raw, dict):
@@ -357,9 +587,35 @@ class Workspace:
             path = virtual_root / f"{index:04d}-{raw.get('id', 'unknown')}.kirin"
             _parsed, positions = parse_kirin_source(text, path)
             raw_documents.append((raw, text, digest, path, positions))
+            package = snapshot.get("package")
+            if isinstance(package, dict):
+                required = {
+                    "source",
+                    "name",
+                    "version",
+                    "namespace",
+                    "resolved",
+                    "content_sha256",
+                }
+                if set(package) != required or any(
+                    not isinstance(package.get(key), str) or not package.get(key)
+                    for key in required
+                ):
+                    raise SchemaError("run snapshot package origin is invalid")
+                origins[path] = PackageOrigin(**package)
         registry = build_semantic_registry(raw_documents)
         for raw, text, digest, path, positions in raw_documents:
-            documents.append(parse_document(raw, text, digest, path, registry, positions))
+            documents.append(
+                parse_document(
+                    raw,
+                    text,
+                    digest,
+                    path,
+                    registry,
+                    positions,
+                    package_origin=origins.get(path),
+                )
+            )
         return cls(virtual_root, documents, registry)
 
     def get_entry(self, entry_id: str) -> Entry:
@@ -393,31 +649,16 @@ class Workspace:
         return document
 
 
-AVAILABLE_PACKAGES = {"none", "wow"}
-
-
-def initialize(root: Path, package_name: str = "none") -> Path:
+def initialize(root: Path) -> Path:
     root = root.resolve()
-    if package_name not in AVAILABLE_PACKAGES:
-        raise WorkspaceError(
-            f"unknown package {package_name!r}; available packages: {', '.join(sorted(AVAILABLE_PACKAGES))}"
-        )
     root.mkdir(parents=True, exist_ok=True)
     marker = root / MARKER
     if marker.exists():
         raise WorkspaceError(f"workspace already exists at {root}")
-    package_path = root / "entries" / f"{package_name}_semantics.kirin"
-    if package_name != "none" and package_path.exists():
-        raise WorkspaceError(f"initialization would overwrite an existing file: {package_path}")
     for folder in ("entries", "plots", "runs", "results"):
         (root / folder).mkdir(exist_ok=True)
     with marker.open("x", encoding="utf-8") as handle:
-        handle.write(f"@kirin-workspace 1\ninitial-package: {package_name}\n")
-    if package_name != "none":
-        resource = importlib.resources.files("kirin_tor.packages").joinpath(f"{package_name}.kirin")
-        content = resource.read_text(encoding="utf-8")
-        with package_path.open("x", encoding="utf-8") as handle:
-            handle.write(content)
+        handle.write("@kirin-workspace 1\n")
     return root
 
 

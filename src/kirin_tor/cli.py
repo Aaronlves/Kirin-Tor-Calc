@@ -28,11 +28,21 @@ from .operations import (
     solve_system,
     transform,
 )
+from .package_authoring import (
+    add_package,
+    add_path_package,
+    check_package,
+    create_package_template,
+    remove_package,
+    restore_packages,
+    update_package,
+    verify_packages,
+)
+from .package_store import PackageResolver, PackageStoreManager
 from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .records import replay as replay_run
 from .timeout import run_with_timeout
 from .workspace import (
-    AVAILABLE_PACKAGES,
     Workspace,
     create_entry_template,
     create_plot_template,
@@ -48,6 +58,8 @@ app = typer.Typer(
 )
 new_app = typer.Typer(help="Create an entry or plot from a minimal Kirin v1 template.")
 app.add_typer(new_app, name="new")
+package_app = typer.Typer(help="Install, verify, and author data-only community packages.")
+app.add_typer(package_app, name="package")
 
 
 def _emit(result: dict, json_output: bool, human: Optional[str] = None) -> None:
@@ -117,16 +129,214 @@ def tui_command(
 @app.command("init")
 def init_command(
     directory: Path,
-    package_name: str = typer.Option(
-        "none", "--package", help=f"Data-only starter package: {', '.join(sorted(AVAILABLE_PACKAGES))}."
-    ),
 ) -> None:
-    """Create a new workspace directory."""
+    """Create a new game-neutral workspace directory."""
     def action():
-        root = initialize(directory, package_name)
-        typer.echo(f"Initialized Kirin Tor workspace: {root} (package={package_name})")
+        root = initialize(directory)
+        typer.echo(f"Initialized game-neutral Kirin Tor workspace: {root}")
 
     _execute(action)
+
+
+def _package_summary(resolution) -> dict:
+    direct_aliases = {
+        item.source: item.alias for item in resolution.requirements.packages
+    }
+    return {
+        "status": "ok",
+        "packages": [
+            {
+                "alias": direct_aliases.get(item.source),
+                "direct": item.source in direct_aliases,
+                "source": item.source,
+                "name": item.manifest.name,
+                "version": item.manifest.version,
+                "namespace": item.manifest.namespace,
+                "description": item.manifest.description,
+                "license": item.manifest.license,
+                "game": item.manifest.game,
+                "game_version": item.manifest.game_version,
+                "resolved": item.resolved,
+                "content_sha256": item.content_sha256,
+                "dependencies": {
+                    dependency.alias: {
+                        "source": dependency.source,
+                        "version": dependency.version,
+                    }
+                    for dependency in item.manifest.dependencies
+                },
+            }
+            for item in sorted(resolution.packages, key=lambda package: package.source)
+        ],
+    }
+
+
+def _document_origin(document, workspace: Workspace) -> tuple[str, Optional[dict]]:
+    origin = document.package_origin
+    if origin is None:
+        return str(document.path.relative_to(workspace.root)), None
+    package_root = workspace.root / ".kirin" / "packages" / origin.content_sha256
+    try:
+        relative = document.path.relative_to(package_root)
+    except ValueError:
+        relative = Path(document.path.name)
+    return (
+        f"{origin.name}@{origin.version}/{relative.as_posix()}",
+        {
+            "source": origin.source,
+            "name": origin.name,
+            "version": origin.version,
+            "namespace": origin.namespace,
+            "resolved": origin.resolved,
+            "content_sha256": origin.content_sha256,
+        },
+    )
+@package_app.command("add")
+def package_add_command(
+    alias: str,
+    source: str,
+    version: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Add one exact GitHub release as a direct workspace dependency."""
+    def action():
+        result = _package_summary(add_package(Workspace.find_root(), alias, source, version))
+        _emit(result, json_output, f"Added {alias}: {source}@{version}")
+
+    _execute(action, json_output)
+
+
+@package_app.command("add-path")
+def package_add_path_command(
+    alias: str,
+    path: Path,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Add an immutable snapshot of a local package development directory."""
+    def action():
+        resolution = add_path_package(Workspace.find_root(), alias, path)
+        source = resolution.requirements.by_alias()[alias].source
+        item = resolution.by_source()[source]
+        result = _package_summary(resolution)
+        _emit(result, json_output, f"Added {alias}: {item.manifest.name}@{item.manifest.version}")
+
+    _execute(action, json_output)
+
+
+@package_app.command("remove")
+def package_remove_command(
+    alias: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Remove one direct dependency and unreachable transitive packages."""
+    def action():
+        result = _package_summary(remove_package(Workspace.find_root(), alias))
+        _emit(result, json_output, f"Removed package {alias}")
+
+    _execute(action, json_output)
+
+
+@package_app.command("update")
+def package_update_command(
+    alias: str,
+    version: Optional[str] = typer.Argument(None),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Re-resolve one direct package, optionally at a new exact version."""
+    def action():
+        resolution = update_package(Workspace.find_root(), alias, version)
+        result = _package_summary(resolution)
+        selected = resolution.requirements.by_alias()[alias]
+        _emit(result, json_output, f"Updated {alias} to {selected.version}")
+
+    _execute(action, json_output)
+
+
+@package_app.command("restore")
+def package_restore_command(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Resolve declared releases, rebuild missing cache content, and replace the lockfile."""
+    def action():
+        resolution = restore_packages(Workspace.find_root())
+        result = _package_summary(resolution)
+        _emit(result, json_output, f"Restored {len(resolution.packages)} package(s)")
+
+    _execute(action, json_output)
+
+
+@package_app.command("verify")
+def package_verify_command(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Verify the locked graph and cached content without network access."""
+    def action():
+        resolution, validation = verify_packages(Workspace.find_root())
+        result = _package_summary(resolution)
+        result["validation"] = validation
+        _emit(result, json_output, f"Verified {len(resolution.packages)} package(s)")
+
+    _execute(action, json_output)
+
+
+@package_app.command("list")
+def package_list_command(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """List direct and transitive packages from the verified offline lock."""
+    def action():
+        root = Workspace.find_root()
+        resolution = PackageResolver(PackageStoreManager(root)).load_locked_workspace()
+        result = _package_summary(resolution)
+        lines = []
+        for item in result["packages"]:
+            role = item["alias"] if item["direct"] else "transitive"
+            lines.append(
+                f"{role:<16} {item['name']}@{item['version']}  {item['source']}"
+            )
+        _emit(result, json_output, "\n".join(lines) if lines else "No community packages installed")
+
+    _execute(action, json_output)
+
+
+@package_app.command("new")
+def package_new_command(
+    directory: Path,
+    name: str = typer.Option(..., "--name"),
+    namespace: str = typer.Option(..., "--namespace"),
+    version: str = typer.Option("1.0.0", "--version"),
+) -> None:
+    """Create a data-only community package repository template."""
+    def action():
+        root = create_package_template(
+            directory, name=name, namespace=namespace, version=version
+        )
+        typer.echo(f"Created Kirin community package: {root}")
+
+    _execute(action)
+
+
+@package_app.command("check")
+def package_check_command(
+    directory: Path = typer.Argument(Path(".")),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Validate a package manifest, dependencies, namespace, and all Kirin mathematics."""
+    def action():
+        resolution, validation = check_package(directory)
+        subject = next(
+            item for item in resolution.packages if item.source == resolution.requirements.packages[0].source
+        )
+        result = _package_summary(resolution)
+        result["validation"] = validation
+        _emit(
+            result,
+            json_output,
+            f"OK: {subject.manifest.name}@{subject.manifest.version}; "
+            f"{validation['documents']} document(s)",
+        )
+
+    _execute(action, json_output)
 
 
 def _new_entry(entry_type: str, entry_id: str) -> None:
@@ -163,16 +373,19 @@ def list_command(json_output: bool = typer.Option(False, "--json", help="Write J
     """List loaded documents by stable id."""
     def action():
         workspace = Workspace.discover()
-        items = [
-            {
+        items = []
+        for document in sorted(workspace.documents.values(), key=lambda item: item.id):
+            path, origin = _document_origin(document, workspace)
+            items.append({
                 "id": document.id,
+                "authority_id": document.authority_id,
                 "name": document.name,
                 "type": document.type,
                 "template": getattr(document, "template", None),
-                "path": str(document.path.relative_to(workspace.root)),
-            }
-            for document in sorted(workspace.documents.values(), key=lambda item: item.id)
-        ]
+                "path": path,
+                "read_only": document.read_only,
+                "package_origin": origin,
+            })
         _emit(
             {"status": "ok", "documents": items},
             json_output,
@@ -194,7 +407,18 @@ def show_command(entry_id: str, json_output: bool = typer.Option(False, "--json"
             from .errors import ReferenceError
             raise ReferenceError(f"unknown document id {entry_id!r}")
         document = workspace.documents[entry_id]
-        _emit({"status": "ok", "document": document.raw}, json_output, document.raw_text.rstrip())
+        _path, origin = _document_origin(document, workspace)
+        _emit(
+            {
+                "status": "ok",
+                "document": document.raw,
+                "authority_id": document.authority_id,
+                "read_only": document.read_only,
+                "package_origin": origin,
+            },
+            json_output,
+            document.raw_text.rstrip(),
+        )
 
     _execute(action, json_output)
 

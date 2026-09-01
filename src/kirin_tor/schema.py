@@ -144,6 +144,16 @@ class InputSpec:
         return self.qualified_name or self.name
 
 
+@dataclass(frozen=True)
+class PackageOrigin:
+    source: str
+    name: str
+    version: str
+    namespace: str
+    resolved: str
+    content_sha256: str
+
+
 @dataclass
 class Document:
     id: str
@@ -154,6 +164,17 @@ class Document:
     raw_text: str
     sha256: str
     positions: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    package_origin: Optional[PackageOrigin] = None
+
+    @property
+    def authority_id(self) -> str:
+        if self.package_origin is None:
+            return self.id
+        return f"{self.package_origin.source}::{self.id}"
+
+    @property
+    def read_only(self) -> bool:
+        return self.package_origin is not None
 
     def location(self, field_name: Optional[str] = None) -> SourceLocation:
         line = column = None
@@ -514,6 +535,7 @@ def parse_document(
     path: Path,
     registry: Optional[UnitRegistry] = None,
     positions: Optional[Dict[str, Tuple[int, int]]] = None,
+    package_origin: Optional[PackageOrigin] = None,
 ) -> Document:
     registry = registry or UnitRegistry()
     positions = positions or {}
@@ -530,7 +552,15 @@ def parse_document(
             _location(path, doc_id, positions, "type"),
         )
     base = dict(
-        id=doc_id, name=name, type=doc_type, path=path, raw=raw, raw_text=text, sha256=sha256, positions=positions
+        id=doc_id,
+        name=name,
+        type=doc_type,
+        path=path,
+        raw=raw,
+        raw_text=text,
+        sha256=sha256,
+        positions=positions,
+        package_origin=package_origin,
     )
 
     if doc_type == "entry":

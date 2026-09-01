@@ -1,5 +1,10 @@
 # Kirin Tor TUI workbench specification
 
+Locked community Packages participate in calculation, charts, and diagnostics beside local
+documents. Target selectors show their `package@version` origin. Opening a Package source through
+diagnostics puts the editor in read-only mode; changes belong in the Package's authoritative
+GitHub repository and become active only after a new release and explicit workspace update.
+
 ## Product center
 
 The TUI is a player-facing calculation and comparison workbench. Structured Kirin
