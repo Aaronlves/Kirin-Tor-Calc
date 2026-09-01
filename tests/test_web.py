@@ -190,4 +190,5 @@ def test_web_refuses_to_overwrite_an_external_document_change(
         payload = decoded(failure.value.read())
         assert payload["code"] == "workspace_error"
         assert "changed outside" in payload["message"]
+        assert payload["location"]["path"] == relative
         assert path.read_text(encoding="utf-8").endswith("// external edit\n")

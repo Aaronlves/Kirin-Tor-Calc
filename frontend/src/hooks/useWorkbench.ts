@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifications } from "@mantine/notifications";
 
-import { errorMessage, initialDocument, request, runOperation } from "../api";
+import { ApiError, errorMessage, initialDocument, request, runOperation } from "../api";
 import type {
   AsyncState,
   BootstrapPayload,
   CompletionItem,
   DocumentItem,
   DocumentPayload,
+  ExternalChangeConflict,
   OperationResult,
   ValidationResult,
 } from "../types";
@@ -15,6 +16,14 @@ import type {
 function recordsEqual(left: Record<string, string>, right: Record<string, string>): boolean {
   const keys = Object.keys(left);
   return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
+}
+
+function externalConflictPath(error: ApiError): string | null {
+  if (error.payload.code !== "workspace_error") return null;
+  const location = error.payload.location;
+  if (!location || typeof location !== "object") return null;
+  const path = (location as Record<string, unknown>).path;
+  return typeof path === "string" ? path : null;
 }
 
 export function useWorkbench() {
@@ -27,6 +36,7 @@ export function useWorkbench() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [asyncState, setAsyncState] = useState<AsyncState>("connecting");
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+  const [externalConflict, setExternalConflict] = useState<ExternalChangeConflict | null>(null);
   const started = useRef(false);
   const validationSequence = useRef(0);
 
@@ -143,7 +153,18 @@ export function useWorkbench() {
 
   const updateBuffer = useCallback((key: string, text: string) => {
     setBuffers((current) => current[key] === text ? current : { ...current, [key]: text });
+    setExternalConflict((current) => current?.key === key ? { ...current, draft: text } : current);
   }, []);
+
+  const inspectExternalConflict = useCallback(async (key: string) => {
+    const disk = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(key)}`);
+    setExternalConflict({
+      key,
+      path: disk.path,
+      draft: buffers[key] ?? originals[key] ?? disk.text,
+      disk: disk.text,
+    });
+  }, [buffers, originals]);
 
   const saveAll = useCallback(async () => {
     if (!Object.keys(dirtyOverlays).length) {
@@ -169,12 +190,63 @@ export function useWorkbench() {
       await refresh(true);
       return true;
     } catch (error) {
+      if (error instanceof ApiError) {
+        const path = externalConflictPath(error);
+        if (path && Object.prototype.hasOwnProperty.call(dirtyOverlays, path)) {
+          try {
+            await inspectExternalConflict(path);
+            notifications.show({
+              color: "orange",
+              title: "检测到外部修改",
+              message: "草稿未被覆盖。请比较磁盘版本，再选择重新加载或保留草稿副本。",
+              autoClose: false,
+            });
+            return false;
+          } catch (inspectError) {
+            notifications.show({ color: "red", title: "无法读取磁盘版本", message: errorMessage(inspectError), autoClose: false });
+          }
+        }
+      }
       notifications.show({ color: "red", title: "无法保存", message: errorMessage(error), autoClose: false });
       return false;
     } finally {
       setAsyncState("idle");
     }
-  }, [buffers, dirtyOverlays, hashes, originals, refresh]);
+  }, [buffers, dirtyOverlays, hashes, inspectExternalConflict, originals, refresh]);
+
+  const reloadExternalConflict = useCallback(async () => {
+    if (!externalConflict) return false;
+    const conflict = externalConflict;
+    try {
+      const latest = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(conflict.key)}`);
+      setBuffers((current) => ({ ...current, [conflict.key]: latest.text }));
+      setOriginals((current) => ({ ...current, [conflict.key]: latest.text }));
+      setHashes((current) => ({ ...current, [conflict.key]: latest.source_sha256 }));
+      setDocuments((current) => current.map((item) => item.key === conflict.key
+        ? { ...item, source_sha256: latest.source_sha256 }
+        : item));
+      setExternalConflict(null);
+      notifications.show({ color: "green", title: "已重新加载", message: `${conflict.path} 已更新为最新磁盘版本。` });
+      return true;
+    } catch (error) {
+      notifications.show({ color: "red", title: "无法重新加载", message: errorMessage(error), autoClose: false });
+      return false;
+    }
+  }, [externalConflict]);
+
+  const keepExternalConflictDraft = useCallback(() => {
+    if (!externalConflict) return false;
+    const blob = new Blob([externalConflict.draft], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename = externalConflict.path.split(/[\\/]/).at(-1) || "document.kirin";
+    link.href = url;
+    link.download = filename.replace(/\.kirin$/i, "") + ".workbench-draft.kirin";
+    link.click();
+    URL.revokeObjectURL(url);
+    notifications.show({ color: "green", message: "草稿副本已下载；当前编辑缓冲区保持不变。" });
+    return true;
+  }, [externalConflict]);
 
   const createDocument = useCallback(async (template: string, documentId: string) => {
     const result = await request<{ path: string; kind: string; id: string; text: string }>("/api/document/create", {
@@ -269,6 +341,7 @@ export function useWorkbench() {
     currentKey,
     dirtyCount,
     dirtyOverlays,
+    externalConflict,
     documents,
     hashes,
     lastCheckedAt,
@@ -276,6 +349,9 @@ export function useWorkbench() {
     operation,
     packageAction,
     refresh,
+    inspectExternalConflict,
+    keepExternalConflictDraft,
+    reloadExternalConflict,
     saveAll,
     templateAction,
     updateBuffer,

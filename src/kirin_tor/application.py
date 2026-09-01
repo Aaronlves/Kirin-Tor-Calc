@@ -103,10 +103,11 @@ def _normalize_player_value(value: str) -> str:
 def parse_player_override_text(
     text: str, inputs: Sequence[InputOption]
 ) -> dict[str, str]:
-    """Resolve canonical, local, or display input names and accept exact percentages."""
+    """Resolve player-facing names, separators, and exact percentages."""
+    normalized = text.translate(str.maketrans({"，": ",", "；": ",", ";": ","}))
     assignments = [
         item.strip()
-        for line in text.splitlines()
+        for line in normalized.splitlines()
         for item in line.split(",")
         if item.strip()
     ]

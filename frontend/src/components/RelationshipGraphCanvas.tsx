@@ -9,13 +9,16 @@ import type { RelationshipEdge, RelationshipNode } from "../types";
 
 echarts.use([GraphChart, LegendComponent, TooltipComponent, CanvasRenderer]);
 
-const categoryOrder = ["document", "input", "field", "function", "table", "output"];
+const categoryOrder = ["document", "input", "field", "function", "table", "distribution", "recurrence", "state_model", "output"];
 const categoryLabels: Record<string, string> = {
   document: "文档",
   input: "输入",
   field: "字段",
   function: "函数",
   table: "查表",
+  distribution: "有限分布",
+  recurrence: "有限递推",
+  state_model: "状态模型",
   output: "输出",
 };
 const categoryColors: Record<string, string> = {
@@ -24,6 +27,9 @@ const categoryColors: Record<string, string> = {
   field: "#a88bbb",
   function: "#c19a5b",
   table: "#85a56f",
+  distribution: "#d16f78",
+  recurrence: "#9a9388",
+  state_model: "#6fa7a0",
   output: "#7599b2",
 };
 
@@ -31,6 +37,8 @@ interface RelationshipGraphCanvasProps {
   nodes: RelationshipNode[];
   edges: RelationshipEdge[];
   compact?: boolean;
+  layout?: "circular" | "force";
+  selectedId?: string | null;
   onSelect?(id: string): void;
 }
 
@@ -47,23 +55,40 @@ export function RelationshipGraphCanvas({
   nodes,
   edges,
   compact = false,
+  layout = "force",
+  selectedId = null,
   onSelect,
 }: RelationshipGraphCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const nodeMap = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const sortedNodes = useMemo(
+    () => [...nodes].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id)),
+    [nodes],
+  );
+  const nodeMap = useMemo(() => new Map(sortedNodes.map((node) => [node.id, node])), [sortedNodes]);
+  const connectionCounts = useMemo(() => {
+    const counts = new Map<string, { dependencies: number; users: number }>();
+    for (const node of sortedNodes) counts.set(node.id, { dependencies: 0, users: 0 });
+    for (const edge of edges) {
+      const source = counts.get(edge.source);
+      const target = counts.get(edge.target);
+      if (source) source.users += 1;
+      if (target) target.dependencies += 1;
+    }
+    return counts;
+  }, [edges, sortedNodes]);
 
   useEffect(() => {
     if (!hostRef.current) return;
     const chart = echarts.init(hostRef.current, undefined, { renderer: "canvas" });
     const degree = new Map<string, number>();
     const labelCounts = new Map<string, number>();
-    for (const node of nodes) labelCounts.set(node.label, (labelCounts.get(node.label) || 0) + 1);
+    for (const node of sortedNodes) labelCounts.set(node.label, (labelCounts.get(node.label) || 0) + 1);
     for (const edge of edges) {
       degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
       degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
     }
     const categories = categoryOrder
-      .filter((kind) => nodes.some((node) => node.kind === kind))
+      .filter((kind) => sortedNodes.some((node) => node.kind === kind))
       .map((kind) => ({ name: categoryLabels[kind] || kind, itemStyle: { color: categoryColors[kind] || "#8d887d" } }));
     const categoryIndex = new Map(categories.map((category, index) => [category.name, index]));
     const option: EChartsOption = {
@@ -93,12 +118,13 @@ export function RelationshipGraphCanvas({
       series: [{
         type: "graph",
         selectedMode: "single",
-        layout: "force",
+        layout,
         roam: true,
-        draggable: true,
-        data: nodes.map((node) => ({
+        draggable: layout === "force",
+        data: sortedNodes.map((node) => ({
           id: node.id,
           name: (labelCounts.get(node.label) || 0) > 1 ? `${node.document_id}.${node.label}` : node.label,
+          selected: node.id === selectedId,
           category: categoryIndex.get(categoryLabels[node.kind] || node.kind) ?? 0,
           symbolSize: Math.min(compact ? 21 : 32, (compact ? 11 : 15) + Math.sqrt(degree.get(node.id) || 1) * 3),
           itemStyle: {
@@ -107,9 +133,9 @@ export function RelationshipGraphCanvas({
             borderWidth: 1,
           },
           label: {
-            show: nodes.length <= (compact ? 18 : 45),
+            show: sortedNodes.length <= (compact ? 18 : 45),
             color: "#b9b5aa",
-            fontSize: compact ? 9 : 10,
+            fontSize: 10,
             position: "right",
           },
         })),
@@ -119,12 +145,14 @@ export function RelationshipGraphCanvas({
           value: edge.count || 1,
         })),
         categories,
-        force: {
-          repulsion: compact ? 175 : 340,
-          edgeLength: compact ? [55, 95] : [95, 175],
-          gravity: compact ? 0.08 : 0.045,
-          friction: 0.62,
-        },
+        ...(layout === "force" ? {
+          force: {
+            repulsion: compact ? 210 : 410,
+            edgeLength: compact ? [68, 112] : [110, 190],
+            gravity: compact ? 0.065 : 0.035,
+            friction: 0.58,
+          },
+        } : { circular: { rotateLabel: false } }),
         edgeSymbol: ["none", "arrow"],
         edgeSymbolSize: [0, compact ? 4 : 6],
         lineStyle: { color: "source", opacity: 0.32, width: 1, curveness: 0.08 },
@@ -143,7 +171,31 @@ export function RelationshipGraphCanvas({
       observer.disconnect();
       chart.dispose();
     };
-  }, [compact, edges, nodeMap, nodes, onSelect]);
+  }, [compact, edges, layout, nodeMap, onSelect, selectedId, sortedNodes]);
 
-  return <div ref={hostRef} className={`relationship-canvas${compact ? " is-compact" : ""}`} role="img" aria-label="公式与文档关系图" />;
+  return (
+    <div className={`relationship-visualization${compact ? " is-compact" : ""}`}>
+      <div ref={hostRef} className="relationship-canvas" role="img" aria-label="公式与文档关系图；下方提供键盘节点列表" />
+      <details className="canvas-data-fallback">
+        <summary>使用键盘浏览 {sortedNodes.length} 个节点</summary>
+        <div className="relationship-node-list" role="list" aria-label="关系图节点">
+          {sortedNodes.map((node) => {
+            const count = connectionCounts.get(node.id);
+            return (
+              <div key={node.id} role="listitem">
+                <button
+                  type="button"
+                  aria-pressed={selectedId === node.id}
+                  onClick={() => onSelect?.(node.id)}
+                >
+                  <strong>{node.label}</strong>
+                  <small>{node.id} · {categoryLabels[node.kind] || node.kind} · {count?.dependencies || 0} 个依赖 · {count?.users || 0} 个使用者</small>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    </div>
+  );
 }

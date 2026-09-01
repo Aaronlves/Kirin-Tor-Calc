@@ -23,7 +23,7 @@ from .application import (
 from .authoring import build_completion_candidates
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
-from .errors import KTError, ParameterError, ReferenceError, ValidationErrors, WorkspaceError
+from .errors import KTError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     differentiate,
@@ -271,10 +271,14 @@ class Workbench:
                     current = _hash_text(path.read_text(encoding="utf-8"))
                     if expected_hash is not None and current != expected_hash:
                         raise WorkspaceError(
-                            f"document changed outside the workbench; reload before saving: {relative}"
+                            "document changed outside the workbench; compare or reload before saving",
+                            SourceLocation(path=relative),
                         )
                 elif expected_hash not in {None, ""}:
-                    raise WorkspaceError(f"new document unexpectedly disappeared: {relative}")
+                    raise WorkspaceError(
+                        "new document unexpectedly disappeared",
+                        SourceLocation(path=relative),
+                    )
             workspace = Workspace.load_with_overlays(self.root, parsed)
             run_with_timeout(
                 _validate_workspace,
@@ -288,10 +292,14 @@ class Workbench:
                     current = _hash_text(path.read_text(encoding="utf-8"))
                     if expected_hash is not None and current != expected_hash:
                         raise WorkspaceError(
-                            f"document changed outside the workbench; reload before saving: {relative}"
+                            "document changed outside the workbench; compare or reload before saving",
+                            SourceLocation(path=relative),
                         )
                 elif expected_hash not in {None, ""}:
-                    raise WorkspaceError(f"new document unexpectedly disappeared: {relative}")
+                    raise WorkspaceError(
+                        "new document unexpectedly disappeared",
+                        SourceLocation(path=relative),
+                    )
             atomic_write_sources(parsed)
             return {
                 "status": "ok",

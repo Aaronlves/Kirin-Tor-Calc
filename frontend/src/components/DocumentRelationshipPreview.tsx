@@ -18,6 +18,10 @@ function entryId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
 }
 
+function normalizedPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
 function project(graph: RelationshipGraphResult, documentId: string, depth: number) {
   const visible = new Set(graph.nodes.filter((node) => node.document_id === documentId).map((node) => node.id));
   let frontier = new Set(visible);
@@ -61,7 +65,24 @@ export function DocumentRelationshipPreview({ controller, documentKey, source }:
     () => graph && documentId ? project(graph, documentId, Number(depth)) : { nodes: [], edges: [] },
     [depth, documentId, graph],
   );
-  const selected: RelationshipNode | null = graph?.nodes.find((node) => node.id === selectedId) || null;
+  const selected: RelationshipNode | null = projection.nodes.find((node) => node.id === selectedId) || null;
+  const selectedDocument = selected && graph?.documents.find((item) => item.id === selected.document_id);
+  const selectedDocumentKey = selected
+    ? controller.documents.find((item) => {
+        if (item.read_only !== selected.read_only) return false;
+        const selectedPath = normalizedPath(selected.path);
+        const documentPath = normalizedPath(item.path);
+        if (selectedPath !== documentPath && !selectedPath.endsWith(`/${documentPath}`)) return false;
+        if (!selectedDocument?.package) return !item.package;
+        return item.package?.name === selectedDocument.package.name
+          && item.package.version === selectedDocument.package.version
+          && item.package.source === selectedDocument.package.source;
+      })?.key ?? (selected.document_id === documentId ? documentKey : null)
+    : null;
+
+  useEffect(() => {
+    setSelectedId(null);
+  }, [documentKey]);
 
   if (!documentId) return <EmptyState title="文档声明无效" description="修复 @entry 文档头后，局部关系投影会在这里出现。" />;
   if (loading && !graph) return <LoadingState label="正在构建当前文档关系…" />;
@@ -80,20 +101,24 @@ export function DocumentRelationshipPreview({ controller, documentKey, source }:
         <Button variant="subtle" color="gray" size="compact-xs" px={7} onClick={() => { void load(); }} loading={loading}><RefreshCw size={13} /></Button>
       </Group>
       <Box className="local-graph-stage">
-        <RelationshipGraphCanvas compact nodes={projection.nodes} edges={projection.edges} onSelect={setSelectedId} />
+        <RelationshipGraphCanvas compact nodes={projection.nodes} edges={projection.edges} selectedId={selectedId} onSelect={setSelectedId} />
       </Box>
       {selected && (
         <button
           type="button"
           className="local-graph-selection"
-          onClick={() => window.dispatchEvent(new CustomEvent("kirin:navigate-source", { detail: { key: documentKey, line: selected.line, column: selected.column } }))}
+          disabled={!selectedDocumentKey}
+          onClick={() => {
+            if (!selectedDocumentKey) return;
+            window.dispatchEvent(new CustomEvent("kirin:navigate-source", { detail: { key: selectedDocumentKey, line: selected.line, column: selected.column } }));
+          }}
         >
           <Crosshair size={14} />
           <span><strong>{selected.label}</strong><small>{selected.id}{selected.line ? ` · 第 ${selected.line} 行` : ""}</small></span>
           {selected.unit && <Code>{selected.unit}</Code>}
         </button>
       )}
-      {!selected && <Text className="local-graph-help">箭头从依赖指向使用者。点击节点查看并定位定义。</Text>}
+      {!selected && <Text className="local-graph-help">箭头从依赖指向使用者。点击图中节点，或展开键盘节点列表。</Text>}
     </Stack>
   );
 }

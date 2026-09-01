@@ -27,12 +27,18 @@ import {
   CircleAlert,
   CircleCheck,
   FileCode2,
+  FileDown,
   FilePlus2,
   FileText,
+  GitCompare,
   Eye,
   MoreHorizontal,
   Network,
   PackageOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Save,
   Search,
   Trash2,
@@ -67,6 +73,10 @@ function documentIcon(item: DocumentItem) {
   return <FileText size={15} strokeWidth={1.55} />;
 }
 
+function sourceEntryId(source: string): string | null {
+  return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
+}
+
 export function DocumentsView({ controller }: DocumentsViewProps) {
   const [filter, setFilter] = useState("");
   const [newDocumentOpened, setNewDocumentOpened] = useState(false);
@@ -83,6 +93,12 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   const [explainResult, setExplainResult] = useState<OperationResult | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [pendingLocation, setPendingLocation] = useState<{ line?: number; column?: number } | null>(null);
+  const [explorerCollapsed, setExplorerCollapsed] = useState(() => localStorage.getItem("kirin:explorer-collapsed") === "true");
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => {
+    const stored = localStorage.getItem("kirin:inspector-collapsed");
+    return stored === null ? window.matchMedia("(max-width: 1180px)").matches : stored === "true";
+  });
+  const [conflictOpened, setConflictOpened] = useState(false);
   const editorRef = useRef<CodeEditorHandle>(null);
 
   const current = controller.currentDocument;
@@ -90,16 +106,43 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   const currentDirty = Boolean(current && controller.dirtyOverlays[current.key] !== undefined);
   const templates = controller.bootstrapData?.templates ?? [];
   const availableTemplates = templates.filter((item) => !item.error);
+  const currentEntryId = sourceEntryId(currentText);
+  const currentExplainTargets = useMemo(
+    () => currentEntryId
+      ? controller.workspaceIndex.targets.filter((item) => item.value.startsWith(`${currentEntryId}.`))
+      : [],
+    [controller.workspaceIndex.targets, currentEntryId],
+  );
+  const currentExplainTargetSignature = currentExplainTargets.map((item) => item.value).join("\u0000");
+  const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
+
+  useEffect(() => {
+    localStorage.setItem("kirin:explorer-collapsed", String(explorerCollapsed));
+  }, [explorerCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("kirin:inspector-collapsed", String(inspectorCollapsed));
+  }, [inspectorCollapsed]);
+
+  useEffect(() => {
+    if (controller.externalConflict) setConflictOpened(true);
+  }, [controller.externalConflict]);
 
   useEffect(() => {
     if (!selectedTemplate && availableTemplates.length) setSelectedTemplate(availableTemplates[0].value);
   }, [availableTemplates, selectedTemplate]);
 
   useEffect(() => {
-    if (!explainTarget && controller.workspaceIndex.targets.length) {
-      setExplainTarget(controller.workspaceIndex.targets[0].value);
-    }
-  }, [controller.workspaceIndex.targets, explainTarget]);
+    setExplainTarget((selected) => (
+      selected && currentExplainTargets.some((item) => item.value === selected)
+        ? selected
+        : currentExplainTargets[0]?.value ?? null
+    ));
+  }, [current?.key, currentExplainTargetSignature]);
+
+  useEffect(() => {
+    setExplainResult(null);
+  }, [currentText]);
 
   useEffect(() => {
     if (!pendingLocation || !current) return;
@@ -150,7 +193,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
   };
 
   const handleCreateDocument = async () => {
-    if (!selectedTemplate || !documentId.trim()) return;
+    if (!selectedTemplate || !validDocumentId || creating) return;
     setCreating(true);
     try {
       await controller.createDocument(selectedTemplate, documentId.trim());
@@ -214,8 +257,8 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
 
   return (
     <>
-      <div className="documents-workspace" id="documents-layout">
-        <section className="workspace-panel explorer-panel" aria-label="文档索引">
+      <div className={`documents-workspace${explorerCollapsed ? " is-explorer-collapsed" : ""}${inspectorCollapsed ? " is-inspector-collapsed" : ""}`} id="documents-layout">
+        {!explorerCollapsed && <section className="workspace-panel explorer-panel" aria-label="文档索引">
           <div className="panel-toolbar">
             <Group justify="space-between" wrap="nowrap">
               <Text fw={650} fz="sm">工作区文档</Text>
@@ -278,7 +321,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
               <EmptyState title="没有匹配的文档" description="调整搜索词。" />
             )}
           </ScrollArea>
-        </section>
+        </section>}
 
         <section className="workspace-panel editor-panel" aria-label="源码编辑器">
           {current ? (
@@ -297,19 +340,34 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                     </Box>
                   </Group>
                   <Group gap={4} wrap="nowrap">
-                    {!current.read_only && (
-                      <Tooltip label="保存全部 · ⌘S">
-                        <ActionIcon
-                          variant="subtle"
-                          color="gray"
-                          aria-label="保存全部"
-                          onClick={() => { void controller.saveAll(); }}
-                          disabled={!currentDirty}
-                        >
-                          <Save size={15} />
+                    {controller.externalConflict && (
+                      <Tooltip label="比较外部修改">
+                        <ActionIcon variant="subtle" color="orange" aria-label="比较外部修改" onClick={() => setConflictOpened(true)}>
+                          <GitCompare size={15} />
                         </ActionIcon>
                       </Tooltip>
                     )}
+                    <Tooltip label={explorerCollapsed ? "展开文档索引" : "收起文档索引"}>
+                      <ActionIcon variant="subtle" color="gray" aria-label={explorerCollapsed ? "展开文档索引" : "收起文档索引"} onClick={() => setExplorerCollapsed((value) => !value)}>
+                        {explorerCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={inspectorCollapsed ? "展开文档检查器" : "收起文档检查器"}>
+                      <ActionIcon variant="subtle" color="gray" aria-label={inspectorCollapsed ? "展开文档检查器" : "收起文档检查器"} onClick={() => setInspectorCollapsed((value) => !value)}>
+                        {inspectorCollapsed ? <PanelRightOpen size={15} /> : <PanelRightClose size={15} />}
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={`保存全部${controller.dirtyCount ? `（${controller.dirtyCount} 个草稿）` : ""} · ⌘S`}>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        aria-label="保存全部"
+                        onClick={() => { void controller.saveAll(); }}
+                        disabled={!controller.dirtyCount}
+                      >
+                        <Save size={15} />
+                      </ActionIcon>
+                    </Tooltip>
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon variant="subtle" color="gray" aria-label="文档操作"><MoreHorizontal size={16} /></ActionIcon>
@@ -333,6 +391,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                   key={current.key}
                   ref={editorRef}
                   value={currentText}
+                  ariaLabel={`Kirin 源码：${current.title}`}
                   readOnly={current.read_only}
                   diagnostics={currentDiagnostics}
                   onChange={(text) => controller.updateBuffer(current.key, text)}
@@ -356,7 +415,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
           )}
         </section>
 
-        <aside className="workspace-panel inspector-panel" aria-label="文档检查器">
+        {!inspectorCollapsed && <aside className="workspace-panel inspector-panel" aria-label="文档检查器">
           <Tabs value={inspectorTab} onChange={setInspectorTab} className="inspector-tabs" keepMounted={false}>
             <Tabs.List grow>
               <Tabs.Tab value="preview" leftSection={<Eye size={13} />}>预览</Tabs.Tab>
@@ -410,8 +469,8 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
                     placeholder="选择一个结果"
                     searchable
                     value={explainTarget}
-                    onChange={setExplainTarget}
-                    data={controller.workspaceIndex.targets.map((item) => ({
+                    onChange={(value) => { setExplainTarget(value); setExplainResult(null); }}
+                    data={currentExplainTargets.map((item) => ({
                       value: item.value,
                       label: `${item.group_label || "未分组"} / ${item.label}`,
                     }))}
@@ -436,7 +495,7 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
               </ScrollArea>
             </Tabs.Panel>
           </Tabs>
-        </aside>
+        </aside>}
       </div>
 
       <Modal opened={newDocumentOpened} onClose={() => setNewDocumentOpened(false)} title="新建文档" centered>
@@ -461,20 +520,56 @@ export function DocumentsView({ controller }: DocumentsViewProps) {
             placeholder="arcane_missiles"
             value={documentId}
             onChange={(event) => setDocumentId(event.currentTarget.value)}
-            error={documentId && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId) ? "文档 ID 格式无效" : null}
-            onKeyDown={(event) => { if (event.key === "Enter") void handleCreateDocument(); }}
+            error={documentId && !validDocumentId ? "文档 ID 格式无效" : null}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              if (selectedTemplate && validDocumentId && !creating) void handleCreateDocument();
+            }}
           />
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setNewDocumentOpened(false)}>取消</Button>
             <Button
               loading={creating}
-              disabled={!selectedTemplate || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId)}
+              disabled={!selectedTemplate || !validDocumentId}
               onClick={() => { void handleCreateDocument(); }}
             >
               创建草稿
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(controller.externalConflict) && conflictOpened}
+        onClose={() => setConflictOpened(false)}
+        title="比较外部修改"
+        size="min(1100px, 94vw)"
+        centered
+      >
+        {controller.externalConflict && (
+          <Stack gap="md">
+            <Text fz="sm">磁盘上的 <strong>{controller.externalConflict.path}</strong> 已被其他程序修改。当前草稿尚未覆盖磁盘。</Text>
+            <Text c="dimmed" fz="xs">先比较两个版本。重新加载会用右侧磁盘内容替换当前缓冲区；保留草稿副本会下载左侧内容，但不会改变任何工作区源码。</Text>
+            <div className="conflict-comparison" aria-label="草稿与磁盘版本比较">
+              <section>
+                <Text fw={650} fz="sm">当前工作台草稿</Text>
+                <pre tabIndex={0}>{controller.externalConflict.draft}</pre>
+              </section>
+              <section>
+                <Text fw={650} fz="sm">当前磁盘版本</Text>
+                <pre tabIndex={0}>{controller.externalConflict.disk}</pre>
+              </section>
+            </div>
+            <Group justify="space-between">
+              <Button variant="default" onClick={() => setConflictOpened(false)}>继续编辑草稿</Button>
+              <Group gap="xs">
+                <Button variant="default" leftSection={<FileDown size={14} />} onClick={() => { controller.keepExternalConflictDraft(); }}>保留草稿副本</Button>
+                <Button className="danger-button" onClick={() => { void controller.reloadExternalConflict().then((reloaded) => { if (reloaded) setConflictOpened(false); }); }}>重新加载磁盘版本</Button>
+              </Group>
+            </Group>
+          </Stack>
+        )}
       </Modal>
 
       <Drawer opened={templateDrawerOpened} onClose={() => setTemplateDrawerOpened(false)} position="right" title="创建模板" size="md">

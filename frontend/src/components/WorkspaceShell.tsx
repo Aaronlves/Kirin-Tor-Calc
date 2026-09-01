@@ -72,10 +72,26 @@ function workspaceName(path?: string): string {
 }
 
 export function WorkspaceShell({ activeView, controller, onViewChange, onOpenTool, children }: WorkspaceShellProps) {
-  const [compactNavigation, setCompactNavigation] = useState(false);
+  const [compactNavigation, setCompactNavigation] = useState(() => {
+    const stored = localStorage.getItem("kirin:compact-navigation");
+    return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
+  });
   const metadata = viewMetadata[activeView];
   const hasErrors = controller.validationItems.length > 0;
   const isBusy = controller.asyncState !== "idle";
+  const workspaceStatus = controller.asyncState === "connecting"
+    ? "连接中"
+    : controller.asyncState === "validating"
+      ? "正在检查"
+      : hasErrors
+        ? `${controller.validationItems.length} 个问题`
+        : controller.dirtyCount
+          ? `${controller.dirtyCount} 个草稿`
+          : "工作区有效";
+
+  useEffect(() => {
+    localStorage.setItem("kirin:compact-navigation", String(compactNavigation));
+  }, [compactNavigation]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -192,16 +208,9 @@ export function WorkspaceShell({ activeView, controller, onViewChange, onOpenToo
                   color={hasErrors ? "red" : controller.dirtyCount ? "orange" : "green"}
                   variant="light"
                   leftSection={hasErrors ? <CircleAlert size={12} /> : <Check size={12} />}
+                  aria-label={`工作区状态：${workspaceStatus}`}
                 >
-                  {controller.asyncState === "connecting"
-                    ? "连接中"
-                    : controller.asyncState === "validating"
-                      ? "正在检查"
-                      : hasErrors
-                        ? `${controller.validationItems.length} 个问题`
-                        : controller.dirtyCount
-                          ? `${controller.dirtyCount} 个草稿`
-                          : "工作区有效"}
+                  {workspaceStatus}
                 </Badge>
               </Tooltip>
               <Button

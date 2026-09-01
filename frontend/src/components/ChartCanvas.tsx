@@ -39,6 +39,32 @@ function valueFromCell(cell: unknown): number | null {
   return numeric(record.approximate ?? record.exact);
 }
 
+function displayedCell(cell: unknown): string {
+  if (cell && typeof cell === "object") {
+    const record = cell as Record<string, unknown>;
+    for (const key of ["formatted", "exact", "approximate"]) {
+      if (record[key] !== null && record[key] !== undefined) return String(record[key]);
+    }
+  }
+  return cell === null || cell === undefined ? "无效" : String(cell);
+}
+
+function accessibleRows(result: OperationResult): string[] {
+  const rows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
+  if (result.operation === "grid") {
+    return rows.map((row) => (
+      `${String(result.x || "横轴")} ${displayedCell(row.x)}；${String(result.y || "纵轴")} ${displayedCell(row.y)}；结果 ${displayedCell(row.value)}`
+    ));
+  }
+  const targets = Array.isArray(result.targets) ? result.targets.map(String) : [];
+  const labels = result.labels && typeof result.labels === "object" ? result.labels as Record<string, string> : {};
+  return rows.map((row) => {
+    const values = row.values && typeof row.values === "object" ? row.values as Record<string, unknown> : {};
+    const rendered = targets.map((target) => `${labels[target] || target} ${displayedCell(values[target])}`);
+    return `${String(result.x_display_label || result.x || "横轴")} ${displayedCell(row.x ?? row.x_approximate)}；${rendered.join("；")}`;
+  });
+}
+
 function lineOption(result: OperationResult): EChartsOption {
   const rows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
   const targets = Array.isArray(result.targets) ? result.targets.map(String) : [];
@@ -176,7 +202,7 @@ function heatmapOption(result: OperationResult): EChartsOption {
       name: String(result.target_label || result.target || "结果"),
       type: "heatmap",
       data,
-      label: { show: data.length <= 100, color: "#f5efe6", fontSize: 9 },
+      label: { show: data.length <= 100, color: "#f5efe6", fontSize: 10 },
       emphasis: { itemStyle: { borderColor: "#f2efe8", borderWidth: 1 } },
     }],
   };
@@ -184,6 +210,8 @@ function heatmapOption(result: OperationResult): EChartsOption {
 
 export function ChartCanvas({ result }: { result: OperationResult }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const rows = accessibleRows(result);
+  const label = result.operation === "grid" ? "计算热力图" : "计算曲线";
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -197,5 +225,15 @@ export function ChartCanvas({ result }: { result: OperationResult }) {
     };
   }, [result]);
 
-  return <div className="chart-canvas" ref={hostRef} role="img" aria-label={result.operation === "grid" ? "计算热力图" : "计算曲线"} />;
+  return (
+    <div className="chart-visualization">
+      <div className="chart-canvas" ref={hostRef} role="img" aria-label={`${label}；下方提供键盘数据列表`} />
+      <details className="canvas-data-fallback">
+        <summary>使用键盘查看 {rows.length} 个图表数据点</summary>
+        <ol className="chart-data-list" aria-label={`${label}数据`}>
+          {rows.map((row, index) => <li key={`${index}-${row}`} tabIndex={0}>{row}</li>)}
+        </ol>
+      </details>
+    </div>
+  );
 }

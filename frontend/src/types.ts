@@ -23,11 +23,19 @@ export interface DocumentPayload extends DocumentItem {
   text: string;
 }
 
+export interface ExternalChangeConflict {
+  key: string;
+  path: string;
+  draft: string;
+  disk: string;
+}
+
 export interface CompletionItem {
   label: string;
   detail?: string;
   insert_text: string;
   kind?: string;
+  priority?: number;
 }
 
 export interface DiagnosticLocation {

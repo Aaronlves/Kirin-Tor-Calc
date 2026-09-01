@@ -37,6 +37,9 @@ const kindLabels: Record<string, string> = {
   field: "字段",
   function: "函数",
   table: "查表",
+  distribution: "有限分布",
+  recurrence: "有限递推",
+  state_model: "状态模型",
   output: "输出",
 };
 
@@ -121,7 +124,7 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
         <Box>
           <Text className="page-kicker">SEMANTIC RELATIONSHIPS</Text>
           <Title order={1}>关系图</Title>
-          <Text c="dimmed" fz="sm" mt={5}>边由已校验的公式引用生成；箭头从依赖指向使用它的字段、函数或输出。</Text>
+          <Text c="dimmed" fz="sm" mt={5}>边由已校验的表达式引用生成；包含输入、公式、有限分布、递推与状态模型。</Text>
         </Box>
         <Group gap="xs">
           <Badge variant="outline" color="gray">{graph?.documents.length || 0} 文档</Badge>
@@ -150,11 +153,17 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
           {error ? (
             <EmptyState icon={<Network size={24} />} title="关系图无法生成" description={error} action={<Button size="xs" onClick={() => { void load(); }}>重试</Button>} />
           ) : projection.nodes.length ? (
-            <RelationshipGraphCanvas nodes={projection.nodes} edges={projection.edges} onSelect={setSelectedId} />
+            <RelationshipGraphCanvas
+              nodes={projection.nodes}
+              edges={projection.edges}
+              layout={granularity === "documents" ? "circular" : "force"}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           ) : (
             <EmptyState title="没有匹配的关系" description="清除搜索词，或先在文档中定义输入、公式和跨文档引用。" />
           )}
-          <div className="graph-hint"><Focus size={13} />滚轮缩放 · 拖动画布 · 拖动节点 · 点击查看定义</div>
+          <div className="graph-hint"><Focus size={13} />文档使用稳定环形布局；成员可拖动。也可展开键盘节点列表。</div>
         </Surface>
 
         <Surface className="graph-inspector">

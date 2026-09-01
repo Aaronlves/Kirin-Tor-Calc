@@ -7,5 +7,8 @@ build/
 dist/
 node_modules/
 frontend/dist/
+frontend/.e2e-workspace/
+frontend/playwright-report/
+frontend/test-results/
 .DS_Store
 .kirin/

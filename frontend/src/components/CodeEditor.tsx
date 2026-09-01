@@ -9,6 +9,7 @@ import {
   closeBrackets,
   closeBracketsKeymap,
   completionKeymap,
+  type Completion,
   type CompletionContext,
 } from "@codemirror/autocomplete";
 import {
@@ -45,6 +46,36 @@ interface KirinParserState {
   section: string | null;
 }
 
+const topLevelSections = new Set([
+  "aliases",
+  "dimensions",
+  "units",
+  "domains",
+  "inputs",
+  "constraints",
+  "fields",
+  "functions",
+  "tables",
+  "distributions",
+  "recurrences",
+  "state_models",
+  "outputs",
+  "sources",
+  "groups",
+  "presets",
+  "display",
+  "y",
+]);
+
+const nestedSections = new Set(["states", "transitions", "rewards"]);
+
+export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
+  const indented = text.replace(/\n/g, `\n${indent}`);
+  const cursor = indented.indexOf("$0");
+  if (cursor < 0) return { text: indented, cursor: indented.length };
+  return { text: indented.replace("$0", ""), cursor };
+}
+
 const kirinLanguage = StreamLanguage.define<KirinParserState>({
   startState: () => ({ section: null }),
   token(stream, state) {
@@ -64,19 +95,22 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       }
       return "string";
     }
-    if (stream.match(/^@(kirin|entry)\b/)) return "keyword";
-    if (stream.match(/^(inputs|fields|outputs|functions|when|sources|preset|x|range|points|y|export-svg|export-png|export-csv)\s*:/)) {
-      state.section = stream.current().split(":", 1)[0];
+    if (stream.match(/^@(kirin|entry|game-version|status)\b/)) return "keyword";
+    const section = stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/, false);
+    if (section && typeof section !== "boolean" && (topLevelSections.has(section[1]) || nestedSections.has(section[1]))) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
+      if (stream.indentation() === 0 && topLevelSections.has(section[1])) state.section = section[1];
       return "heading";
     }
+    if (stream.match(/^(x|range|points|preset|title|x-label|y-label|export-svg|export-csv)\s*:/)) return "heading";
     if (stream.match(/^(true|false)\b/)) return "bool";
     if (stream.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?/)) return "number";
-    if (stream.match(/^(number|probability|boolean|integer)\b/)) return "typeName";
-    if (stream.match(/^(in|if|else|and|or|not)\b/)) return "keyword";
+    if (stream.match(/^(number|probability|boolean|integer|dimensionless|nonnegative_integer|positive_integer|count|time|second|millisecond)\b/)) return "typeName";
+    if (stream.match(/^(in|if|else|and|or|not|one-of|as)\b/)) return "keyword";
     if (stream.match(/^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u)) {
       return state.section === "outputs" || state.section === "fields" ? "variableName" : "propertyName";
     }
-    if (stream.match(/^(?:==|!=|<=|>=|\+|-|\*|\/|\^|=|:|\.\.)/)) return "operator";
+    if (stream.match(/^(?:->|==|!=|<=|>=|\+|-|\*|\/|\^|=|@|:|\.\.)/)) return "operator";
     stream.next();
     return null;
   },
@@ -133,7 +167,7 @@ const editorTheme = EditorView.theme({
   ".cm-diagnostic": { borderRadius: "0" },
   ".cm-panels": { backgroundColor: "#171714", color: "#eeeae1" },
   ".cm-searchMatch": { backgroundColor: "#4b4025", outline: "1px solid #8d7441" },
-  "&.cm-focused": { outline: "none" },
+  "&.cm-focused": { outline: "2px solid #cf7455", outlineOffset: "-2px" },
 });
 
 export interface CodeEditorHandle {
@@ -142,6 +176,7 @@ export interface CodeEditorHandle {
 
 interface CodeEditorProps {
   value: string;
+  ariaLabel: string;
   readOnly?: boolean;
   diagnostics?: DiagnosticItem[];
   onChange(value: string): void;
@@ -150,7 +185,7 @@ interface CodeEditorProps {
 }
 
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor(
-  { value, readOnly = false, diagnostics = [], onChange, onComplete, onSave },
+  { value, ariaLabel, readOnly = false, diagnostics = [], onChange, onComplete, onSave },
   forwardedRef,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -170,14 +205,25 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       const word = context.matchBefore(/[\w.\u0080-\uFFFF]*/u);
       if (!word || (!context.explicit && word.from === word.to)) return null;
       const items = await completionRef.current(word.text);
+      const line = context.state.doc.lineAt(word.from);
+      const indent = line.text.match(/^\s*/)?.[0] ?? "";
       return {
         from: word.from,
-        options: items.map((item) => ({
-          label: item.label,
-          detail: item.detail,
-          type: item.kind || "variable",
-          apply: item.insert_text.replace("$0", ""),
-        })),
+        filter: false,
+        options: items.map((item): Completion => {
+          const insertion = prepareCompletionInsertion(item.insert_text, indent);
+          return {
+            label: item.label,
+            detail: item.detail,
+            type: item.kind || "variable",
+            apply: (view, _completion, from, to) => {
+              view.dispatch({
+                changes: { from, to, insert: insertion.text },
+                selection: { anchor: from + insertion.cursor },
+              });
+            },
+          };
+        }),
       };
     }
 
@@ -207,6 +253,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
           ...defaultKeymap,
         ]),
         EditorState.readOnly.of(readOnly),
+        EditorView.contentAttributes.of({
+          "aria-label": ariaLabel,
+          "aria-description": "Kirin 源码编辑器。按 Control 加空格打开补全。",
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) changeRef.current(update.state.doc.toString());
         }),
@@ -219,7 +269,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       view.destroy();
       viewRef.current = null;
     };
-  }, [readOnly]);
+  }, [ariaLabel, readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;

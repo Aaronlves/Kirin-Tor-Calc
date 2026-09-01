@@ -9,7 +9,7 @@ The server binds only to a loopback address. Each process creates a random sessi
 ## Views and CLI parity
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates.
-- Relationship Graph derives global document and member projections from validated formula references and provides source navigation. The document inspector shows a local zero-, one-, or two-hop projection from the same data.
+- Relationship Graph derives global document and member projections from validated expression references and provides source navigation. Members include inputs, fields, functions, tables, finite distributions, bounded recurrences, finite state models, and outputs. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data.
 - Runs is a workspace drawer for replay and explicit artifact regeneration.
 - Packages is a workspace drawer for add, add-path, list, update, remove, restore, verify, Package new/check, and workspace initialization.
 
@@ -25,12 +25,14 @@ Temporary parameter overrides are text, not a generated form. Authors may use ca
 
 Diagnostics live beside the document editor rather than in a duplicate top-level page. They retain stable codes and source locations, add Chinese author-facing explanations, and navigate back to the failing document and position. Formula expansion appears in the same document context.
 
+CodeMirror has an explicit accessible name and visible focus outline. Canvas relationship graphs and calculation charts expose a collapsible keyboard-readable node or data list. Generated charts can be expanded into a full-window preview without creating another editable surface.
+
 ## Interface system
 
 The workbench uses one explicit grid hierarchy rather than stacking framework offsets and percentage split panes:
 
-- the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header;
-- the document view is a three-track grid: a 216–272 px source index, a flexible editor, and a 280–360 px inspector;
+- the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 64 px compact state, and the author choice is remembered locally;
+- the document view is a three-track grid: a collapsible 216–272 px source index, a flexible editor, and a collapsible 280–360 px inspector; panel choices are remembered locally;
 - page-level tools use twelve-part proportions, including 9/3 for the relationship graph and 4/8 for run history;
 - adjacent workbench tracks share a single 1 px divider and never add their own outer margins.
 
@@ -50,6 +52,6 @@ Package templates are data-only authoritative Package content: they participate 
 
 ## Saving and conflicts
 
-Every opened local document has an original source hash and an in-memory buffer. Save All first loads and validates the complete overlay. It then compares each original hash with the current disk file and rejects external changes. If all checks pass, all modified files are staged, flushed, and atomically replaced. Package documents never enter the writable overlay.
+Every opened local document has an original source hash and an in-memory buffer. Save All first loads and validates the complete overlay. It then compares each original hash with the current disk file and rejects external changes. If all checks pass, all modified files are staged, flushed, and atomically replaced. Package documents never enter the writable overlay. A rejected external change keeps the draft intact and opens a side-by-side comparison. The author may continue editing, download a `.workbench-draft.kirin` recovery copy, or explicitly replace the buffer with the current disk version.
 
 Closing or refreshing the browser with dirty buffers triggers the browser's unsaved-change warning. Stopping the terminal process stops the server; there is no background daemon or remote account state.
