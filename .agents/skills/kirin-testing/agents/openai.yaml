@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kirin Testing"
+  short_description: "Choose and run proportionate Kirin tests"
+  default_prompt: "Use $kirin-testing to add or run the smallest useful tests for this Kirin change."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kirin Web Workbench"
+  short_description: "Focused Kirin browser workbench development"
+  default_prompt: "Use $kirin-web-workbench to implement a focused browser workbench change."

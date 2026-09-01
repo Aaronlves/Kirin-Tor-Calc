@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kirin Release"
+  short_description: "Verify and prepare focused Kirin releases"
+  default_prompt: "Use $kirin-release to verify and prepare this Kirin release without publishing it."

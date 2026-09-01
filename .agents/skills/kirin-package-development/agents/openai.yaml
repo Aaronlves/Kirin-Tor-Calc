@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kirin Package Development"
+  short_description: "Focused Kirin package and provenance development"
+  default_prompt: "Use $kirin-package-development to implement a focused Kirin package-system change."
