@@ -710,10 +710,10 @@ class Workbench:
             if action == "save":
                 workspace = Workspace.load(self.root)
                 path = save_workspace_template(workspace, str(payload.get("document_id", "")), str(payload.get("template_id", "")))
-                return {"status": "ok", "path": str(path.relative_to(self.root))}
+                return {"status": "ok", "path": path.relative_to(self.root).as_posix()}
             if action == "remove":
                 path = remove_workspace_template(self.root, str(payload.get("template", "")))
-                return {"status": "ok", "path": str(path.relative_to(self.root))}
+                return {"status": "ok", "path": path.relative_to(self.root).as_posix()}
             raise ParameterError(f"unknown template action: {action}")
 
     @staticmethod

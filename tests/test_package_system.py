@@ -239,7 +239,7 @@ def test_transitive_local_package_dependency_is_loaded(tmp_path: Path) -> None:
         namespace="community_base",
         expression="2",
     )
-    dependency = f'''\n[dependencies.base]\nsource = "path:{base}"\nversion = "1.0.0"\n'''
+    dependency = f'''\n[dependencies.base]\nsource = "path:{base.as_posix()}"\nversion = "1.0.0"\n'''
     feature = _package(
         tmp_path / "feature",
         name="community.feature",
@@ -463,14 +463,14 @@ outputs:
 
 def test_dependency_version_conflicts_are_rejected(tmp_path: Path) -> None:
     shared = _package(tmp_path / "shared", name="community.shared", namespace="community_shared")
-    dependency_one = f'''\n[dependencies.shared]\nsource = "path:{shared}"\nversion = "1.0.0"\n'''
+    dependency_one = f'''\n[dependencies.shared]\nsource = "path:{shared.as_posix()}"\nversion = "1.0.0"\n'''
     left = _package(
         tmp_path / "left",
         name="community.left",
         namespace="community_left",
         dependencies=dependency_one,
     )
-    dependency_two = f'''\n[dependencies.shared]\nsource = "path:{shared}"\nversion = "2.0.0"\n'''
+    dependency_two = f'''\n[dependencies.shared]\nsource = "path:{shared.as_posix()}"\nversion = "2.0.0"\n'''
     right = _package(
         tmp_path / "right",
         name="community.right",
@@ -509,12 +509,12 @@ def test_duplicate_package_namespaces_and_dependency_cycles_are_rejected(tmp_pat
     right_manifest = (right / "kirin.package.toml").read_text(encoding="utf-8")
     (left / "kirin.package.toml").write_text(
         left_manifest
-        + f'\n[dependencies.right]\nsource = "path:{right}"\nversion = "1.0.0"\n',
+        + f'\n[dependencies.right]\nsource = "path:{right.as_posix()}"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     (right / "kirin.package.toml").write_text(
         right_manifest
-        + f'\n[dependencies.left]\nsource = "path:{left}"\nversion = "1.0.0"\n',
+        + f'\n[dependencies.left]\nsource = "path:{left.as_posix()}"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     cycle_requirements = WorkspaceRequirements(
