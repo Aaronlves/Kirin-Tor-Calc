@@ -749,7 +749,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="preview" className="inspector-content">
-              {current ? <DocumentPreview controller={controller} document={current} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={(line, column) => navigateToSource(current.key, line, column)} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
+              {current ? <DocumentPreview controller={controller} document={current} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
             </Tabs.Panel>
             <Tabs.Panel value="relationships" className="inspector-content">
               {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}

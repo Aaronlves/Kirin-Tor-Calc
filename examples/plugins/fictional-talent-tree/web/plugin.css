@@ -1,0 +1,27 @@
+:root {
+  color: #eeeae1;
+  background: #11110f;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% -20%, #49321f 0, #171411 42%, #0d0d0c 100%); }
+button { font: inherit; }
+#app { min-height: 100vh; padding: 20px; }
+.eyebrow { color: #d39652; font-size: 11px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
+h1 { margin: 7px 0 4px; font: 700 24px/1.2 Georgia, "Songti SC", serif; }
+.muted { color: #aaa49a; font-size: 12px; }
+.tree { position: relative; display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); gap: 24px 16px; margin-top: 26px; padding: 18px; border: 1px solid #554331; background: rgba(13, 12, 10, .72); }
+.node { position: relative; min-height: 100px; padding: 12px; border: 1px solid #6a5238; border-radius: 8px; background: linear-gradient(155deg, #342719, #191613); color: inherit; text-align: left; cursor: pointer; box-shadow: 0 8px 22px rgba(0,0,0,.24); }
+.node:hover, .node:focus-visible { border-color: #e0a35e; outline: none; transform: translateY(-1px); }
+.node strong { display: block; color: #f3d29f; }
+.node small { display: block; margin-top: 7px; color: #a8a096; word-break: break-word; }
+.node-kind { display: inline-block; margin-top: 10px; padding: 2px 6px; border-radius: 999px; background: #523922; color: #edc58f; font-size: 10px; }
+.result { margin-top: 18px; padding: 12px; border-left: 3px solid #d88c3f; background: rgba(44, 31, 20, .75); }
+.action { margin-top: 16px; padding: 8px 12px; border: 1px solid #be7d3f; border-radius: 4px; background: #75461f; color: white; cursor: pointer; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 20px; }
+.card { padding: 14px; border: 1px solid #51473c; background: rgba(25, 23, 20, .86); }
+.card strong { display: block; }
+.card small { display: block; margin-top: 6px; color: #aaa49a; }
+@media (max-width: 560px) { .tree { grid-template-columns: 1fr 1fr; } }

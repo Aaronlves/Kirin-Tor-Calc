@@ -40,6 +40,7 @@ from .package_authoring import (
 )
 from .package_store import PackageResolver, PackageStoreManager
 from .plotting import render_plot, write_grid_csv, write_scan_csv
+from .plugin_store import PluginManager
 from .records import replay as replay_run
 from .timeout import run_with_timeout
 from .workspace import (
@@ -59,6 +60,8 @@ new_app = typer.Typer(help="Create a document from a minimal Kirin v1 template."
 app.add_typer(new_app, name="new")
 package_app = typer.Typer(help="Install, verify, and author data-only community packages.")
 app.add_typer(package_app, name="package")
+plugin_app = typer.Typer(help="Install and manage sandboxed Workbench Extension Plugins.")
+app.add_typer(plugin_app, name="plugin")
 
 
 def _emit(result: dict, json_output: bool, human: Optional[str] = None) -> None:
@@ -104,6 +107,11 @@ def web_command(
     ),
     port: int = typer.Option(0, "--port", help="Loopback port; 0 selects an available port."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not open the default browser."),
+    safe_mode: bool = typer.Option(
+        False,
+        "--safe-mode",
+        help="Start without activating or serving any third-party Workbench Plugins.",
+    ),
 ) -> None:
     """Start the local browser workbench and open it in the default browser."""
     def action():
@@ -130,9 +138,114 @@ def web_command(
             port=port,
             open_browser=not no_open,
             initial_document=initial_document,
+            safe_mode=safe_mode,
         )
 
     _execute(action)
+
+
+@plugin_app.command("add-path")
+def plugin_add_path_command(
+    alias: str,
+    path: Path,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Install, lock, approve, and enable one local plugin directory snapshot."""
+    def action():
+        result = PluginManager(Workspace.find_root()).add_path(alias, path)
+        selected = next(item for item in result["plugins"] if item["alias"] == alias)
+        _emit(
+            result,
+            json_output,
+            f"Installed {alias}: {selected['id']}@{selected['version']} ({selected['status']})",
+        )
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("update-path")
+def plugin_update_path_command(
+    alias: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Accept, lock, and approve the current content of a local plugin source."""
+    def action():
+        result = PluginManager(Workspace.find_root()).update_path(alias)
+        selected = next(item for item in result["plugins"] if item["alias"] == alias)
+        _emit(
+            result,
+            json_output,
+            f"Updated {alias}: {selected['id']}@{selected['version']} ({selected['status']})",
+        )
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("enable")
+def plugin_enable_command(
+    alias: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Enable one installed and locally approved plugin."""
+    def action():
+        result = PluginManager(Workspace.find_root()).set_enabled(alias, True)
+        _emit(result, json_output, f"Enabled plugin {alias}")
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("disable")
+def plugin_disable_command(
+    alias: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Disable one plugin without deleting its immutable cached snapshot."""
+    def action():
+        result = PluginManager(Workspace.find_root()).set_enabled(alias, False)
+        _emit(result, json_output, f"Disabled plugin {alias}")
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("remove")
+def plugin_remove_command(
+    alias: str,
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Remove one workspace plugin request and lock entry."""
+    def action():
+        result = PluginManager(Workspace.find_root()).remove(alias)
+        _emit(result, json_output, f"Removed plugin {alias}")
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("verify")
+def plugin_verify_command(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Verify plugin requirements, locks, manifests, and cached content offline."""
+    def action():
+        result = PluginManager(Workspace.find_root()).verify()
+        _emit(result, json_output, f"Verified {len(result['plugins'])} plugin(s)")
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("list")
+def plugin_list_command(
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """List requested plugins and their independent activation states."""
+    def action():
+        result = PluginManager(Workspace.find_root()).summary()
+        lines = [
+            f"{item['alias']:<16} {item['id'] or 'unknown'}@{item['version'] or '?'}  {item['status']}"
+            for item in result["plugins"]
+        ]
+        _emit(result, json_output, "\n".join(lines) if lines else "No Workbench Plugins installed")
+
+    _execute(action, json_output)
 
 
 @app.command("init")

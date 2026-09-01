@@ -78,11 +78,13 @@ def test_web_command_accepts_workspace_directory_without_chdir(
         port: int,
         open_browser: bool,
         initial_document,
+        safe_mode: bool,
     ) -> None:
         captured["root"] = root
         captured["port"] = port
         captured["open_browser"] = open_browser
         captured["initial_document"] = initial_document
+        captured["safe_mode"] = safe_mode
 
     monkeypatch.setattr("kirin_tor.web.run_web", fake_run_web)
     launched = runner.invoke(app, ["web", str(example_workspace), "--port", "8123", "--no-open"])
@@ -92,6 +94,7 @@ def test_web_command_accepts_workspace_directory_without_chdir(
         "port": 8123,
         "open_browser": False,
         "initial_document": None,
+        "safe_mode": False,
     }
 
     source = example_workspace / "entries" / "组合模型.kirin"
@@ -99,9 +102,46 @@ def test_web_command_accepts_workspace_directory_without_chdir(
     assert launched.exit_code == 0, launched.output
     assert captured["initial_document"] == source.resolve()
 
+    launched = runner.invoke(app, ["web", str(example_workspace), "--safe-mode", "--no-open"])
+    assert launched.exit_code == 0, launched.output
+    assert captured["safe_mode"] is True
+
     missing = runner.invoke(app, ["web", str(example_workspace / "missing.kirin"), "--no-open"])
     assert missing.exit_code == 1
     assert "existing .kirin file" in missing.stderr
+
+
+def test_local_workbench_plugin_cli_workflow(
+    example_workspace: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    plugin = Path(__file__).resolve().parents[1] / "examples" / "plugins" / "fictional-talent-tree"
+    monkeypatch.chdir(example_workspace)
+    monkeypatch.setenv("KIRIN_PLUGIN_HOME", str(tmp_path / "plugin-user"))
+
+    added = runner.invoke(app, ["plugin", "add-path", "talents", str(plugin), "--json"])
+    assert added.exit_code == 0, added.output
+    payload = json.loads(added.stdout)
+    assert payload["plugins"][0]["status"] == "active"
+    assert payload["contributions"]["renderers"][0]["id"].endswith(".talent-tree")
+
+    disabled = runner.invoke(app, ["plugin", "disable", "talents", "--json"])
+    assert disabled.exit_code == 0, disabled.output
+    assert json.loads(disabled.stdout)["plugins"][0]["status"] == "disabled"
+    enabled = runner.invoke(app, ["plugin", "enable", "talents", "--json"])
+    assert enabled.exit_code == 0, enabled.output
+    assert json.loads(enabled.stdout)["plugins"][0]["status"] == "active"
+
+    verified = runner.invoke(app, ["plugin", "verify", "--json"])
+    assert verified.exit_code == 0, verified.output
+    listed = runner.invoke(app, ["plugin", "list"])
+    assert listed.exit_code == 0, listed.output
+    assert "community.fictional-talents@1.0.0" in listed.stdout
+
+    removed = runner.invoke(app, ["plugin", "remove", "talents", "--json"])
+    assert removed.exit_code == 0, removed.output
+    assert json.loads(removed.stdout)["plugins"] == []
 
 
 def test_installed_entry_point_runs_outside_source_tree(tmp_path: Path) -> None:

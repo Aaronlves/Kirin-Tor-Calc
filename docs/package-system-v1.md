@@ -16,6 +16,10 @@ Packages are data only. Kirin never executes package scripts, binaries, Python m
 hooks, or GitHub Actions. A package may contain ordinary project files, but only its manifest and
 `.kirin` files under `entries/` participate in validation or calculation.
 
+Workbench Extension Plugins are a separate explicitly approved executable system. A Community
+Package may document a recommended renderer, but Package installation never installs, approves,
+enables, or executes one. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
+
 ## Core and community boundary
 
 The installed mathematical core owns exact numbers, booleans, `dimensionless`, arithmetic,

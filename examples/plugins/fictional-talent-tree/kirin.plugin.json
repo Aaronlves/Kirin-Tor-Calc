@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "id": "community.fictional-talents",
+  "name": "Fictional Talent Workbench",
+  "version": "1.0.0",
+  "api": "1",
+  "description": "把 Kirin 验收示例投影成虚构的游戏天赋界面。",
+  "license": "MIT",
+  "contributes": {
+    "renderers": [
+      {
+        "id": "community.fictional-talents.talent-tree",
+        "title": "天赋树",
+        "description": "根据验证后的成员和依赖关系显示虚构天赋节点。",
+        "entry": "web/index.html",
+        "priority": 100,
+        "match": {
+          "document_ids": ["combo"],
+          "document_id_prefixes": [],
+          "package_names": []
+        },
+        "permissions": ["workspace.summary", "document.read", "source.navigate", "operation.evaluate"]
+      }
+    ],
+    "views": [
+      {
+        "id": "community.fictional-talents.builds",
+        "title": "Build 大厅",
+        "description": "以游戏式卡片浏览当前工作区文档。",
+        "entry": "web/index.html",
+        "permissions": ["workspace.summary", "source.navigate"]
+      }
+    ],
+    "tools": [
+      {
+        "id": "community.fictional-talents.audit",
+        "title": "天赋插件信息",
+        "description": "检查插件收到的受限工作区摘要。",
+        "entry": "web/index.html",
+        "permissions": ["workspace.summary"]
+      }
+    ],
+    "commands": [
+      {
+        "id": "community.fictional-talents.open-builds",
+        "title": "打开虚构 Build 大厅",
+        "description": "打开示例插件提供的顶层页面。",
+        "action": "open-view",
+        "target": "community.fictional-talents.builds"
+      },
+      {
+        "id": "community.fictional-talents.open-audit",
+        "title": "检查虚构天赋插件",
+        "description": "打开示例插件工具。",
+        "action": "open-tool",
+        "target": "community.fictional-talents.audit"
+      },
+      {
+        "id": "community.fictional-talents.use-profile",
+        "title": "切换到天赋创作 Profile",
+        "description": "只保留文档、Build 大厅和天赋插件工具。",
+        "action": "activate-profile",
+        "target": "community.fictional-talents.authoring"
+      }
+    ],
+    "profiles": [
+      {
+        "id": "community.fictional-talents.authoring",
+        "title": "天赋创作",
+        "description": "以源码和天赋呈现为中心的虚构游戏工作台。",
+        "views": ["documents", "community.fictional-talents.builds"],
+        "tools": ["community.fictional-talents.audit", "plugins", "runs"],
+        "default_view": "documents",
+        "document_focus_mode": "split"
+      }
+    ]
+  }
+}

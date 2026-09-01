@@ -164,11 +164,35 @@ kt package verify
 
 完整协议见 [Kirin community package protocol v1](docs/package-system-v1.md)。
 
+## Workbench Extension Plugins
+
+Workbench Plugin 可以为验证后的文档增加游戏化呈现器，也可以注册顶层页面、工作区工具、声明式命令和布局 Profile。插件不会改变 Kirin 语法或数学结果；`.kirin`、验证器、Save All、Package 解析和运行记录仍由官方工作台控制。
+
+协议 v1 只安装作者明确选择的本地目录快照：
+
+```bash
+cd my-math
+kt plugin add-path talents /path/to/talent-plugin
+kt plugin list
+kt plugin verify
+kt web
+```
+
+插件清单、JavaScript、CSS、图片和其他静态文件全部进入内容摘要；安装时复制到 `.kirin/plugins/<SHA-256>/`，不会从可变源目录直接执行。`kirin.plugins.toml` 记录请求和启用状态，`kirin.plugins.lock` 锁定身份、版本与摘要，而可执行批准单独保存在工作区外的本机用户状态中。仅提交工作区配置不能批准陌生代码。
+
+插件页面运行在没有同源权限的沙箱 iframe 中，只能接收清单权限允许的 JSON 投影。v1 可代理定位源码以及对既有合法 target 的有界求值；插件无法读取会话令牌、宿主 DOM、文件系统、环境变量或网络，也不能调用 Save All 和 Package 变更。出现问题时可停用插件，或使用：
+
+```bash
+kt web --safe-mode
+```
+
+源码仓库提供了不含真实游戏数据的 `examples/plugins/fictional-talent-tree`，展示文档呈现器、页面、工具、命令与 Profile。完整清单、权限、frame 消息协议和限制见 [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md)。
+
 ## 命令概览
 
 ```text
 kt init DIRECTORY
-kt web [WORKSPACE|SOURCE.kirin]
+kt web [WORKSPACE|SOURCE.kirin] [--safe-mode]
 kt new entry ID [--template blank|data|model|semantics]
 kt list
 kt show ID
@@ -187,6 +211,7 @@ kt grid --x ENTRY.INPUT --x-range START:END --x-points N \
 kt plot [--config ENTRY_ID]
 kt replay RUN_ID
 kt package --help
+kt plugin --help
 ```
 
 各命令的完整参数以 `kt COMMAND --help` 为准。输出文件默认限制在工作区内且不覆盖已有文件；扩大路径权限或覆盖文件必须显式请求。保存运行记录前，参与计算的源码必须已经保存。
@@ -226,6 +251,7 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限�
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
 | [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
 | [Kirin community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
+| [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md) | 沙箱 UI 插件、贡献点、权限、批准、锁定和安全模式 |
 | [游戏机制计算能力边界](docs/game-mechanics-capability-audit.md) | 已证明能力、需要外部等效模型的情况和明确非目标 |
 | [Changelog](CHANGELOG.md) | 版本历史、破坏性变更和未发布修改 |
 

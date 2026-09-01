@@ -73,6 +73,21 @@ def test_bundled_tutorials_are_read_only_valid_sources_and_copy_to_drafts(
         assert not (root / draft["path"]).exists()
 
 
+def test_workbench_projects_a_valid_unsaved_new_document_for_plugins(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "empty-workspace")
+    workbench = Workbench(root)
+    draft = workbench.create_document("builtin:model", "plugin_draft")
+
+    projection = workbench.document_projection(
+        draft["path"], {draft["path"]: draft["text"]}
+    )
+
+    assert projection["document"]["id"] == "plugin_draft"
+    assert projection["document"]["read_only"] is False
+    assert any(item["key"] == draft["path"] for item in projection["workspace"]["documents"])
+    assert not (root / draft["path"]).exists()
+
+
 def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     workbench = Workbench(root)

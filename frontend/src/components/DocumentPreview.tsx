@@ -4,8 +4,9 @@ import { Crosshair, FileOutput, Maximize2, Save } from "lucide-react";
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
-import type { DocumentItem, OperationResult } from "../types";
+import type { DocumentItem, DocumentProjection, OperationResult, PluginSurfaceContribution } from "../types";
 import { ChartCanvas } from "./ChartCanvas";
+import { PluginSurface } from "./PluginSurface";
 import { EmptyState, LoadingState, TechnicalResult } from "./ui";
 
 function documentId(source: string): string | null {
@@ -25,7 +26,19 @@ interface DocumentPreviewProps {
   document: DocumentItem;
   source: string;
   activeSymbolId?: string | null;
-  onNavigateToSource(line?: number | null, column?: number | null): void;
+  onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
+}
+
+function rendererMatches(
+  renderer: PluginSurfaceContribution,
+  entryId: string | null,
+  packageName?: string,
+): boolean {
+  const match = renderer.match;
+  if (!match || !entryId) return false;
+  return match.document_ids.includes(entryId)
+    || match.document_id_prefixes.some((prefix) => entryId.startsWith(prefix))
+    || Boolean(packageName && match.package_names.includes(packageName));
 }
 
 export function DocumentPreview({ controller, document, source, activeSymbolId = null, onNavigateToSource }: DocumentPreviewProps) {
@@ -34,6 +47,18 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const entryTargetSignature = entryTargets.map((item) => item.value).join("\u0000");
   const chart = entryId ? controller.workspaceIndex.charts.find((item) => item.value === entryId) : undefined;
   const hasChart = Boolean(chart);
+  const matchingRenderers = useMemo(
+    () => controller.pluginSummary.contributions.renderers.filter(
+      (renderer) => rendererMatches(renderer, entryId, document.package?.name),
+    ),
+    [controller.pluginSummary.contributions.renderers, document.package?.name, entryId],
+  );
+  const [presentation, setPresentation] = useState<string>(matchingRenderers[0]?.id ?? "generic");
+  const selectedRenderer = matchingRenderers.find((item) => item.id === presentation) ?? null;
+  const [projection, setProjection] = useState<DocumentProjection | null>(null);
+  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [projectionLoading, setProjectionLoading] = useState(false);
+  const presentationWasChosen = useRef(false);
   const [mode, setMode] = useState<"result" | "chart">("result");
   const [target, setTarget] = useState<string | null>(entryTargets[0]?.value ?? null);
   const [result, setResult] = useState<OperationResult | null>(null);
@@ -57,7 +82,44 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
     setError(null);
     setExportResult(null);
     setExpandedPreviewOpened(false);
+    setPresentation(matchingRenderers[0]?.id ?? "generic");
+    setProjection(null);
+    setProjectionError(null);
+    presentationWasChosen.current = false;
   }, [document.key]);
+
+  useEffect(() => {
+    setPresentation((selected) => {
+      if (matchingRenderers.some((item) => item.id === selected)) return selected;
+      if (selected === "generic" && presentationWasChosen.current) return selected;
+      return matchingRenderers[0]?.id ?? "generic";
+    });
+  }, [matchingRenderers]);
+
+  useEffect(() => {
+    if (!selectedRenderer || controller.validation?.status !== "ok") {
+      setProjectionLoading(false);
+      return;
+    }
+    let active = true;
+    setProjectionLoading(true);
+    setProjectionError(null);
+    const timer = window.setTimeout(() => {
+      void controller.documentProjection(document.key).then(
+        (result) => { if (active) setProjection(result); },
+        (caught) => {
+          if (active) {
+            setProjection(null);
+            setProjectionError(errorMessage(caught));
+          }
+        },
+      ).finally(() => { if (active) setProjectionLoading(false); });
+    }, 350);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [controller.documentProjection, controller.validation?.status, document.key, selectedRenderer, source]);
 
   useEffect(() => {
     setTarget((selected) => entryTargets.some((item) => item.value === selected) ? selected : entryTargets[0]?.value ?? null);
@@ -82,6 +144,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
     setResult(null);
     setError(null);
     setExportResult(null);
+    setProjection(null);
   }, [source]);
 
   const selectedTarget = entryTargets.find((item) => item.value === target);
@@ -140,20 +203,57 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   };
 
   if (!entryId) return <EmptyState title="文档声明无效" description="修复 @entry 文档头后，结果和图表投影会在这里出现。" />;
-  if (!entryTargets.length && !hasChart) return <EmptyState title="这个文档没有可预览投影" description="定义 outputs 可显示结果；再定义 x/range/points/y 即可显示图表。" />;
+  if (!entryTargets.length && !hasChart && !matchingRenderers.length) return <EmptyState title="这个文档没有可预览投影" description="定义 outputs 可显示结果；再定义 x/range/points/y，或安装匹配的文档呈现插件。" />;
+
+  const presentationSwitch = matchingRenderers.length > 0 ? (
+    <SegmentedControl
+      fullWidth
+      size="xs"
+      value={presentation}
+      onChange={(value) => { presentationWasChosen.current = true; setPresentation(value); }}
+      data={[
+        ...(entryTargets.length || hasChart ? [{ value: "generic", label: "通用" }] : []),
+        ...matchingRenderers.map((item) => ({ value: item.id, label: item.title })),
+      ]}
+    />
+  ) : null;
+
+  if (selectedRenderer) {
+    return (
+      <Stack h="100%" gap={0} className="plugin-document-projection">
+        <Box p="sm" className="plugin-document-switch">{presentationSwitch}</Box>
+        {controller.validation?.status !== "ok"
+          ? <EmptyState title="插件投影等待有效文档" description="修复当前工作区问题后，工作台才会向沙箱插件发送结构化文档。" />
+          : projectionLoading && !projection
+            ? <LoadingState label="正在生成插件文档投影…" />
+            : projectionError
+              ? <EmptyState title="无法生成插件投影" description={projectionError} />
+              : projection
+                ? <PluginSurface
+                    compact
+                    controller={controller}
+                    contribution={selectedRenderer}
+                    projection={projection}
+                    onNavigateToSource={onNavigateToSource}
+                  />
+                : null}
+      </Stack>
+    );
+  }
 
   return (
     <>
       <ScrollArea h="100%" type="auto">
         <Stack p="md" gap="md">
+          {presentationSwitch}
           <Box><Text className="result-label">DOCUMENT PROJECTION</Text><Text fw={650} fz="sm" mt={4}>{entryId}</Text><Text c="dimmed" fz="xs" mt={3}>从当前源码草稿和源码默认值即时派生，不接受临时参数。</Text></Box>
           {entryTargets.length > 0 && hasChart && <SegmentedControl fullWidth size="xs" value={mode} onChange={(value) => { modeWasChosen.current = true; setMode(value as "result" | "chart"); setResult(null); }} data={[{ value: "result", label: "结果" }, { value: "chart", label: "图表" }]} />}
           {mode === "result" && entryTargets.length > 1 && <Select label="查看结果" searchable value={target} onChange={(value) => { setTarget(value); setResult(null); }} data={entryTargets.map((item) => ({ value: item.value, label: `${item.group_label ? `${item.group_label} / ` : ""}${item.label}` }))} />}
           {mode === "result" && relevantInputs.length > 0 && <Box className="preview-inputs"><Text className="result-label">相关输入</Text>{relevantInputs.map((input) => <Group key={input.value} justify="space-between" wrap="nowrap" mt={7}><span><strong>{input.label}</strong><small>{input.value}</small></span><Code>{String(input.default ?? "—")}</Code></Group>)}</Box>}
           {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
-          {result && mode === "result" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
-          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}>{chart?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(chart.line, chart.column)}>定位图表源码</Button>}<Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
+          {result && mode === "result" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
+          {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}>{chart?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, chart.line, chart.column)}>定位图表源码</Button>}<Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
           {exportResult && <Box className="export-success"><Save size={16} /><span><strong>图表已导出</strong><small>{String(exportResult.out || "已使用文档声明的输出路径")}</small></span></Box>}
         </Stack>
       </ScrollArea>

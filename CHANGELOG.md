@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added Workbench Extension Plugin protocol v1 with strict local manifests, immutable content-addressed snapshots, separate user-local executable approvals, requirements/lock files, offline verification, enable/disable/remove/update commands, and `kt web --safe-mode` recovery.
+- Added sandboxed document renderers, top-level plugin views, workspace tools, declarative commands, and composable layout Profiles. Plugin frames receive permission-filtered validated projections through a bounded message protocol and cannot access the host DOM, session token, filesystem, network, Save All, or Package mutation.
+- Added a game-neutral fictional talent-tree example and focused Python, CLI, HTTP-security, TypeScript, and real-browser plugin coverage; the example demonstrates source navigation and host-brokered evaluation without shipping real game data.
 - Added an empty-workspace welcome surface and a persistent tutorial library with three strictly validated, game-neutral `.kirin` examples; viewing remains read-only and explicit copying creates only an unsaved source draft.
 - Prevented deleted game starters and obsolete modules from leaking out of a stale setuptools build directory; distribution CI now seeds an old layout and verifies the resulting wheel member-for-member against the current game-neutral source tree.
 - Added visible insertion-cursor, active-line, focused/unfocused text-selection states, plus live line/column and selection counts in the editor status bar.

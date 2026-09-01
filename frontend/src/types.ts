@@ -1,6 +1,94 @@
-export type ViewId = "documents" | "graph";
-export type WorkspaceTool = "runs" | "packages" | "syntax" | "search" | "changes";
+export type ViewId = string;
+export type WorkspaceTool = string;
 export type DocumentFocusMode = "editor" | "split" | "preview";
+
+export type PluginPermission =
+  | "workspace.summary"
+  | "document.read"
+  | "source.navigate"
+  | "operation.evaluate";
+
+export interface PluginRendererMatch {
+  document_ids: string[];
+  document_id_prefixes: string[];
+  package_names: string[];
+}
+
+export interface PluginSurfaceContribution {
+  kind: "renderer" | "view" | "tool";
+  id: string;
+  title: string;
+  description?: string;
+  entry: string;
+  entry_url: string;
+  permissions: PluginPermission[];
+  priority?: number;
+  match?: PluginRendererMatch;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  content_sha256: string;
+  api: "1";
+}
+
+export interface PluginCommandContribution {
+  id: string;
+  title: string;
+  description: string;
+  action: "open-view" | "open-tool" | "activate-profile";
+  target: string;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  content_sha256: string;
+  api: "1";
+}
+
+export interface PluginProfileContribution {
+  id: string;
+  title: string;
+  description: string;
+  views: string[];
+  tools: string[];
+  default_view: string;
+  document_focus_mode: DocumentFocusMode;
+  plugin_id: string;
+  plugin_name: string;
+  plugin_version: string;
+  content_sha256: string;
+  api: "1";
+}
+
+export interface InstalledPlugin {
+  alias: string;
+  source: string;
+  requested_version: string;
+  enabled: boolean;
+  id?: string | null;
+  name?: string | null;
+  version?: string | null;
+  api?: string | null;
+  description?: string | null;
+  license?: string | null;
+  content_sha256?: string | null;
+  approved: boolean;
+  active: boolean;
+  status: "active" | "disabled" | "safe-mode" | "unapproved" | "invalid" | "missing-lock" | string;
+  error?: string | null;
+}
+
+export interface PluginSummary {
+  safe_mode: boolean;
+  error?: string | null;
+  plugins: InstalledPlugin[];
+  contributions: {
+    renderers: PluginSurfaceContribution[];
+    views: PluginSurfaceContribution[];
+    tools: PluginSurfaceContribution[];
+    commands: PluginCommandContribution[];
+    profiles: PluginProfileContribution[];
+  };
+}
 
 export interface PackageReference {
   name: string;
@@ -247,11 +335,50 @@ export interface BootstrapPayload {
   templates: TemplateItem[];
   tutorials: TutorialItem[];
   packages: InstalledPackage[];
+  plugins: PluginSummary;
   runs: RunItem[];
   validation: ValidationResult;
   index: WorkspaceIndex;
   authoring: AuthoringIndex;
   recovery: RecoveryPayload;
+}
+
+export interface DocumentProjection {
+  status: "ok";
+  document: {
+    key: string;
+    id: string;
+    name: string;
+    kind: string;
+    read_only: boolean;
+    source_sha256: string;
+    content: Record<string, unknown>;
+    positions: Record<string, { line: number; column: number }>;
+    package?: (PackageReference & { namespace?: string; resolved?: string }) | null;
+  };
+  members: RelationshipNode[];
+  relationships: RelationshipEdge[];
+  workspace: PluginWorkspaceSummary;
+}
+
+export interface PluginWorkspaceSummary {
+  documents: Array<{
+    key: string;
+    title: string;
+    kind: string;
+    read_only: boolean;
+    package?: { name: string; version: string; content_sha256: string } | null;
+  }>;
+  packages: Array<{
+    alias?: string;
+    direct?: boolean;
+    name: string;
+    version: string;
+    namespace?: string;
+    game?: string;
+    game_version?: string;
+    content_sha256: string;
+  }>;
 }
 
 export interface Variant {

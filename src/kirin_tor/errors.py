@@ -61,6 +61,10 @@ class PackageError(KTError):
     code = "package_error"
 
 
+class PluginError(KTError):
+    code = "plugin_error"
+
+
 class SchemaError(KTError):
     code = "schema_error"
 

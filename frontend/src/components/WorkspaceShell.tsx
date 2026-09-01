@@ -30,15 +30,17 @@ import {
   Network,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
+  Puzzle,
   Save,
   Search,
   Square,
 } from "lucide-react";
 
-import type { DocumentFocusMode, ViewId, WorkspaceTool } from "../types";
+import type { DocumentFocusMode, PluginCommandContribution, PluginSurfaceContribution, ViewId, WorkspaceTool } from "../types";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 
-const viewMetadata: Record<ViewId, { title: string; eyebrow: string; description: string }> = {
+const builtinViewMetadata: Record<string, { title: string; eyebrow: string; description: string }> = {
   documents: {
     title: "文档",
     eyebrow: "创作",
@@ -51,18 +53,16 @@ const viewMetadata: Record<ViewId, { title: string; eyebrow: string; description
   },
 };
 
-const navigationGroups: Array<{
-  label: string;
-  items: Array<{ id: ViewId; label: string; icon: typeof FileCode2 }>;
-}> = [
-  {
-    label: "创作",
-    items: [
-      { id: "documents", label: "文档", icon: FileCode2 },
-      { id: "graph", label: "关系图", icon: Network },
-    ],
-  },
-];
+interface WorkbenchProfileInfo {
+  id: string;
+  title: string;
+  description: string;
+  views: string[];
+  tools: string[];
+  default_view: string;
+  document_focus_mode: DocumentFocusMode;
+  plugin_name?: string;
+}
 
 interface WorkspaceShellProps {
   activeView: ViewId;
@@ -73,6 +73,12 @@ interface WorkspaceShellProps {
   onViewChange(view: ViewId): void;
   onOpenTool(tool: WorkspaceTool): void;
   onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
+  activeProfile: WorkbenchProfileInfo;
+  profiles: WorkbenchProfileInfo[];
+  pluginViews: PluginSurfaceContribution[];
+  pluginCommands: PluginCommandContribution[];
+  onProfileChange(profileId: string): void;
+  onPluginCommand(command: PluginCommandContribution): void;
   children: ReactNode;
 }
 
@@ -82,12 +88,31 @@ function workspaceName(path?: string): string {
   return parts.at(-1) || path;
 }
 
-export function WorkspaceShell({ activeView, activeTool, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ activeView, activeTool, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, activeProfile, profiles, pluginViews, pluginCommands, onProfileChange, onPluginCommand, children }: WorkspaceShellProps) {
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
     return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
   });
-  const metadata = viewMetadata[activeView];
+  const selectedPluginView = pluginViews.find((item) => item.id === activeView);
+  const metadata = builtinViewMetadata[activeView] ?? {
+    title: selectedPluginView?.title ?? "插件页面",
+    eyebrow: "扩展",
+    description: selectedPluginView?.description ?? `由 ${selectedPluginView?.plugin_name ?? "Workbench Plugin"} 提供的沙箱页面。`,
+  };
+  const navigationGroups = useMemo(() => {
+    const builtin = [
+      { id: "documents", label: "文档", icon: FileCode2 },
+      { id: "graph", label: "关系图", icon: Network },
+    ].filter((item) => activeProfile.views.includes(item.id));
+    const plugins = activeProfile.views
+      .map((id) => pluginViews.find((item) => item.id === id))
+      .filter((item): item is PluginSurfaceContribution => Boolean(item))
+      .map((item) => ({ id: item.id, label: item.title, icon: Puzzle }));
+    return [
+      ...(builtin.length ? [{ label: "创作", items: builtin }] : []),
+      ...(plugins.length ? [{ label: "插件", items: plugins }] : []),
+    ];
+  }, [activeProfile.views, pluginViews]);
   const hasErrors = controller.validationItems.length > 0;
   const isBusy = controller.asyncState !== "idle";
   const workspaceStatus = controller.asyncState === "connecting"
@@ -123,7 +148,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
       return {
         id: `view-${item.id}`,
         label: `前往${item.label}`,
-        description: viewMetadata[item.id].description,
+        description: builtinViewMetadata[item.id]?.description ?? pluginViews.find((view) => view.id === item.id)?.description ?? "打开插件页面",
         leftSection: <Icon size={17} strokeWidth={1.7} />,
         onClick: () => onViewChange(item.id),
         keywords: [group.label, item.label],
@@ -194,6 +219,22 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
       keywords: ["package", "依赖", "安装"],
     },
     {
+      id: "open-plugins",
+      label: "打开 Workbench Plugins",
+      description: "安装、批准、停用或验证沙箱界面插件",
+      leftSection: <Plug size={17} strokeWidth={1.7} />,
+      onClick: () => onOpenTool("plugins"),
+      keywords: ["plugin", "extension", "插件", "扩展", "安全模式"],
+    },
+    ...pluginCommands.map((command) => ({
+      id: `plugin-command-${command.id}`,
+      label: command.title,
+      description: `${command.description} · ${command.plugin_name}`,
+      leftSection: <Puzzle size={17} strokeWidth={1.7} />,
+      onClick: () => onPluginCommand(command),
+      keywords: [command.id, command.plugin_name, "plugin", "插件"],
+    })),
+    {
       id: "check-workspace",
       label: "检查工作区",
       description: "从当前未保存草稿重新执行完整校验",
@@ -227,7 +268,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
         onClick: () => onNavigateToSource(symbol.definition.key, symbol.definition.line, symbol.definition.column),
         keywords: [symbol.id, symbol.name, symbol.label, symbol.kind, "symbol", "符号"],
       })),
-  ], [controller, onDocumentFocusModeChange, onNavigateToSource, onOpenTool, onViewChange]);
+  ], [controller, navigationGroups, onDocumentFocusModeChange, onNavigateToSource, onOpenTool, onPluginCommand, onViewChange, pluginCommands, pluginViews]);
 
   return (
     <>
@@ -293,6 +334,23 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   <Menu.Item leftSection={<ListChecks size={14} />} onClick={() => onOpenTool("changes")}>保存前变更审查</Menu.Item>
                   <Menu.Item leftSection={<History size={14} />} onClick={() => onOpenTool("runs")}>运行记录</Menu.Item>
                   <Menu.Item leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Menu.Item>
+                  <Menu.Item leftSection={<Plug size={14} />} onClick={() => onOpenTool("plugins")}>Workbench Plugins</Menu.Item>
+                  {controller.pluginSummary.contributions.tools.filter((tool) => activeProfile.tools.includes(tool.id)).length > 0 && <>
+                    <Menu.Divider />
+                    <Menu.Label>插件工具</Menu.Label>
+                    {controller.pluginSummary.contributions.tools.filter((tool) => activeProfile.tools.includes(tool.id)).map((tool) => (
+                      <Menu.Item key={tool.id} leftSection={<Puzzle size={14} />} onClick={() => onOpenTool(tool.id)}>{tool.title}</Menu.Item>
+                    ))}
+                  </>}
+                  <Menu.Divider />
+                  <Menu.Label>界面 Profile</Menu.Label>
+                  {profiles.map((profile) => (
+                    <Menu.Item
+                      key={profile.id}
+                      leftSection={profile.id === activeProfile.id ? <Check size={14} /> : <Puzzle size={14} />}
+                      onClick={() => onProfileChange(profile.id)}
+                    >{profile.title}</Menu.Item>
+                  ))}
                   <Menu.Divider />
                   <Menu.Label>参考</Menu.Label>
                   <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin 语法参考</Menu.Item>
@@ -371,7 +429,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                     })}
                   </Stack>
                 ))}
-                <Stack gap={2}>
+                {activeProfile.tools.includes("syntax") && <Stack gap={2}>
                   {!compactNavigation && <Text className="nav-group-label">参考</Text>}
                   <Tooltip label="语法参考" position="right" disabled={!compactNavigation}>
                     <NavLink
@@ -383,7 +441,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                       onClick={() => onOpenTool("syntax")}
                     />
                   </Tooltip>
-                </Stack>
+                </Stack>}
               </Stack>
             </ScrollArea>
             <Box className="workspace-meta">

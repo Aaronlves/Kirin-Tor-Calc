@@ -59,6 +59,7 @@ from .package_authoring import (
 from .package_manifest import package_source_paths
 from .package_store import PackageResolver, PackageStoreManager, locked_workspace_resolution
 from .plotting import render_plot, write_grid_csv, write_scan_csv
+from .plugin_store import PluginManager
 from .records import load_run, replay as replay_run
 from .relationship_graph import build_relationship_graph
 from .templates import (
@@ -207,10 +208,21 @@ def _number(payload: Mapping[str, object], key: str, default, cast):
 class Workbench:
     """Stateful, serialized adapter for one local workspace."""
 
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        safe_mode: bool = False,
+        plugin_approval_home: Optional[Path] = None,
+    ):
         self.root = root.expanduser().resolve()
         Workspace._validate_marker(self.root)
         self._lock = threading.RLock()
+        self.plugins = PluginManager(
+            self.root,
+            safe_mode=safe_mode,
+            approval_home=plugin_approval_home,
+        )
 
     def _local_path(self, relative: str, *, new: bool = False) -> Path:
         path = (self.root / relative).resolve()
@@ -409,6 +421,7 @@ class Workbench:
                 "templates": [item.as_dict() for item in list_templates(self.root)],
                 "tutorials": [item.as_dict() for item in list_tutorials()],
                 "packages": package_summary(locked_workspace_resolution(self.root))["packages"],
+                "plugins": self.plugins.summary(),
                 "runs": self.list_runs(),
                 "validation": validation,
                 "index": index,
@@ -428,6 +441,133 @@ class Workbench:
                 path = self._local_path(item["path"])
             text = path.read_text(encoding="utf-8")
             return {**item, "status": "ok", "text": text, "source_sha256": _hash_text(text)}
+
+    def document_projection(
+        self,
+        key: str,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        """Return one validated, JSON-safe document projection for the trusted UI host."""
+        with self._lock:
+            parsed = self._overlays(overlays)
+            catalog = self._document_catalog()
+            item = next((candidate for candidate in catalog if candidate["key"] == key), None)
+            if item is None:
+                candidate_path = self._local_path(key, new=True)
+                if candidate_path not in parsed:
+                    raise WorkspaceError(f"unknown document: {key}")
+                item = {
+                    "key": key,
+                    "path": key,
+                    "title": extract_author_title(parsed[candidate_path], candidate_path.stem),
+                    "kind": "entry",
+                    "read_only": False,
+                    "source_sha256": _hash_text(parsed[candidate_path]),
+                }
+                catalog.append(item)
+            workspace = (
+                Workspace.load_with_overlays(self.root, parsed)
+                if parsed
+                else Workspace.load(self.root)
+            )
+            run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
+            if item["read_only"]:
+                actual = (
+                    self.root
+                    / ".kirin"
+                    / "packages"
+                    / item["package"]["content_sha256"]
+                    / item["path"]
+                ).resolve()
+            else:
+                actual = self._local_path(item["path"], new=True).resolve()
+            document = next(
+                (candidate for candidate in workspace.documents.values() if candidate.path.resolve() == actual),
+                None,
+            )
+            if document is None:
+                raise WorkspaceError(f"validated document disappeared: {key}")
+            graph = build_relationship_graph(workspace)
+            member_ids = {
+                node["id"] for node in graph["nodes"] if node["document_id"] == document.id
+            }
+            relationships = [
+                edge
+                for edge in graph["edges"]
+                if edge["source"] in member_ids or edge["target"] in member_ids
+            ]
+            package = None
+            if document.package_origin is not None:
+                package = {
+                    "source": document.package_origin.source,
+                    "name": document.package_origin.name,
+                    "version": document.package_origin.version,
+                    "namespace": document.package_origin.namespace,
+                    "resolved": document.package_origin.resolved,
+                    "content_sha256": document.package_origin.content_sha256,
+                }
+            return {
+                "status": "ok",
+                "document": {
+                    "key": key,
+                    "id": document.id,
+                    "name": document.name,
+                    "kind": document.type,
+                    "read_only": document.read_only,
+                    "source_sha256": document.sha256,
+                    "content": document.raw,
+                    "positions": {
+                        field: {"line": position[0], "column": position[1]}
+                        for field, position in sorted(document.positions.items())
+                    },
+                    "package": package,
+                },
+                "members": [
+                    {**node, "path": key}
+                    for node in graph["nodes"]
+                    if node["document_id"] == document.id
+                ],
+                "relationships": relationships,
+                "workspace": {
+                    "documents": [
+                        {
+                            "key": candidate["key"],
+                            "title": candidate["title"],
+                            "kind": candidate["kind"],
+                            "read_only": candidate["read_only"],
+                            "package": (
+                                {
+                                    "name": candidate["package"]["name"],
+                                    "version": candidate["package"]["version"],
+                                    "content_sha256": candidate["package"]["content_sha256"],
+                                }
+                                if candidate.get("package")
+                                else None
+                            ),
+                        }
+                        for candidate in catalog
+                    ],
+                    "packages": [
+                        {
+                            key: package.get(key)
+                            for key in (
+                                "alias",
+                                "direct",
+                                "name",
+                                "version",
+                                "namespace",
+                                "game",
+                                "game_version",
+                                "content_sha256",
+                            )
+                            if package.get(key) is not None
+                        }
+                        for package in package_summary(
+                            locked_workspace_resolution(self.root)
+                        )["packages"]
+                    ],
+                },
+            }
 
     @staticmethod
     def _index_dict(workspace: Workspace) -> dict:
@@ -1160,6 +1300,30 @@ class Workbench:
                 resolution, validation = check_package(Path(str(payload.get("directory", "."))))
                 return {**package_summary(resolution), "validation": validation}
             raise ParameterError(f"unknown package action: {action}")
+
+    def plugin_action(self, action: str, payload: Optional[Mapping[str, object]] = None) -> dict:
+        with self._lock:
+            payload = dict(payload or {})
+            if action == "list":
+                return self.plugins.summary()
+            if action == "add_path":
+                return self.plugins.add_path(
+                    str(payload.get("alias", "")), Path(str(payload.get("path", "")))
+                )
+            if action == "update_path":
+                return self.plugins.update_path(str(payload.get("alias", "")))
+            if action == "enable":
+                return self.plugins.set_enabled(str(payload.get("alias", "")), True)
+            if action == "disable":
+                return self.plugins.set_enabled(str(payload.get("alias", "")), False)
+            if action == "remove":
+                return self.plugins.remove(str(payload.get("alias", "")))
+            if action == "verify":
+                return self.plugins.verify()
+            raise ParameterError(f"unknown plugin action: {action}")
+
+    def plugin_asset(self, digest: str, relative: str) -> Path:
+        return self.plugins.asset(digest, relative)
 
     def template_action(self, action: str, payload: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:

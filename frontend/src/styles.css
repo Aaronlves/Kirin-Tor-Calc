@@ -188,6 +188,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .kirin-completion-info button { justify-self: start; padding: 3px 0; border: 0; background: transparent; color: var(--kt-accent); cursor: pointer; font-size: 10px; }
 .inspector-panel { grid-column: 3; overflow: hidden; }
 .inspector-tabs { display: grid; height: 100%; grid-template-rows: auto minmax(0,1fr); }
+
+.plugin-surface { display: grid; width: 100%; height: 100%; min-height: 0; grid-template-rows: 38px minmax(0,1fr); overflow: hidden; background: var(--kt-panel); }
+.plugin-surface.is-compact { border: 0; }
+.plugin-surface-header { min-width: 0; padding: 0 var(--kt-space-3); border-bottom: 1px solid var(--kt-border); background: color-mix(in srgb, var(--kt-panel) 92%, var(--kt-bg)); }
+.plugin-surface-state { grid-row: 2; min-height: 0; overflow: auto; }
+.plugin-frame { display: none; grid-row: 2; width: 100%; height: 100%; min-height: 0; border: 0; background: #11110f; }
+.plugin-frame.is-ready { display: block; }
+.plugin-document-projection { min-height: 0; overflow: hidden; }
+.plugin-document-switch { border-bottom: 1px solid var(--kt-border); background: var(--kt-panel); }
+.plugin-document-projection > .plugin-surface { min-height: 0; }
+.plugin-manager-install, .plugin-manager-card { padding: var(--kt-space-4); border: 1px solid var(--kt-border); border-radius: 4px; background: var(--kt-panel); }
 .inspector-tabs .mantine-Tabs-list { height: var(--kt-toolbar-height); min-height: var(--kt-toolbar-height); align-items: center; gap: var(--kt-space-1); padding: var(--kt-space-2); border-bottom: 1px solid var(--kt-line-soft); background: var(--kt-panel-raised); }
 .inspector-tabs .mantine-Tabs-list::before { display: none; }
 .inspector-tabs .mantine-Tabs-tab { height: var(--kt-control-height); min-width: 0; min-height: var(--kt-control-height); flex: 1 1 0; justify-content: center; padding-inline: var(--kt-space-2); border: 1px solid transparent; background: transparent; color: var(--kt-muted); font-size: 10px; transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease; }

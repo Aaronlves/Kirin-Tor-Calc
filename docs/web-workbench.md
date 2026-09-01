@@ -4,6 +4,8 @@
 
 `kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. It is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
 
+Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
+
 The server binds only to a loopback address. Each process creates a random session token, transfers it to browser session storage on first load, and removes it from the visible URL. API requests require that token and an allowed local Host and Origin. Responses disable caching, framing, referrer forwarding, MIME sniffing, inline scripts, and cross-origin connections. Runtime-generated CSS is allowed because CodeMirror mounts its base and theme styles dynamically; executable scripts remain same-origin packaged assets.
 
 The workbench keeps the following authority boundary:
@@ -48,6 +50,16 @@ Diagnostics live beside the document editor rather than in a duplicate top-level
 Preview results, chart definitions, formula explanations, diagnostics, and relationship nodes expose source navigation when their validated projection carries a source coordinate. Navigation restores Split focus mode, opens the authoritative `.kirin` document when necessary, and focuses the defining line instead of creating an editable projection.
 
 The editor adds a tolerant authoring projection over complete or incomplete drafts. This projection may offer navigation and completion while strict workspace validation is failing, but it does not make an incomplete draft executable or saveable.
+
+## Workbench Extension Plugins
+
+The stable host discovers contributions only from enabled, locally approved, API-compatible plugin snapshots whose current cache content matches `kirin.plugins.lock`. The default Profile retains `documents` and `graph` and appends active plugin views; a contributed Profile supplies ordered view and tool lists, a default view, and an initial document focus mode. Switching Profile changes composition and layout state only. The workspace menu always retains Plugin management and a route back to the default Profile.
+
+A matching document renderer is selected by validated canonical entry ID, ID prefix, or Package name. It receives a structured projection only after the complete overlay validates. The author can switch back to the generic result/chart projection without changing source or plugin state. Top-level plugin views and tools receive only the workspace summary unless their manifest declares another supported permission.
+
+Every executable surface is an iframe with `sandbox="allow-scripts"` and no same-origin permission. Static module assets may be fetched from the exact loopback workbench origin, but the frame has no session token and its response sets `connect-src 'none'`. Host actions are limited to validated source navigation and bounded evaluation of an existing workspace target when the matching permission was declared. Save, recovery, Package mutation, plugin mutation, arbitrary operation forwarding, host DOM access, and filesystem access are never delegated.
+
+Plugin installation, update, enable, disable, removal, verification, activation status, digest, and contribution counts are available from the built-in Plugins drawer and the corresponding CLI. `kt web --safe-mode` returns no active contributions and refuses plugin assets even when workspace control files request them. A malformed plugin control file is reported without preventing the core Safe Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 
 | Command | Shortcut | Contract |
 | --- | --- | --- |

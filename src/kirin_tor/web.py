@@ -227,7 +227,29 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             # CodeMirror mounts its generated base and theme CSS at runtime. CSS-only inline
             # styles are allowed; scripts remain restricted to packaged same-origin assets.
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            "connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        )
+
+    def _plugin_security_headers(self) -> None:
+        sources = [self._origin]
+        localhost = self._origin.replace("127.0.0.1", "localhost")
+        if localhost != sources[0]:
+            sources.append(localhost)
+        local_sources = " ".join(sources)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        # Sandboxed frames have an opaque `null` origin. Static plugin files contain no
+        # workspace data or credentials; this narrowly permits module-script imports while
+        # connect-src remains disabled and authenticated APIs still require the host token.
+        self.send_header("Access-Control-Allow-Origin", "null")
+        self.send_header("Vary", "Origin")
+        self.send_header(
+            "Content-Security-Policy",
+            f"default-src 'none'; script-src {local_sources}; "
+            f"style-src {local_sources} 'unsafe-inline'; img-src {local_sources} data:; "
+            f"font-src {local_sources}; connect-src 'none'; media-src {local_sources}; "
+            f"base-uri 'none'; form-action 'none'; frame-ancestors {local_sources}",
         )
 
     def _send_json(self, payload: object, status: int = HTTPStatus.OK) -> None:
@@ -244,6 +266,16 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(len(data)))
         self._security_headers()
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_plugin_bytes(
+        self, data: bytes, media_type: str, status: int = HTTPStatus.OK
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", media_type)
+        self.send_header("Content-Length", str(len(data)))
+        self._plugin_security_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -311,6 +343,9 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             if parsed.path.startswith("/assets/"):
                 self._serve_asset(parsed.path.removeprefix("/assets/"))
                 return
+            if parsed.path.startswith("/plugins/"):
+                self._serve_plugin_asset(parsed.path.removeprefix("/plugins/"))
+                return
             if not parsed.path.startswith("/api/") or not self._require_api_auth():
                 if not parsed.path.startswith("/api/"):
                     self.send_error(HTTPStatus.NOT_FOUND)
@@ -343,6 +378,23 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             media += "; charset=utf-8"
         self._send_bytes(path.read_bytes(), media)
 
+    def _serve_plugin_asset(self, relative: str) -> None:
+        digest, separator, asset = relative.partition("/")
+        if not separator or len(digest) != 64 or not asset:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            path = self.server.workbench.plugin_asset(digest, urllib.parse.unquote(asset))
+        except KTError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        media = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        if path.suffix.lower() in {".js", ".mjs"}:
+            media = "text/javascript"
+        if path.suffix.lower() in {".js", ".mjs", ".css", ".html", ".json", ".svg"}:
+            media += "; charset=utf-8"
+        self._send_plugin_bytes(path.read_bytes(), media)
+
     def do_POST(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         if not parsed.path.startswith("/api/") or not self._require_api_auth():
@@ -363,6 +415,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/document/action":
                 result = self.server.workbench.document_action(
                     str(payload.get("action", "")), payload.get("payload"), overlays
+                )
+            elif parsed.path == "/api/document/projection":
+                result = self.server.workbench.document_projection(
+                    str(payload.get("key", "")), overlays
                 )
             elif parsed.path == "/api/completions":
                 result = self.server.workbench.completions(
@@ -394,6 +450,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 result = self.server.workbench.package_action(
                     str(payload.get("action", "")), payload.get("payload")
                 )
+            elif parsed.path == "/api/plugin":
+                result = self.server.workbench.plugin_action(
+                    str(payload.get("action", "")), payload.get("payload")
+                )
             elif parsed.path == "/api/template":
                 result = self.server.workbench.template_action(
                     str(payload.get("action", "")), payload.get("payload")
@@ -415,13 +475,28 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             self._handle_error(exc)
 
 
-def create_web_server(root: Path, host: str = "127.0.0.1", port: int = 0) -> WorkbenchHTTPServer:
+def create_web_server(
+    root: Path,
+    host: str = "127.0.0.1",
+    port: int = 0,
+    *,
+    safe_mode: bool = False,
+    plugin_approval_home: Optional[Path] = None,
+) -> WorkbenchHTTPServer:
     """Create a loopback workbench server without starting its request loop."""
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ParameterError("the Kirin web workbench may only listen on a loopback address")
     if port < 0 or port > 65535:
         raise ParameterError("port must be between 0 and 65535")
-    return WorkbenchHTTPServer((host, port), Workbench(root), secrets.token_urlsafe(32))
+    return WorkbenchHTTPServer(
+        (host, port),
+        Workbench(
+            root,
+            safe_mode=safe_mode,
+            plugin_approval_home=plugin_approval_home,
+        ),
+        secrets.token_urlsafe(32),
+    )
 
 
 def run_web(
@@ -431,9 +506,10 @@ def run_web(
     port: int = 0,
     open_browser: bool = True,
     initial_document: Optional[Path] = None,
+    safe_mode: bool = False,
 ) -> None:
     """Run the local browser workbench until interrupted."""
-    server = create_web_server(root, host, port)
+    server = create_web_server(root, host, port, safe_mode=safe_mode)
     address_host, address_port = server.server_address[:2]
     display_host = "127.0.0.1" if address_host in {"0.0.0.0", "::"} else address_host
     base_url = f"http://{display_host}:{address_port}"
@@ -446,6 +522,8 @@ def run_web(
     print("Kirin Tor 图形工作台已启动")
     print(f"工作区：{server.workbench.root}")
     print(f"地址：{base_url}")
+    if safe_mode:
+        print("安全模式：第三方 Workbench Plugins 已禁用")
     print("按 Ctrl+C 停止")
     should_open = open_browser and not any(
         os.environ.get(name) for name in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")

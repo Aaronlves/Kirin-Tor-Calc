@@ -9,6 +9,7 @@ import type {
   CompletionItem,
   DocumentItem,
   DocumentPayload,
+  DocumentProjection,
   ExternalChangeConflict,
   GitSummary,
   OperationResult,
@@ -593,6 +594,22 @@ export function useWorkbench() {
     }
   }, [refresh]);
 
+  const pluginAction = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
+    setAsyncState("running");
+    try {
+      const result = await request<OperationResult>("/api/plugin", { action, payload });
+      await refresh(true);
+      return result;
+    } finally {
+      setAsyncState("idle");
+    }
+  }, [refresh]);
+
+  const documentProjection = useCallback(async (key: string): Promise<DocumentProjection> => request<DocumentProjection>(
+    "/api/document/projection",
+    { key, overlays: dirtyOverlays },
+  ), [dirtyOverlays]);
+
   const templateAction = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
     const result = await request<OperationResult>("/api/template", { action, payload });
     await refresh(true);
@@ -635,6 +652,7 @@ export function useWorkbench() {
     createDocument,
     createSourceDraft,
     documentAction,
+    documentProjection,
     currentDocument,
     currentKey,
     dirtyCount,
@@ -649,6 +667,13 @@ export function useWorkbench() {
     operation,
     operationJobs,
     packageAction,
+    pluginAction,
+    pluginSummary: bootstrapData?.plugins ?? {
+      safe_mode: false,
+      error: null,
+      plugins: [],
+      contributions: { renderers: [], views: [], tools: [], commands: [], profiles: [] },
+    },
     refresh,
     inspectExternalConflict,
     keepExternalConflictDraft,

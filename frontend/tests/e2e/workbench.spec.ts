@@ -25,6 +25,54 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     });
   });
 
+  test("沙箱插件注册文档呈现器、页面、工具、命令与 Profile", async ({ page, request }) => {
+    const enabled = await request.post("/api/plugin", {
+      headers: { "X-Kirin-Token": "kirin-e2e-token" },
+      data: { action: "enable", payload: { alias: "talents" } },
+    });
+    expect(enabled.ok()).toBeTruthy();
+    await openWorkbench(page);
+    await openCombo(page);
+
+    const talentFrame = page.frameLocator('iframe[title^="天赋树"]');
+    await expect(talentFrame.getByRole("heading", { name: /天赋页/ })).toBeVisible();
+    await expect(talentFrame.getByRole("region", { name: "虚构天赋节点" })).toBeVisible();
+    await talentFrame.getByRole("button", { name: /暴击率/ }).click();
+    await expect(page.locator(".cm-activeLine")).toContainText('crit "暴击率"');
+    await talentFrame.getByRole("button", { name: "计算 combo.total" }).click();
+    await expect(talentFrame.getByText(/验证后结果：2,420/)).toBeVisible();
+
+    await page.locator(".plugin-document-switch .mantine-SegmentedControl-label").filter({ hasText: "通用" }).click();
+    await expect(page.getByText("DOCUMENT PROJECTION", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Build 大厅", exact: true }).click();
+    const buildsFrame = page.frameLocator('iframe[title^="Build 大厅"]');
+    await expect(buildsFrame.getByRole("heading", { name: "虚构 Build 大厅" })).toBeVisible();
+    await expect(buildsFrame.getByText("双技能组合（虚构）", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("切换到天赋创作");
+    await page.getByText("切换到天赋创作 Profile", { exact: true }).click();
+    await expect(page.getByRole("button", { name: "关系图" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Build 大厅", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByText("Kirin 默认", { exact: true }).click();
+    await expect(page.getByRole("button", { name: "关系图" })).toBeVisible();
+
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("检查虚构天赋插件");
+    await page.getByText("检查虚构天赋插件", { exact: true }).click();
+    const auditFrame = page.frameLocator('iframe[title^="天赋插件信息"]');
+    await expect(auditFrame.getByRole("heading", { name: "天赋插件信息" })).toBeVisible();
+
+    const disabled = await request.post("/api/plugin", {
+      headers: { "X-Kirin-Token": "kirin-e2e-token" },
+      data: { action: "disable", payload: { alias: "talents" } },
+    });
+    expect(disabled.ok()).toBeTruthy();
+  });
+
   test("三种文档专注模式切换并记住选择", async ({ page }) => {
     await page.setViewportSize({ width: 1120, height: 800 });
     await openWorkbench(page);

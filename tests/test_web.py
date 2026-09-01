@@ -11,11 +11,26 @@ from pathlib import Path
 import pytest
 
 from kirin_tor.web import create_web_server
+from kirin_tor.plugin_store import PluginManager
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_PLUGIN = PROJECT_ROOT / "examples" / "plugins" / "fictional-talent-tree"
 
 
 class RunningServer:
-    def __init__(self, root: Path):
-        self.server = create_web_server(root)
+    def __init__(
+        self,
+        root: Path,
+        *,
+        safe_mode: bool = False,
+        plugin_approval_home: Path | None = None,
+    ):
+        self.server = create_web_server(
+            root,
+            safe_mode=safe_mode,
+            plugin_approval_home=plugin_approval_home,
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -57,6 +72,7 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         assert "frame-ancestors 'none'" in policy
         assert "script-src 'self'" in policy
         assert "style-src 'self' 'unsafe-inline'" in policy
+        assert response.headers.get("Access-Control-Allow-Origin") is None
 
         status, _headers, body = running.request("/api/bootstrap")
         result = decoded(body)
@@ -74,6 +90,64 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         with pytest.raises(urllib.error.HTTPError) as failure:
             running.request("/api/bootstrap", token="wrong")
         assert failure.value.code == 403
+
+
+def test_web_serves_only_active_sandboxed_plugin_assets_and_projections(
+    example_workspace: Path,
+) -> None:
+    approval_home = example_workspace.parent / "plugin-approval"
+    installed = PluginManager(example_workspace, approval_home=approval_home).add_path(
+        "talents", EXAMPLE_PLUGIN
+    )
+    digest = installed["plugins"][0]["content_sha256"]
+    with RunningServer(example_workspace, plugin_approval_home=approval_home) as running:
+        bootstrap = decoded(running.request("/api/bootstrap")[2])
+        assert bootstrap["plugins"]["plugins"][0]["status"] == "active"
+        assert bootstrap["plugins"]["contributions"]["renderers"][0]["entry_url"].startswith(
+            f"/plugins/{digest}/"
+        )
+
+        status, _headers, body = running.request(
+            "/api/document/projection",
+            {"key": "entries/组合模型.kirin", "overlays": {}},
+        )
+        projection = decoded(body)
+        assert status == 200
+        assert projection["document"]["id"] == "combo"
+        assert projection["document"]["content"]["outputs"]["total"]["expression"]
+        assert {item["id"] for item in projection["members"]} >= {"combo.crit", "combo.total"}
+        assert {item["path"] for item in projection["members"]} == {"entries/组合模型.kirin"}
+        assert all("source" not in item and "resolved" not in item for item in projection["workspace"]["packages"])
+
+        with urllib.request.urlopen(
+            running.base + f"/plugins/{digest}/web/index.html", timeout=5
+        ) as response:
+            assert response.status == 200
+            policy = response.headers["Content-Security-Policy"]
+            assert "connect-src 'none'" in policy
+            assert "form-action 'none'" in policy
+            assert response.headers["Access-Control-Allow-Origin"] == "null"
+            assert response.headers.get("X-Frame-Options") is None
+            assert b"Fictional Talent Workbench" in response.read()
+        with urllib.request.urlopen(
+            running.base + f"/plugins/{digest}/web/plugin.js", timeout=5
+        ) as response:
+            assert response.headers["Content-Type"].startswith("text/javascript")
+            assert response.headers["Access-Control-Allow-Origin"] == "null"
+
+    with RunningServer(
+        example_workspace,
+        safe_mode=True,
+        plugin_approval_home=approval_home,
+    ) as safe:
+        bootstrap = decoded(safe.request("/api/bootstrap")[2])
+        assert bootstrap["plugins"]["safe_mode"] is True
+        assert bootstrap["plugins"]["contributions"]["renderers"] == []
+        with pytest.raises(urllib.error.HTTPError) as unavailable:
+            urllib.request.urlopen(
+                safe.base + f"/plugins/{digest}/web/index.html", timeout=5
+            )
+        assert unavailable.value.code == 404
 
 
 def test_web_validates_saves_and_calculates_from_shared_services(example_workspace: Path) -> None:
