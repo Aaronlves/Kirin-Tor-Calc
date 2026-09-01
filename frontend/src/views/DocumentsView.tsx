@@ -26,11 +26,13 @@ import {
   Braces,
   CircleAlert,
   CircleCheck,
+  Copy,
   Crosshair,
   FileCode2,
   FileDown,
   FilePlus2,
   FileText,
+  FolderInput,
   GitCompare,
   Eye,
   ListTree,
@@ -51,6 +53,7 @@ import { CodeEditor, type CodeEditorHandle, type EditorCursorContext } from "../
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentRelationshipPreview } from "../components/DocumentRelationshipPreview";
 import { EmptyState, LoadingState, TechnicalResult } from "../components/ui";
+import { openSyntaxReference, syntaxTopicForDiagnostic } from "../syntaxHelp";
 
 interface DocumentsViewProps {
   controller: WorkbenchController;
@@ -79,6 +82,12 @@ function sourceEntryId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
 }
 
+function isSafeDocumentPath(value: string): boolean {
+  if (!value.startsWith("entries/") || !value.endsWith(".kirin") || value.includes("\\") || value.includes("\0")) return false;
+  const segments = value.split("/");
+  return segments.length >= 2 && segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
 const fullWidthSyntax: Record<string, string> = { "：": ":", "，": ",", "（": "(", "）": ")", "＝": "=", "％": "%" };
 
 export function DocumentsView({ controller, focusMode, onFocusModeChange }: DocumentsViewProps) {
@@ -103,6 +112,9 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [renameTarget, setRenameTarget] = useState<AuthoringTarget | null>(null);
   const [renameName, setRenameName] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [documentLifecycleAction, setDocumentLifecycleAction] = useState<"move" | "duplicate" | "remove" | null>(null);
+  const [documentLifecycleValue, setDocumentLifecycleValue] = useState("");
+  const [documentLifecycleRunning, setDocumentLifecycleRunning] = useState(false);
   const [cursorContext, setCursorContext] = useState<EditorCursorContext>({ symbolId: null, containerSymbolId: null, callSymbolId: null, activeParameter: null });
   const editorRef = useRef<CodeEditorHandle>(null);
 
@@ -121,6 +133,8 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const currentExplainTargetSignature = currentExplainTargets.map((item) => item.value).join("\u0000");
   const selectedExplainTarget = currentExplainTargets.find((item) => item.value === explainTarget);
   const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
+  const validMovePath = isSafeDocumentPath(documentLifecycleValue.trim());
+  const validDuplicateId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentLifecycleValue.trim());
   const currentOutline = useMemo(
     () => current ? documentOutline(controller.authoringIndex, current.key) : [],
     [controller.authoringIndex, current],
@@ -130,6 +144,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     return currentOutline.filter((item) => !query || `${item.label} ${item.name} ${item.id} ${item.kind}`.toLocaleLowerCase().includes(query));
   }, [currentOutline, outlineFilter]);
   const activeSymbolId = cursorContext.containerSymbolId ?? cursorContext.symbolId;
+  const activeRenameSymbol = symbolFor(controller.authoringIndex, cursorContext.symbolId);
   const callSymbol = symbolFor(controller.authoringIndex, cursorContext.callSymbolId)
     ?? controller.authoringIndex.builtins.find((item) => item.id === cursorContext.callSymbolId)
     ?? null;
@@ -304,6 +319,32 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       notifications.show({ color: "red", title: "无法创建文档", message: errorMessage(error) });
     } finally {
       setCreating(false);
+    }
+  };
+
+  const openDocumentLifecycle = (action: "move" | "duplicate" | "remove") => {
+    if (!current) return;
+    setDocumentLifecycleAction(action);
+    setDocumentLifecycleValue(action === "move" ? current.path : "");
+  };
+
+  const handleDocumentLifecycle = async () => {
+    if (!current || !documentLifecycleAction || documentLifecycleRunning) return;
+    setDocumentLifecycleRunning(true);
+    try {
+      const payload: Record<string, unknown> = {
+        key: current.key,
+        expected_sha256: controller.hashes[current.key],
+      };
+      if (documentLifecycleAction === "move") payload.destination = documentLifecycleValue.trim();
+      if (documentLifecycleAction === "duplicate") payload.document_id = documentLifecycleValue.trim();
+      await controller.documentAction(documentLifecycleAction, payload);
+      setDocumentLifecycleAction(null);
+      setDocumentLifecycleValue("");
+    } catch (error) {
+      notifications.show({ color: "red", title: "文档操作未完成", message: errorMessage(error), autoClose: false });
+    } finally {
+      setDocumentLifecycleRunning(false);
     }
   };
 
@@ -488,6 +529,15 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       <Menu.Dropdown>
                         <Menu.Label>文档操作</Menu.Label>
                         <Menu.Item
+                          leftSection={<Braces size={14} />}
+                          disabled={current.read_only || !activeRenameSymbol?.renameable}
+                          onClick={() => {
+                            if (activeRenameSymbol) openRename({ id: activeRenameSymbol.id, symbol: activeRenameSymbol, definition: activeRenameSymbol.definition });
+                          }}
+                        >
+                          重命名光标处成员 <span className="menu-shortcut">F2</span>
+                        </Menu.Item>
+                        <Menu.Item
                           leftSection={<WandSparkles size={14} />}
                           disabled={current.read_only}
                           onClick={() => { void controller.formatDocument(current.key).catch((error) => notifications.show({ color: "red", title: "无法格式化", message: errorMessage(error) })); }}
@@ -501,6 +551,31 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         >
                           保存为创建模板
                         </Menu.Item>
+                        <Menu.Divider />
+                        <Menu.Label>文件管理</Menu.Label>
+                        <Menu.Item
+                          leftSection={<FolderInput size={14} />}
+                          disabled={current.read_only || controller.dirtyCount > 0}
+                          onClick={() => openDocumentLifecycle("move")}
+                        >
+                          移动文件路径
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<Copy size={14} />}
+                          disabled={current.read_only || controller.dirtyCount > 0}
+                          onClick={() => openDocumentLifecycle("duplicate")}
+                        >
+                          复制为新文档草稿
+                        </Menu.Item>
+                        <Menu.Item
+                          color="red"
+                          leftSection={<Trash2 size={14} />}
+                          disabled={current.read_only || controller.dirtyCount > 0}
+                          onClick={() => openDocumentLifecycle("remove")}
+                        >
+                          移到恢复区
+                        </Menu.Item>
+                        {controller.dirtyCount > 0 && <Menu.Label>先保存或处理全部草稿，才能改变文件结构</Menu.Label>}
                       </Menu.Dropdown>
                     </Menu>
                   </Group>
@@ -565,7 +640,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   <Stack gap={0}>
                     {controller.validationItems.map((item, index) => {
                       const path = diagnosticPath(item, controller.bootstrapData?.workspace);
-                      const canFix = item.location?.line && Object.keys(fullWidthSyntax).some((character) => (controller.buffers[controller.documents.find((document) => document.path === path || path.endsWith(document.path))?.key ?? ""] ?? "").split("\n")[(item.location?.line ?? 1) - 1]?.includes(character));
+                      const diagnosticKey = controller.documents.find((document) => document.path === path || path.endsWith(document.path))?.key ?? "";
+                      const diagnosticLine = (controller.buffers[diagnosticKey] ?? "").split("\n")[(item.location?.line ?? 1) - 1] ?? "";
+                      const canFix = item.location?.line && Object.keys(fullWidthSyntax).some((character) => diagnosticLine.includes(character));
+                      const syntaxTopic = syntaxTopicForDiagnostic(item, diagnosticLine);
                       return (
                         <div className="diagnostic-row-wrap" key={`${path}-${item.location?.line}-${index}`}>
                           <button className="diagnostic-row" type="button" onClick={() => { void openDiagnostic(item); }}>
@@ -576,6 +654,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                             </span>
                           </button>
                           {canFix && <Button variant="subtle" color="gray" size="compact-xs" onClick={() => { void fixDiagnostic(item); }}>修复全角符号</Button>}
+                          <Button variant="subtle" color="gray" size="compact-xs" onClick={() => openSyntaxReference(syntaxTopic)}>查看相关语法</Button>
                         </div>
                       );
                     })}
@@ -674,6 +753,50 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       </Modal>
 
       <Modal
+        opened={documentLifecycleAction !== null}
+        onClose={() => setDocumentLifecycleAction(null)}
+        title={documentLifecycleAction === "move" ? "移动文档文件" : documentLifecycleAction === "duplicate" ? "复制为新文档" : "移到恢复区"}
+        centered
+      >
+        {current && <Stack gap="md">
+          <Box>
+            <Text fz="sm" fw={650}>{current.path}</Text>
+            <Text c="dimmed" fz="xs" mt={4}>
+              {documentLifecycleAction === "move" && "只改变 entries/ 下的文件路径，不会修改源码中的 @entry ID、别名或任何数学语义。"}
+              {documentLifecycleAction === "duplicate" && "复制会生成新的 @entry ID，并把对原文档自身的正式引用改为新 ID；结果先成为未保存草稿。"}
+              {documentLifecycleAction === "remove" && "文件会移入 .kirin/trash/documents；如果删除会破坏工作区引用或校验，操作会自动撤销。"}
+            </Text>
+          </Box>
+          {documentLifecycleAction === "move" && <TextInput
+            label="目标文件路径"
+            description="必须位于 entries/ 内并以 .kirin 结尾。"
+            value={documentLifecycleValue}
+            onChange={(event) => setDocumentLifecycleValue(event.currentTarget.value)}
+            error={documentLifecycleValue && !validMovePath ? "请输入安全的 entries/.../*.kirin 路径" : null}
+          />}
+          {documentLifecycleAction === "duplicate" && <TextInput
+            label="新文档 ID"
+            description="ASCII 字母、数字和下划线；必须以字母或下划线开头。"
+            value={documentLifecycleValue}
+            onChange={(event) => setDocumentLifecycleValue(event.currentTarget.value)}
+            error={documentLifecycleValue && !validDuplicateId ? "文档 ID 格式无效" : null}
+          />}
+          <Divider />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setDocumentLifecycleAction(null)}>取消</Button>
+            <Button
+              className={documentLifecycleAction === "remove" ? "danger-button" : undefined}
+              loading={documentLifecycleRunning}
+              disabled={documentLifecycleAction === "move" ? !validMovePath : documentLifecycleAction === "duplicate" ? !validDuplicateId : false}
+              onClick={() => { void handleDocumentLifecycle(); }}
+            >
+              {documentLifecycleAction === "move" ? "移动文件" : documentLifecycleAction === "duplicate" ? "创建复制草稿" : "移到恢复区"}
+            </Button>
+          </Group>
+        </Stack>}
+      </Modal>
+
+      <Modal
         opened={Boolean(controller.externalConflict) && conflictOpened}
         onClose={() => setConflictOpened(false)}
         title="比较外部修改"
@@ -683,8 +806,16 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         {controller.externalConflict && (
           <Stack gap="md">
             <Text fz="sm">磁盘上的 <strong>{controller.externalConflict.path}</strong> 已被其他程序修改。当前草稿尚未覆盖磁盘。</Text>
-            <Text c="dimmed" fz="xs">先比较两个版本。重新加载会用右侧磁盘内容替换当前缓冲区；保留草稿副本会下载左侧内容，但不会改变任何工作区源码。</Text>
-            <div className="conflict-comparison" aria-label="草稿与磁盘版本比较">
+            <Text c="dimmed" fz="xs">
+              {controller.externalConflict.base == null
+                ? "恢复草稿缺少可验证的共同基线，因此不能自动三方合并；仍可下载草稿或重新加载磁盘版本。"
+                : "共同基线、当前草稿和磁盘版本会并排显示。三方合并结果先回到编辑器；重叠修改会留下明确冲突标记。"}
+            </Text>
+            <div className={`conflict-comparison${controller.externalConflict.base != null ? " is-three-way" : ""}`} aria-label="草稿、基线与磁盘版本比较">
+              {controller.externalConflict.base != null && <section>
+                <Text fw={650} fz="sm">共同基线</Text>
+                <pre tabIndex={0}>{controller.externalConflict.base}</pre>
+              </section>}
               <section>
                 <Text fw={650} fz="sm">当前工作台草稿</Text>
                 <pre tabIndex={0}>{controller.externalConflict.draft}</pre>
@@ -698,6 +829,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <Button variant="default" onClick={() => setConflictOpened(false)}>继续编辑草稿</Button>
               <Group gap="xs">
                 <Button variant="default" leftSection={<FileDown size={14} />} onClick={() => { controller.keepExternalConflictDraft(); }}>保留草稿副本</Button>
+                {controller.externalConflict.base != null && <Button variant="default" leftSection={<GitCompare size={14} />} onClick={() => { void controller.mergeExternalConflict().then((merged) => { if (merged) setConflictOpened(false); }); }}>三方合并为草稿</Button>}
                 <Button className="danger-button" onClick={() => { void controller.reloadExternalConflict().then((reloaded) => { if (reloaded) setConflictOpened(false); }); }}>重新加载磁盘版本</Button>
               </Group>
             </Group>

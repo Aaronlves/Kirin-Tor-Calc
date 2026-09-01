@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import multiprocessing as mp
 import os
+import queue
 import secrets
+import signal
+import subprocess
 import threading
+import time
 import urllib.parse
+import uuid
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +29,167 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 ASSET_ROOT = Path(__file__).resolve().parent / "web_assets"
 
 
+def _operation_job_entry(result_queue, root: str, operation: str, payload: dict, overlays: dict) -> None:
+    if os.name == "posix":
+        os.setsid()
+    try:
+        result_queue.put({"kind": "result", "result": Workbench(Path(root)).execute(operation, payload, overlays)})
+    except KTError as exc:
+        result_queue.put({"kind": "error", "error": author_error_payload(exc, Path(root))})
+    except BaseException as exc:  # process boundary must serialize unexpected failures
+        result_queue.put({
+            "kind": "error",
+            "error": {"status": "error", "code": "internal_operation_error", "message": str(exc)},
+        })
+
+
+class OperationJobManager:
+    """Own cancellable workbench operation processes for the local web session."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self._lock = threading.RLock()
+        self._jobs: dict[str, dict] = {}
+
+    def _prune(self) -> None:
+        cutoff = time.monotonic() - 300
+        expired = [job_id for job_id, job in self._jobs.items() if job.get("finished_at", float("inf")) < cutoff]
+        for job_id in expired:
+            job = self._jobs.pop(job_id)
+            job["queue"].close()
+
+    def start(self, operation: str, payload: object, overlays: object) -> dict:
+        with self._lock:
+            self._prune()
+            running = sum(job["state"] in {"queued", "running"} for job in self._jobs.values())
+            if running >= 8:
+                raise ParameterError("too many workbench operations are already running")
+            job_id = uuid.uuid4().hex
+            context = mp.get_context("spawn" if os.name == "nt" else "fork")
+            result_queue = context.Queue(maxsize=1)
+            process = context.Process(
+                target=_operation_job_entry,
+                args=(
+                    result_queue,
+                    str(self.root),
+                    operation,
+                    dict(payload) if isinstance(payload, dict) else {},
+                    dict(overlays) if isinstance(overlays, dict) else {},
+                ),
+                daemon=False,
+            )
+            process.start()
+            self._jobs[job_id] = {
+                "id": job_id,
+                "operation": operation,
+                "state": "running",
+                "stage": "executing",
+                "started_at": time.time(),
+                "process": process,
+                "queue": result_queue,
+            }
+            return self.status(job_id)
+
+    def _finish_from_message(self, job: dict, message: dict) -> None:
+        process = job["process"]
+        process.join(timeout=0.2)
+        job["state"] = "completed" if message.get("kind") == "result" else "failed"
+        job["stage"] = job["state"]
+        job["result"] = message.get("result")
+        job["error"] = message.get("error")
+        job["finished_at"] = time.monotonic()
+
+    def status(self, job_id: str) -> dict:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise ParameterError(f"unknown operation job: {job_id}")
+            if job["state"] == "running":
+                message = None
+                try:
+                    message = job["queue"].get_nowait()
+                except queue.Empty:
+                    if not job["process"].is_alive():
+                        try:
+                            message = job["queue"].get(timeout=0.05)
+                        except queue.Empty:
+                            message = {
+                                "kind": "error",
+                                "error": {
+                                    "status": "error",
+                                    "code": "operation_worker_exit",
+                                    "message": f"operation worker exited with code {job['process'].exitcode}",
+                                },
+                            }
+                if message is not None:
+                    self._finish_from_message(job, message)
+            response = {
+                "status": "ok",
+                "job_id": job["id"],
+                "operation": job["operation"],
+                "state": job["state"],
+                "stage": job["stage"],
+                "started_at": job["started_at"],
+                "cancellable": job["state"] == "running",
+            }
+            if job.get("result") is not None:
+                response["result"] = job["result"]
+            if job.get("error") is not None:
+                response["error"] = job["error"]
+            return response
+
+    def _terminate(self, process) -> None:
+        if not process.is_alive():
+            return
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                process.terminate()
+        else:  # terminate the job process and any mathematical worker it started
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                capture_output=True,
+                timeout=3,
+            )
+        process.join(timeout=1)
+        if process.is_alive():
+            if os.name == "posix":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    process.kill()
+            else:
+                process.kill()
+            process.join(timeout=1)
+
+    def cancel(self, job_id: str) -> dict:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise ParameterError(f"unknown operation job: {job_id}")
+            if job["state"] == "running":
+                self._terminate(job["process"])
+                job["state"] = "cancelled"
+                job["stage"] = "cancelled"
+                job["finished_at"] = time.monotonic()
+                job["error"] = {
+                    "status": "error",
+                    "code": "operation_cancelled",
+                    "message": "operation was cancelled by the author",
+                    "author_message": "操作已取消。",
+                }
+            return self.status(job_id)
+
+    def close(self) -> None:
+        with self._lock:
+            for job in self._jobs.values():
+                if job["state"] == "running":
+                    self._terminate(job["process"])
+                job["queue"].close()
+
+
 class WorkbenchHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -30,7 +197,12 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     def __init__(self, address, workbench: Workbench, token: str):
         self.workbench = workbench
         self.token = token
+        self.operation_jobs = OperationJobManager(workbench.root)
         super().__init__(address, WorkbenchRequestHandler)
+
+    def server_close(self) -> None:
+        self.operation_jobs.close()
+        super().server_close()
 
 
 class WorkbenchRequestHandler(BaseHTTPRequestHandler):
@@ -188,6 +360,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 result = self.server.workbench.create_document(
                     str(payload.get("template", "")), str(payload.get("document_id", ""))
                 )
+            elif parsed.path == "/api/document/action":
+                result = self.server.workbench.document_action(
+                    str(payload.get("action", "")), payload.get("payload"), overlays
+                )
             elif parsed.path == "/api/completions":
                 result = self.server.workbench.completions(
                     str(payload.get("key", "")), str(payload.get("prefix", "")), overlays
@@ -202,6 +378,18 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 result = self.server.workbench.execute(
                     str(payload.get("operation", "")), payload.get("payload"), overlays
                 )
+            elif parsed.path == "/api/operation/job":
+                action = str(payload.get("action", ""))
+                if action == "start":
+                    result = self.server.operation_jobs.start(
+                        str(payload.get("operation", "")), payload.get("payload"), overlays
+                    )
+                elif action == "status":
+                    result = self.server.operation_jobs.status(str(payload.get("job_id", "")))
+                elif action == "cancel":
+                    result = self.server.operation_jobs.cancel(str(payload.get("job_id", "")))
+                else:
+                    raise ParameterError(f"unknown operation job action: {action}")
             elif parsed.path == "/api/package":
                 result = self.server.workbench.package_action(
                     str(payload.get("action", "")), payload.get("payload")

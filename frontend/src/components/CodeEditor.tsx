@@ -49,6 +49,7 @@ import { tags } from "@lezer/highlight";
 
 import { authoringTargetAt, codePointColumn, utf16OffsetForColumn, type AuthoringTarget } from "../authoring";
 import type { AuthoringIndex, AuthoringLocation, CompletionItem, DiagnosticItem } from "../types";
+import { openSyntaxReference, syntaxTopicForDiagnostic, syntaxTopicForKind, syntaxTopicForLine } from "../syntaxHelp";
 
 interface KirinParserState {
   section: string | null;
@@ -229,7 +230,7 @@ const kirinHighlight = HighlightStyle.define([
   { tag: tags.variableName, color: "#e5e1d8" },
   { tag: tags.propertyName, color: "#c9c4b9" },
   { tag: tags.operator, color: "#8f8b82" },
-  { tag: tags.comment, color: "#68665f", fontStyle: "italic" },
+  { tag: tags.comment, color: "#8b9188", fontStyle: "italic" },
 ]);
 
 const editorTheme = EditorView.theme({
@@ -251,7 +252,7 @@ const editorTheme = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "#171714" },
   ".cm-gutters": {
     backgroundColor: "#11110f",
-    color: "#53514c",
+    color: "#8b9188",
     border: "0",
     borderRight: "1px solid #262521",
     fontFamily: "var(--mantine-font-family-monospace)",
@@ -353,6 +354,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         filter: false,
         options: items.map((item): Completion => {
           const insertion = prepareCompletionInsertion(item.insert_text, indent);
+          const topic = syntaxTopicForKind(item.kind) ?? syntaxTopicForLine(item.insert_text);
           return {
             label: item.label,
             detail: item.detail,
@@ -363,6 +365,19 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
                 selection: { anchor: from + insertion.cursor },
               });
             },
+            info: topic ? () => {
+              const dom = document.createElement("div");
+              dom.className = "kirin-completion-info";
+              const detail = document.createElement("span");
+              detail.textContent = item.detail || "Kirin 写作项";
+              const help = document.createElement("button");
+              help.type = "button";
+              help.textContent = "查看相关语法";
+              help.addEventListener("mousedown", (event) => event.preventDefault());
+              help.addEventListener("click", () => openSyntaxReference(topic));
+              dom.append(detail, help);
+              return dom;
+            } : undefined,
           };
         }),
       };
@@ -468,6 +483,15 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
                 action.addEventListener("click", () => navigateRef.current(target.definition!));
                 dom.append(action);
               }
+              const topic = syntaxTopicForKind(item.kind);
+              if (topic) {
+                const help = document.createElement("button");
+                help.type = "button";
+                help.textContent = "查看相关语法";
+                help.addEventListener("mousedown", (event) => event.preventDefault());
+                help.addEventListener("click", () => openSyntaxReference(topic));
+                dom.append(help);
+              }
               return { dom };
             },
           };
@@ -524,6 +548,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       }
     }
     const view = new EditorView({ state, parent: hostRef.current });
+    view.scrollDOM.tabIndex = 0;
+    view.scrollDOM.setAttribute("aria-label", "源码滚动区域");
     viewRef.current = view;
     reportCursor(view);
     return () => {
@@ -565,13 +591,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       const requestedLine = Math.max(1, item.location?.line ?? 1);
       const line = view.state.doc.line(Math.min(requestedLine, view.state.doc.lines));
       const from = Math.min(line.to, line.from + utf16OffsetForColumn(line.text, item.location?.column ?? 1));
+      const topic = syntaxTopicForDiagnostic(item, line.text);
       return {
         from,
         to: Math.min(view.state.doc.length, Math.max(from + 1, line.to)),
         severity: "error",
         message: item.author_message || item.message || "文档校验失败",
         source: item.code || "Kirin",
-        actions: quickFixes(view, requestedLine),
+        actions: [
+          ...quickFixes(view, requestedLine),
+          { name: "查看相关语法", apply: () => openSyntaxReference(topic) },
+        ],
       };
     });
     view.dispatch(setDiagnostics(view.state, mapped));

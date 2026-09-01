@@ -1,4 +1,4 @@
-import type { OperationResult } from "./types";
+import type { OperationJobStatus, OperationResult } from "./types";
 
 const currentUrl = new URL(window.location.href);
 const suppliedToken = currentUrl.searchParams.get("token");
@@ -59,8 +59,26 @@ export async function runOperation(
   operation: string,
   payload: Record<string, unknown>,
   overlays: Record<string, string>,
+  onProgress?: (job: OperationJobStatus) => void,
 ): Promise<OperationResult> {
-  return request<OperationResult>("/api/operation", { operation, payload, overlays });
+  let job = await request<OperationJobStatus>("/api/operation/job", {
+    action: "start",
+    operation,
+    payload,
+    overlays,
+  });
+  onProgress?.(job);
+  while (job.state === "queued" || job.state === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+    job = await request<OperationJobStatus>("/api/operation/job", { action: "status", job_id: job.job_id });
+    onProgress?.(job);
+  }
+  if (job.state === "completed" && job.result) return job.result;
+  throw new ApiError(job.error ?? { code: "operation_failed", message: "操作未返回结果。" }, "操作失败");
+}
+
+export async function cancelOperationJob(jobId: string): Promise<OperationJobStatus> {
+  return request<OperationJobStatus>("/api/operation/job", { action: "cancel", job_id: jobId });
 }
 
 export async function fetchArtifact(path: string): Promise<string> {

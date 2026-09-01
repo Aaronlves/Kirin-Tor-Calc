@@ -17,6 +17,7 @@ import {
 import { Spotlight, spotlight, type SpotlightActionData } from "@mantine/spotlight";
 import {
   Box as PackageIcon,
+  BookOpenText,
   Braces,
   Check,
   CircleAlert,
@@ -25,11 +26,13 @@ import {
   Eye,
   FileCode2,
   History,
+  ListChecks,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
   Save,
   Search,
+  Square,
 } from "lucide-react";
 
 import type { DocumentFocusMode, ViewId, WorkspaceTool } from "../types";
@@ -63,6 +66,7 @@ const navigationGroups: Array<{
 
 interface WorkspaceShellProps {
   activeView: ViewId;
+  activeTool: WorkspaceTool | null;
   controller: WorkbenchController;
   documentFocusMode: DocumentFocusMode;
   onDocumentFocusModeChange(mode: DocumentFocusMode): void;
@@ -78,7 +82,7 @@ function workspaceName(path?: string): string {
   return parts.at(-1) || path;
 }
 
-export function WorkspaceShell({ activeView, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ activeView, activeTool, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, children }: WorkspaceShellProps) {
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
     return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
@@ -90,6 +94,8 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
     ? "连接中"
     : controller.asyncState === "validating"
       ? "正在检查"
+      : controller.asyncState === "running"
+        ? `${controller.operationJobs.length || 1} 项操作执行中`
       : hasErrors
         ? `${controller.validationItems.length} 个问题`
         : controller.dirtyCount
@@ -146,6 +152,30 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
       leftSection: <Eye size={17} strokeWidth={1.7} />,
       onClick: () => { onViewChange("documents"); onDocumentFocusModeChange("preview"); },
       keywords: ["focus", "preview", "专注", "预览"],
+    },
+    {
+      id: "open-syntax-reference",
+      label: "打开 Kirin 语法参考",
+      description: "搜索写作规则并查看可复制的完整示例",
+      leftSection: <BookOpenText size={17} strokeWidth={1.7} />,
+      onClick: () => onOpenTool("syntax"),
+      keywords: ["syntax", "reference", "docs", "help", "语法", "参考", "文档", "帮助", "示例"],
+    },
+    {
+      id: "open-workspace-search",
+      label: "搜索与替换整个工作区",
+      description: "搜索当前草稿和 Package 源码；替换只生成可审查草稿",
+      leftSection: <Search size={17} strokeWidth={1.7} />,
+      onClick: () => onOpenTool("search"),
+      keywords: ["search", "replace", "全文", "搜索", "替换"],
+    },
+    {
+      id: "open-change-review",
+      label: "审查未保存变更",
+      description: controller.dirtyCount ? `${controller.dirtyCount} 个草稿等待审查` : "当前没有未保存修改",
+      leftSection: <ListChecks size={17} strokeWidth={1.7} />,
+      onClick: () => onOpenTool("changes"),
+      keywords: ["diff", "changes", "review", "变更", "审查", "差异"],
     },
     {
       id: "open-runs",
@@ -259,8 +289,13 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
                 <Menu.Target><Button variant="default" size="xs">工作区</Button></Menu.Target>
                 <Menu.Dropdown>
                   <Menu.Label>工作区工具</Menu.Label>
+                  <Menu.Item leftSection={<Search size={14} />} onClick={() => onOpenTool("search")}>全文搜索与替换</Menu.Item>
+                  <Menu.Item leftSection={<ListChecks size={14} />} onClick={() => onOpenTool("changes")}>保存前变更审查</Menu.Item>
                   <Menu.Item leftSection={<History size={14} />} onClick={() => onOpenTool("runs")}>运行记录</Menu.Item>
                   <Menu.Item leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Label>参考</Menu.Label>
+                  <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin 语法参考</Menu.Item>
                 </Menu.Dropdown>
               </Menu>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
@@ -274,6 +309,17 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
                   {workspaceStatus}
                 </Badge>
               </Tooltip>
+              {controller.operationJobs.length > 0 && <Tooltip label={`${controller.operationJobs.map((job) => `${job.operation} · ${job.stage === "executing" ? "执行中" : job.stage}`).join("；")}。取消会终止对应计算进程。`}>
+                <Button
+                  variant="default"
+                  color="orange"
+                  size="xs"
+                  leftSection={<Square size={11} fill="currentColor" />}
+                  onClick={() => { void controller.cancelOperations(); }}
+                >
+                  取消 {controller.operationJobs.length} 项操作
+                </Button>
+              </Tooltip>}
               <Button
                 size="xs"
                 leftSection={<Save size={14} strokeWidth={1.8} />}
@@ -313,6 +359,7 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
                           disabled={!compactNavigation}
                         >
                           <NavLink
+                            component="button"
                             active={activeView === item.id}
                             aria-label={item.label}
                             label={compactNavigation ? undefined : item.label}
@@ -324,6 +371,19 @@ export function WorkspaceShell({ activeView, controller, documentFocusMode, onDo
                     })}
                   </Stack>
                 ))}
+                <Stack gap={2}>
+                  {!compactNavigation && <Text className="nav-group-label">参考</Text>}
+                  <Tooltip label="语法参考" position="right" disabled={!compactNavigation}>
+                    <NavLink
+                      component="button"
+                      active={activeTool === "syntax"}
+                      aria-label="语法参考"
+                      label={compactNavigation ? undefined : "语法参考"}
+                      leftSection={<BookOpenText size={17} strokeWidth={1.65} />}
+                      onClick={() => onOpenTool("syntax")}
+                    />
+                  </Tooltip>
+                </Stack>
               </Stack>
             </ScrollArea>
             <Box className="workspace-meta">

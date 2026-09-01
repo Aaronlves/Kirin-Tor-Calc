@@ -6,7 +6,13 @@ export default defineConfig({
   workers: 1,
   timeout: 45_000,
   expect: { timeout: 8_000 },
+  snapshotPathTemplate: "{testDir}/__screenshots__/{arg}-{projectName}{ext}",
   reporter: [["list"]],
+  projects: [
+    { name: "chromium", use: { browserName: "chromium" } },
+    { name: "firefox", use: { browserName: "firefox" } },
+    { name: "webkit", use: { browserName: "webkit" } },
+  ],
   globalTeardown: "./tests/e2e_teardown.ts",
   use: {
     baseURL: "http://127.0.0.1:8766",

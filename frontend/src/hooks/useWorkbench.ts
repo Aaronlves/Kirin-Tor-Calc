@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifications } from "@mantine/notifications";
 
-import { ApiError, errorMessage, initialDocument, request, runOperation } from "../api";
+import { ApiError, cancelOperationJob, errorMessage, initialDocument, request, runOperation } from "../api";
 import type {
   AuthoringChange,
   AsyncState,
@@ -10,9 +10,12 @@ import type {
   DocumentItem,
   DocumentPayload,
   ExternalChangeConflict,
+  GitSummary,
   OperationResult,
+  OperationJobStatus,
   RecoveryDraft,
   ValidationResult,
+  WorkspaceSearchMatch,
 } from "../types";
 import { emptyAuthoringIndex } from "../authoring";
 
@@ -41,10 +44,12 @@ export function useWorkbench() {
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [externalConflict, setExternalConflict] = useState<ExternalChangeConflict | null>(null);
   const [recoveryReady, setRecoveryReady] = useState(false);
+  const [operationJobs, setOperationJobs] = useState<OperationJobStatus[]>([]);
   const started = useRef(false);
   const recoveryHydrated = useRef(false);
   const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
+  const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
 
   const currentDocument = useMemo(
     () => documents.find((document) => document.key === currentKey) ?? null,
@@ -60,6 +65,7 @@ export function useWorkbench() {
   }, [buffers, originals]);
 
   const dirtyCount = Object.keys(dirtyOverlays).length;
+  const bootstrapReady = bootstrapData !== null;
   const validationItems = validation?.status === "error"
     ? validation.errors ?? [{
         code: validation.code,
@@ -88,7 +94,7 @@ export function useWorkbench() {
         [key]: recoveredConflict ? recovered.base_sha256 ?? "recovery-base-missing" : result.source_sha256,
       }));
       if (recoveredConflict) {
-        setExternalConflict({ key, path: result.path, draft: recovered.text, disk: result.text });
+        setExternalConflict({ key, path: result.path, base: null, draft: recovered.text, disk: result.text, disk_sha256: result.source_sha256 });
       }
     } catch (error) {
       notifications.show({ color: "red", title: "无法打开文档", message: errorMessage(error) });
@@ -138,7 +144,7 @@ export function useWorkbench() {
           const mismatched = recovered.base_sha256 !== disk.source_sha256;
           restoredHashes[key] = mismatched ? recovered.base_sha256 ?? "recovery-base-missing" : disk.source_sha256;
           if (!conflict && mismatched) {
-            conflict = { key, path: disk.path, draft: recovered.text, disk: disk.text };
+            conflict = { key, path: disk.path, base: null, draft: recovered.text, disk: disk.text, disk_sha256: disk.source_sha256 };
           }
         }
         setBuffers((current) => ({ ...current, ...restoredBuffers }));
@@ -219,10 +225,10 @@ export function useWorkbench() {
 
   const dirtySignature = useMemo(() => JSON.stringify(dirtyOverlays), [dirtyOverlays]);
   useEffect(() => {
-    if (!bootstrapData) return;
+    if (!bootstrapReady) return;
     const timer = window.setTimeout(() => { void validate(false); }, 450);
     return () => window.clearTimeout(timer);
-  }, [bootstrapData, dirtySignature, validate]);
+  }, [bootstrapReady, dirtySignature, validate]);
 
   const updateBuffer = useCallback((key: string, text: string) => {
     setBuffers((current) => current[key] === text ? current : { ...current, [key]: text });
@@ -234,8 +240,10 @@ export function useWorkbench() {
     setExternalConflict({
       key,
       path: disk.path,
+      base: originals[key] ?? null,
       draft: buffers[key] ?? originals[key] ?? disk.text,
       disk: disk.text,
+      disk_sha256: disk.source_sha256,
     });
   }, [buffers, originals]);
 
@@ -323,6 +331,37 @@ export function useWorkbench() {
     return true;
   }, [externalConflict]);
 
+  const mergeExternalConflict = useCallback(async () => {
+    if (!externalConflict || externalConflict.base == null || !externalConflict.disk_sha256) return false;
+    const conflict = externalConflict;
+    try {
+      const result = await request<{ text: string; clean: boolean; conflicts: number }>("/api/authoring", {
+        action: "merge",
+        payload: { base: conflict.base, draft: conflict.draft, disk: conflict.disk },
+        overlays: {},
+      });
+      setBuffers((current) => ({ ...current, [conflict.key]: result.text }));
+      setOriginals((current) => ({ ...current, [conflict.key]: conflict.disk }));
+      setHashes((current) => ({ ...current, [conflict.key]: conflict.disk_sha256 ?? null }));
+      setDocuments((current) => current.map((item) => item.key === conflict.key
+        ? { ...item, source_sha256: conflict.disk_sha256 ?? null }
+        : item));
+      setExternalConflict(null);
+      notifications.show({
+        color: result.clean ? "green" : "yellow",
+        title: result.clean ? "已自动合并" : "需要处理合并标记",
+        message: result.clean
+          ? "磁盘变更与当前草稿已合并，结果仍是未保存草稿。"
+          : `检测到 ${result.conflicts} 处冲突；编辑器中已加入冲突标记。`,
+        autoClose: result.clean ? 4000 : false,
+      });
+      return true;
+    } catch (error) {
+      notifications.show({ color: "red", title: "无法合并", message: errorMessage(error), autoClose: false });
+      return false;
+    }
+  }, [externalConflict]);
+
   const createDocument = useCallback(async (template: string, documentId: string) => {
     const result = await request<{ path: string; kind: string; id: string; text: string }>("/api/document/create", {
       template,
@@ -351,6 +390,75 @@ export function useWorkbench() {
     setHashes((current) => ({ ...current, [item.key]: null }));
     setCurrentKey(item.key);
   }, []);
+
+  const documentAction = useCallback(async (
+    action: "move" | "duplicate" | "remove",
+    payload: Record<string, unknown>,
+  ) => {
+    const result = await request<Record<string, unknown>>("/api/document/action", {
+      action,
+      payload,
+      overlays: dirtyOverlays,
+    });
+    if (action === "duplicate") {
+      const path = String(result.path);
+      createSourceDraft({
+        key: path,
+        path,
+        title: String(result.id),
+        kind: String(result.kind ?? "entry"),
+        read_only: false,
+        source_sha256: null,
+      }, String(result.text));
+      notifications.show({ color: "green", message: `${path} 已作为未保存草稿创建。` });
+      return result;
+    }
+    const sourceKey = String(payload.key);
+    if (action === "move") {
+      const path = String(result.path);
+      setDocuments((current) => current.map((item) => item.key === sourceKey
+        ? { ...item, key: path, path, source_sha256: String(result.source_sha256) }
+        : item));
+      setBuffers((current) => {
+        const next = { ...current, [path]: current[sourceKey] };
+        delete next[sourceKey];
+        return next;
+      });
+      setOriginals((current) => {
+        const next = { ...current, [path]: current[sourceKey] };
+        delete next[sourceKey];
+        return next;
+      });
+      setHashes((current) => {
+        const next = { ...current, [path]: String(result.source_sha256) };
+        delete next[sourceKey];
+        return next;
+      });
+      setCurrentKey((current) => current === sourceKey ? path : current);
+      notifications.show({ color: "green", message: `文档已移动到 ${path}；源内 @entry 标识保持不变。` });
+      return result;
+    }
+    setDocuments((current) => current.filter((item) => item.key !== sourceKey));
+    setBuffers((current) => {
+      const next = { ...current };
+      delete next[sourceKey];
+      return next;
+    });
+    setOriginals((current) => {
+      const next = { ...current };
+      delete next[sourceKey];
+      return next;
+    });
+    setHashes((current) => {
+      const next = { ...current };
+      delete next[sourceKey];
+      return next;
+    });
+    setCurrentKey((current) => current === sourceKey ? null : current);
+    await refresh(false);
+    notifications.show({ color: "green", message: `文档已移入可恢复的 ${String(result.trash_path)}。` });
+    return result;
+  }, [createSourceDraft, dirtyOverlays, refresh]);
 
   const completions = useCallback(async (key: string, prefix: string) => {
     const result = await request<{ items: CompletionItem[] }>("/api/completions", {
@@ -386,6 +494,39 @@ export function useWorkbench() {
     });
   }, [documents]);
 
+  const searchWorkspace = useCallback(async (query: string, caseSensitive = false) => {
+    return request<{ matches: WorkspaceSearchMatch[]; truncated: boolean }>("/api/authoring", {
+      action: "search",
+      payload: { query, case_sensitive: caseSensitive },
+      overlays: dirtyOverlays,
+    });
+  }, [dirtyOverlays]);
+
+  const replaceWorkspace = useCallback(async (
+    query: string,
+    replacement: string,
+    caseSensitive = false,
+  ) => {
+    const result = await request<{ changes: AuthoringChange[]; edits: number }>("/api/authoring", {
+      action: "replace",
+      payload: { query, replacement, case_sensitive: caseSensitive },
+      overlays: dirtyOverlays,
+    });
+    applyAuthoringChanges(result.changes);
+    notifications.show({
+      color: "green",
+      title: "替换已生成草稿",
+      message: result.edits ? `${result.edits} 处修改尚未保存，可先到“变更审查”检查。` : "没有可写匹配项。",
+    });
+    return result;
+  }, [applyAuthoringChanges, dirtyOverlays]);
+
+  const gitHistory = useCallback(async () => request<GitSummary>("/api/authoring", {
+    action: "git_history",
+    payload: {},
+    overlays: {},
+  }), []);
+
   const renameSymbol = useCallback(async (symbol: string, newName: string) => {
     const result = await request<{ changes: AuthoringChange[]; edits: number; renamed_to: string }>("/api/authoring", {
       action: "rename",
@@ -414,16 +555,32 @@ export function useWorkbench() {
   ): Promise<OperationResult> => {
     setAsyncState("running");
     try {
-      const result = await runOperation(name, payload, dirtyOverlays);
+      const result = await runOperation(name, payload, dirtyOverlays, (job) => {
+        if (job.state === "queued" || job.state === "running") operationJobsRef.current.set(job.job_id, job);
+        else operationJobsRef.current.delete(job.job_id);
+        setOperationJobs([...operationJobsRef.current.values()]);
+      });
       if (payload.save_run) await refresh(true);
       return result;
     } catch (error) {
-      notifications.show({ color: "red", title: "操作失败", message: errorMessage(error), autoClose: false });
+      if (error instanceof ApiError && error.payload.code === "operation_cancelled") {
+        notifications.show({ color: "gray", message: "操作已取消。" });
+      } else {
+        notifications.show({ color: "red", title: "操作失败", message: errorMessage(error), autoClose: false });
+      }
       throw error;
     } finally {
-      setAsyncState("idle");
+      if (!operationJobsRef.current.size) setAsyncState("idle");
     }
   }, [dirtyOverlays, refresh]);
+
+  const cancelOperations = useCallback(async () => {
+    const jobs = operationJobs.filter((job) => job.cancellable);
+    await Promise.all(jobs.map((job) => cancelOperationJob(job.job_id).catch(() => null)));
+    operationJobsRef.current.clear();
+    setOperationJobs([]);
+    setAsyncState("idle");
+  }, [operationJobs]);
 
   const packageAction = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
     setAsyncState("running");
@@ -443,7 +600,7 @@ export function useWorkbench() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!bootstrapData || !recoveryReady) return;
+    if (!bootstrapReady || !recoveryReady) return;
     const drafts = Object.fromEntries(Object.entries(dirtyOverlays).map(([key, text]) => {
       const document = documents.find((item) => item.key === key);
       return [key, {
@@ -456,7 +613,7 @@ export function useWorkbench() {
       void request("/api/recovery", { drafts }).catch(() => undefined);
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [bootstrapData, dirtySignature, dirtyOverlays, documents, hashes, recoveryReady]);
+  }, [bootstrapReady, dirtySignature, recoveryReady]);
 
   useEffect(() => {
     const preventLoss = (event: BeforeUnloadEvent) => {
@@ -474,8 +631,10 @@ export function useWorkbench() {
     buffers,
     authoringIndex: validation?.authoring ?? bootstrapData?.authoring ?? emptyAuthoringIndex,
     completions,
+    cancelOperations,
     createDocument,
     createSourceDraft,
+    documentAction,
     currentDocument,
     currentKey,
     dirtyCount,
@@ -484,16 +643,22 @@ export function useWorkbench() {
     formatDocument,
     documents,
     hashes,
+    originals,
     lastCheckedAt,
     openDocument,
     operation,
+    operationJobs,
     packageAction,
     refresh,
     inspectExternalConflict,
     keepExternalConflictDraft,
+    mergeExternalConflict,
     reloadExternalConflict,
     renameSymbol,
+    replaceWorkspace,
     saveAll,
+    searchWorkspace,
+    gitHistory,
     templateAction,
     updateBuffer,
     validate,

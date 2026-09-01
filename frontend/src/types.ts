@@ -1,5 +1,5 @@
 export type ViewId = "documents" | "graph";
-export type WorkspaceTool = "runs" | "packages";
+export type WorkspaceTool = "runs" | "packages" | "syntax" | "search" | "changes";
 export type DocumentFocusMode = "editor" | "split" | "preview";
 
 export interface PackageReference {
@@ -27,8 +27,26 @@ export interface DocumentPayload extends DocumentItem {
 export interface ExternalChangeConflict {
   key: string;
   path: string;
+  base?: string | null;
   draft: string;
   disk: string;
+  disk_sha256?: string | null;
+}
+
+export interface WorkspaceSearchMatch {
+  key: string;
+  path: string;
+  line: number;
+  column: number;
+  preview: string;
+  read_only: boolean;
+}
+
+export interface GitSummary {
+  available: boolean;
+  root?: string;
+  commits: Array<{ sha: string; date: string; subject: string }>;
+  working_tree: string[];
 }
 
 export interface CompletionItem {
@@ -235,6 +253,18 @@ export interface OperationResult {
   status?: string;
   operation?: string;
   [key: string]: unknown;
+}
+
+export interface OperationJobStatus {
+  status: "ok";
+  job_id: string;
+  operation: string;
+  state: "queued" | "running" | "completed" | "failed" | "cancelled";
+  stage: "queued" | "executing" | "completed" | "failed" | "cancelled";
+  started_at: number;
+  cancellable: boolean;
+  result?: OperationResult;
+  error?: Record<string, unknown>;
 }
 
 export type RelationshipNodeKind = "input" | "field" | "function" | "table" | "output" | string;

@@ -1,9 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const sessionUrl = "/?token=kirin-e2e-token";
 const comboButtonName = /^双技能组合（虚构） entries\/组合模型\.kirin/;
+const modKey = process.platform === "darwin" ? "Meta" : "Control";
 
 async function openWorkbench(page: Page) {
   await page.goto(sessionUrl);
@@ -54,6 +56,94 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.getByRole("region", { name: "文档索引" })).toBeVisible();
   });
 
+  test("语法参考可搜索、复制示例并从命令面板打开", async ({ page }) => {
+    await openWorkbench(page);
+    await page.getByLabel("语法参考", { exact: true }).click();
+
+    let reference = page.getByRole("dialog", { name: "Kirin 语法参考" });
+    await expect(reference).toBeVisible();
+    await expect(reference.getByText("10 个匹配主题", { exact: true })).toBeVisible();
+    await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
+    await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
+    await expect(reference.getByText("distributions:", { exact: false })).toBeVisible();
+
+    const copy = reference.getByRole("button", { name: "复制示例：有限离散分布" });
+    await copy.click();
+    await expect(copy).toContainText("已复制");
+
+    await reference.locator(".mantine-Drawer-close").click();
+    await page.getByRole("button", { name: /命令/ }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("语法参考");
+    await page.getByText("打开 Kirin 语法参考", { exact: true }).click();
+    reference = page.getByRole("dialog", { name: "Kirin 语法参考" });
+    await expect(reference).toBeVisible();
+  });
+
+  test("主工作台与语法抽屉通过自动无障碍检查", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    let results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(results.violations).toEqual([]);
+
+    await page.getByLabel("语法参考", { exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Kirin 语法参考" })).toBeVisible();
+    await page.waitForTimeout(350);
+    results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("核心工作台布局保持视觉基线", async ({ page, browserName }) => {
+    test.skip(browserName === "firefox", "Firefox 由完整功能套件覆盖；像素基线保留 Chromium 与 WebKit 两种渲染路径。");
+    await openWorkbench(page);
+    await openCombo(page);
+    await expect(page.locator('[aria-label="工作区状态：工作区有效"]')).toBeVisible();
+    await expect(page.locator(".document-result-preview")).toContainText("2,420");
+    await expect(page.locator(".workbench-shell")).toHaveScreenshot("workbench-shell.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.08,
+      stylePath: resolve("tests/e2e/screenshot.css"),
+    });
+  });
+
+  test("工作区搜索生成可审查草稿，相关语法可从诊断直达", async ({ page }) => {
+    await openWorkbench(page);
+    await page.getByRole("button", { name: "工作区" }).click();
+    await page.getByText("全文搜索与替换", { exact: true }).click();
+    const searchDrawer = page.getByRole("dialog", { name: "工作区搜索与替换" });
+    await searchDrawer.getByRole("textbox", { name: "工作区查找" }).fill("组合期望伤害");
+    await searchDrawer.getByRole("button", { name: "搜索", exact: true }).click();
+    await expect(searchDrawer.getByRole("list", { name: "工作区搜索结果" }).getByRole("listitem").first()).toBeVisible();
+    await searchDrawer.getByRole("textbox", { name: "工作区替换文本" }).fill("伤害合计");
+    await searchDrawer.getByRole("button", { name: "替换全部可写匹配" }).click();
+    const review = page.getByRole("dialog", { name: "保存前变更审查" });
+    await expect(review.getByText("当前草稿", { exact: true })).toBeVisible();
+    await expect(review).toContainText("伤害合计");
+    await review.locator(".mantine-Drawer-close").click();
+
+    await openCombo(page);
+    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    await page.locator(".cm-line").last().click();
+    await editor.press("End");
+    await editor.type("unknown：");
+    await page.getByRole("tab", { name: /诊断 1/ }).click();
+    await page.getByRole("button", { name: "查看相关语法" }).click();
+    await expect(page.getByRole("dialog", { name: "Kirin 语法参考" }).getByRole("heading", { name: "文档、注释与说明" })).toBeVisible();
+  });
+
+  test("文档复制明确生成未保存源码草稿", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    await page.getByRole("button", { name: "文档操作" }).click();
+    await page.getByText("复制为新文档草稿", { exact: true }).click();
+    const duplicate = page.getByRole("dialog", { name: "复制为新文档" });
+    await duplicate.getByRole("textbox", { name: "新文档 ID" }).fill("combo_copy");
+    await duplicate.getByRole("button", { name: "创建复制草稿" }).click();
+    await expect(page.getByRole("textbox", { name: "Kirin 源码：combo_copy" })).toContainText("@entry combo_copy");
+    await expect(page.getByRole("textbox", { name: "Kirin 源码：combo_copy" })).toContainText("combo_copy.total");
+    await expect(page.getByText("已修改", { exact: true })).toBeVisible();
+  });
+
   test("文档切换与新建文档 Enter 使用同一校验", async ({ page }) => {
     await openWorkbench(page);
     await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
@@ -100,7 +190,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await openCombo(page);
     const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
 
-    await editor.press("Meta+f");
+    await editor.press(`${modKey}+f`);
     const searchPanel = page.locator(".cm-search");
     await expect(searchPanel).toBeVisible();
     await searchPanel.locator('input[name="search"]').fill("0.10");
@@ -109,7 +199,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await searchPanel.locator('button[name="replace"]').click();
     await expect(page.locator(".cm-line").filter({ hasText: "0.11" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await editor.press("Meta+z");
+    await editor.press(`${modKey}+z`);
     await expect(page.locator(".cm-line").filter({ hasText: "0.10" })).toBeVisible();
 
     await page.getByRole("button", { name: "文档符号大纲" }).click();
@@ -127,7 +217,9 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
 
     await page.getByRole("button", { name: "文档符号大纲" }).click();
     await page.locator(".outline-list button").filter({ hasText: "组合期望伤害" }).click();
-    await editor.press("F2");
+    await expect(page.locator(".cm-activeLine")).toContainText('total "组合期望伤害"');
+    await page.getByRole("button", { name: "文档操作" }).click();
+    await page.getByText("重命名光标处成员", { exact: false }).click();
     const rename = page.getByRole("dialog", { name: "安全重命名符号" });
     await rename.getByRole("textbox", { name: "新的正式名称" }).fill("combined_total");
     await rename.getByRole("button", { name: "重命名草稿" }).click();
@@ -146,7 +238,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
 
     await openCombo(page);
     const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
-    await editor.press("Meta+f");
+    await editor.press(`${modKey}+f`);
     const definitionSearch = page.locator('.cm-search input[name="search"]');
     await definitionSearch.fill("skill_a.expected");
     await page.locator('.cm-search button[name="next"]').click();
@@ -157,7 +249,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText("expected(c: probability)");
 
     await openCombo(page);
-    await editor.press("Meta+f");
+    await editor.press(`${modKey}+f`);
     const functionSearch = page.locator('.cm-search input[name="search"]');
     await functionSearch.fill("技能甲");
     await page.locator('.cm-search button[name="next"]').click();
@@ -168,7 +260,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".cm-foldGutter")).toBeVisible();
   });
 
-  test("撤销历史跨文档保留且未保存草稿可在重载后恢复", async ({ page }) => {
+  test("撤销历史跨文档保留且未保存草稿可在重载后恢复", async ({ page, request }) => {
     await openWorkbench(page);
     await openCombo(page);
     let editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
@@ -178,17 +270,25 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
     await openCombo(page);
     editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
-    await editor.press("Meta+z");
+    await editor.press(`${modKey}+z`);
     await expect(editor).not.toContainText("// undo across documents");
 
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("// recovered after reload");
-    await page.waitForTimeout(1200);
+    await expect.poll(async () => {
+      const response = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
+      const data = await response.json();
+      return Object.values(data.recovery.drafts as Record<string, { text: string }>).some((draft) => draft.text.includes("recovered after reload"));
+    }).toBe(true);
     await page.reload();
     await expect(page.getByText("已恢复 1 个草稿", { exact: true })).toBeVisible();
     await openCombo(page);
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" })).toContainText("// recovered after reload");
+    const recoveredEditor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    await recoveredEditor.press(`${modKey}+f`);
+    await page.locator('.cm-search input[name="search"]').fill("recovered after reload");
+    await page.locator('.cm-search button[name="next"]').click();
+    await expect(page.locator(".cm-activeLine")).toContainText("// recovered after reload");
   });
 
   test("检查器自动派生结果、图表与公式且不提供参数填写", async ({ page }) => {

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kirin_tor.errors import ParameterError
+from kirin_tor.errors import ParameterError, ReferenceError, ValidationErrors
 from kirin_tor.workbench import Workbench
 from kirin_tor.workspace import initialize
 
@@ -213,3 +213,85 @@ def test_workbench_authoring_actions_and_recovery_are_non_durable(tmp_path: Path
     assert (root / relative).read_text(encoding="utf-8") == original
     workbench.save_recovery({})
     assert not (root / ".kirin" / "workbench-recovery.json").exists()
+
+
+def test_workbench_document_lifecycle_is_validated_and_recoverable(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    source_path = root / "entries" / "build_math.kirin"
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8").replace("// Build math", "// Build math mentions build_math.total"),
+        encoding="utf-8",
+    )
+    workbench = Workbench(root)
+    relative = "entries/build_math.kirin"
+    opened = workbench.read_document(relative)
+
+    duplicate = workbench.document_action(
+        "duplicate",
+        {"key": relative, "document_id": "build_copy", "expected_sha256": opened["source_sha256"]},
+    )
+    assert duplicate["path"] == "entries/build_copy.kirin"
+    assert "@entry build_copy" in duplicate["text"]
+    assert "build_copy.total" in duplicate["text"]
+    assert "// Build math mentions build_math.total" in duplicate["text"]
+    assert not (root / duplicate["path"]).exists()
+
+    moved = workbench.document_action(
+        "move",
+        {
+            "key": relative,
+            "destination": "entries/archive/build_math.kirin",
+            "expected_sha256": opened["source_sha256"],
+        },
+    )
+    assert moved["path"] == "entries/archive/build_math.kirin"
+    assert not (root / relative).exists()
+    assert (root / moved["path"]).is_file()
+
+    dependent = root / "entries" / "dependent.kirin"
+    dependent.write_text(
+        "@kirin 1\n@entry dependent\n\noutputs:\n  result: dimensionless = build_math.total\n",
+        encoding="utf-8",
+    )
+    with pytest.raises((ReferenceError, ValidationErrors)):
+        workbench.document_action("remove", {"key": moved["path"]})
+    assert (root / moved["path"]).is_file()
+
+    removed_dependent = workbench.document_action("remove", {"key": "entries/dependent.kirin"})
+    assert removed_dependent["trash_path"].startswith(".kirin/trash/documents/")
+    removed = workbench.document_action("remove", {"key": moved["path"]})
+    assert removed["trash_path"].startswith(".kirin/trash/documents/")
+    assert (root / removed["trash_path"]).is_file()
+    assert not (root / moved["path"]).exists()
+
+
+def test_workbench_workspace_search_replace_merge_and_git_summary(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    workbench = Workbench(root)
+    relative = "entries/build_math.kirin"
+    original = (root / relative).read_text(encoding="utf-8")
+
+    found = workbench.authoring_action("search", {"query": "total"})
+    assert any(item["path"] == relative for item in found["matches"])
+    replaced = workbench.authoring_action(
+        "replace",
+        {"query": "总收益", "replacement": "综合收益"},
+    )
+    assert replaced["edits"] == 1
+    assert "综合收益" in replaced["changes"][0]["text"]
+    assert (root / relative).read_text(encoding="utf-8") == original
+
+    clean = workbench.authoring_action(
+        "merge",
+        {"base": "a\nb\nc\n", "draft": "A\nb\nc\n", "disk": "a\nb\nC\n"},
+    )
+    assert clean == {"status": "ok", "text": "A\nb\nC\n", "clean": True, "conflicts": 0}
+    conflicted = workbench.authoring_action(
+        "merge",
+        {"base": "a\n", "draft": "draft\n", "disk": "disk\n"},
+    )
+    assert conflicted["clean"] is False
+    assert "<<<<<<< WORKBENCH DRAFT" in conflicted["text"]
+
+    git = workbench.authoring_action("git_history")
+    assert git["available"] is False

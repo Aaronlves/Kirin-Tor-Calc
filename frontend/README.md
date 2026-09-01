@@ -10,8 +10,9 @@ cd frontend
 npm install
 npm run typecheck
 npm run build
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm run test:e2e
+npm run test:bundle
 ```
 
 The Vite build uses `/assets/` as its public base and emits JavaScript and CSS
@@ -24,5 +25,12 @@ fictional example workspace, and covers document switching, completion insertion
 automatic result, chart, and formula projections, chart expansion, diagnostic navigation,
 source traceability, persisted document focus modes, find/replace, symbol outlines, cross-document
 definition and reference navigation, validated rename, parameter hints, safe formatting, directional
-local-graph exploration, keyboard graph navigation, creation validation, draft-session recovery, and
-external-change recovery. It never writes to the example workspace itself.
+local-graph exploration, keyboard graph navigation, searchable and contextual syntax-reference examples,
+workspace search/replace, change review, document duplication, creation validation, draft-session recovery,
+and external-change recovery. Chromium, Firefox, and WebKit run the functional suite; axe-core checks key
+surfaces and Chromium/WebKit keep layout screenshots. The server uses a disposable copy of the example
+workspace, so tests never write to the checked-in example itself.
+
+`npm run test:bundle` enforces explicit entry, largest-chunk, total-JavaScript, and total-CSS byte budgets.
+CI also compares `frontend/dist/` byte-for-byte with `src/kirin_tor/web_assets/` and runs the synthetic
+100-document validation benchmark in `scripts/benchmark_workbench.py`.

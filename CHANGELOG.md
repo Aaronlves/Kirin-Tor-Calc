@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added an in-app, read-only Kirin syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.
+- Added workspace-wide search and draft-only replacement, save-before-write change review with read-only Git history, contextual syntax-reference links, and base/draft/disk three-way conflict merging.
+- Added clean-workspace document path moves, validated duplication into a new unsaved entry, and dependency-safe removal into a recoverable `.kirin` trash area; entry IDs, aliases, and mathematical semantics remain source-authored.
+- Added process-isolated cancellable browser operation jobs with truthful lifecycle stages while retaining mathematical timeouts.
+- Added frontend CI gates for TypeScript, Chromium/Firefox/WebKit Playwright coverage, axe-core accessibility checks, Chromium/WebKit visual baselines, packaged asset synchronization, bundle budgets, and a 100-document validation benchmark.
+
 ## 0.3.0rc1 — 2026-09-01 (pre-release)
 
 - Made `.kirin` v1 documents the sole editable workspace authority and reduced the public source model to `entry`; named presets, output groups, chart configuration, semantics, aliases, labels, and provenance now live in or derive from ordinary source documents.

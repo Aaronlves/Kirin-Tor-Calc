@@ -1,0 +1,132 @@
+[
+  {
+    "id": "document",
+    "title": "文档、注释与说明",
+    "summary": "每个 .kirin 文件只声明一个 entry。正式 ID 使用 ASCII；作者注释和长说明可以使用中文。",
+    "keywords": ["entry", "header", "comment", "prose", "文档", "注释", "说明"],
+    "rules": [
+      "文件以 @kirin 1 和 @entry ID 开始。",
+      "// 行是作者注释，不参与 schema。",
+      "成对的三个或更多连字符包围长说明文本。"
+    ],
+    "exampleTitle": "最小可计算文档",
+    "code": "@kirin 1\n@entry quick_start\n\n// 最小可计算条目\n\n---\n这里可以解释来源、假设和适用范围。\n---\n\ninputs:\n  x \"输入\": number[dimensionless] = 0.25 in 0..1\n\noutputs:\n  result \"结果\": dimensionless = 1 + x\n"
+  },
+  {
+    "id": "members",
+    "title": "输入、字段、函数与输出",
+    "summary": "输入保存可变参数，字段保存常量或派生值，函数声明显式参数，输出定义作者希望公开计算的结果。",
+    "keywords": ["inputs", "fields", "functions", "outputs", "constraints", "if_else", "输入", "字段", "函数", "输出", "约束"],
+    "rules": [
+      "输入可以声明默认值、范围、整数要求或有限允许值。",
+      "字段、函数和输出必须声明单位或值域。",
+      "约束和函数体使用受限表达式，不执行用户代码。"
+    ],
+    "exampleTitle": "带约束和函数的条目",
+    "code": "@kirin 1\n@entry members_demo\n\ninputs:\n  x \"比例\": probability = 0.25\n  enabled \"启用\": boolean = true\n\nconstraints:\n  x >= 0\n  x <= 1\n\nfields:\n  base \"基础值\": dimensionless = 2\n\nfunctions:\n  scale(n: number[dimensionless]) -> dimensionless =\n    base * n\n\noutputs:\n  result \"结果\": dimensionless =\n    if_else(enabled, scale(1 + x), 0)\n"
+  },
+  {
+    "id": "aliases",
+    "title": "中文别名与显示标签",
+    "summary": "正式身份保持稳定的 ASCII ID；局部中文别名方便写公式，双引号标签只改变呈现。",
+    "keywords": ["aliases", "label", "unicode", "canonical", "别名", "标签", "正式 ID"],
+    "rules": [
+      "别名只在当前 entry 的公式中生效。",
+      "跨文档、CLI、参数方案和运行记录继续使用 entry.member。",
+      "修改显示标签不会改变依赖关系。"
+    ],
+    "exampleTitle": "局部中文公式名",
+    "code": "@kirin 1\n@entry aliases_demo\n\naliases:\n  基础值 = aliases_demo.base\n\nfields:\n  base \"基础值\": dimensionless = 2\n\noutputs:\n  total \"合计\": dimensionless = 基础值 * 2\n"
+  },
+  {
+    "id": "presets",
+    "title": "分组、参数方案与显示",
+    "summary": "作者可以组织输出、保存常用输入组合并指定显示格式；这些声明仍属于普通源码。",
+    "keywords": ["groups", "presets", "display", "percent", "分组", "参数方案", "显示", "百分比"],
+    "rules": [
+      "分组只组织当前 entry 的输出，不改变数学含义。",
+      "参数方案写入正式限定输入名。",
+      "显示规则影响呈现，不改变精确计算值。"
+    ],
+    "exampleTitle": "保存一个基线方案",
+    "code": "@kirin 1\n@entry presets_demo\n\ninputs:\n  chance \"触发率\": probability = 0.25\n\noutputs:\n  expected \"期望比例\": dimensionless = chance\n\ngroups:\n  summary \"摘要\":\n    expected\n\npresets:\n  baseline \"基线\":\n    presets_demo.chance = 0.5\n\ndisplay:\n  expected: percent digits 1\n"
+  },
+  {
+    "id": "tables",
+    "title": "查表与插值",
+    "summary": "有版本边界的离散系数可以直接写成有序查表，并选择精确匹配或区间内线性插值。",
+    "keywords": ["tables", "lookup", "interpolate", "查表", "插值", "系数"],
+    "rules": [
+      "表必须声明输入和输出单位。",
+      "lookup 要求精确键；interpolate 在表的范围内线性插值。",
+      "十进制在 Kirin 中保持精确，不需要加引号。"
+    ],
+    "exampleTitle": "等级系数表",
+    "code": "@kirin 1\n@entry table_demo\n\ninputs:\n  level \"等级\": number[dimensionless] = 2 in 1..3\n\ntables:\n  rating \"等级换算\": dimensionless -> dimensionless:\n    1 = 10\n    3 = 30\n\noutputs:\n  smooth \"插值结果\": dimensionless = interpolate(rating, level)\n"
+  },
+  {
+    "id": "distributions",
+    "title": "有限离散分布",
+    "summary": "用精确结果与概率声明有限分布，再显式求期望、方差或某一结果的概率；Kirin 不做随机采样。",
+    "keywords": ["distributions", "expectation", "variance", "probability", "分布", "期望", "方差", "概率"],
+    "rules": [
+      "所有概率必须位于 0..1，并精确归一化为 1。",
+      "独立组合与重复必须由作者显式声明。",
+      "分布不能被当作普通标量直接使用。"
+    ],
+    "exampleTitle": "一次有限触发",
+    "code": "@kirin 1\n@entry distribution_demo\n\ninputs:\n  chance \"触发率\": probability = 0.25\n\ndistributions:\n  proc \"触发结果\": dimensionless:\n    0 @ 1 - chance\n    1 @ chance\n\noutputs:\n  mean \"期望\": dimensionless = expectation(proc)\n  spread \"方差\": dimensionless = variance(proc)\n  triggered \"触发概率\": dimensionless = probability(proc, 1)\n"
+  },
+  {
+    "id": "recurrences",
+    "title": "有限递推",
+    "summary": "递推从初始值出发执行静态有界的纯函数步骤，不创建可变运行时状态或事件时间线。",
+    "keywords": ["recurrences", "initial", "steps", "next", "递推", "步数", "失败保护"],
+    "rules": [
+      "步数必须是常量或具有静态有限范围的整数输入。",
+      "current 和 index 只在 next 表达式中生效。",
+      "最多展开 1,000 步。"
+    ],
+    "exampleTitle": "有限增长递推",
+    "code": "@kirin 1\n@entry recurrence_demo\n\ninputs:\n  step_count \"步数\": count = 3 in 0..10\n\nrecurrences:\n  growth \"累计值\": dimensionless:\n    initial = 1\n    steps = step_count\n    next(current, index) = current + 1\n\noutputs:\n  result \"递推结果\": dimensionless = growth\n"
+  },
+  {
+    "id": "state-models",
+    "title": "有限状态解析模型",
+    "summary": "有限状态模型精确求稳态、奖励、到达概率和期望步数；它不是战斗事件模拟器。",
+    "keywords": ["state_models", "steady_probability", "steady_reward", "hitting_probability", "expected_steps", "状态", "稳态", "奖励"],
+    "rules": [
+      "每个状态都必须具有出边，且每一行概率精确归一化。",
+      "奖励可选，但声明后必须覆盖每个状态并保持单位一致。",
+      "非唯一稳态或奇异线性系统会明确失败。"
+    ],
+    "exampleTitle": "两状态触发循环",
+    "code": "@kirin 1\n@entry state_demo\n\nstate_models:\n  cycle \"触发循环\":\n    states:\n      ready\n      cooldown\n    transitions:\n      ready -> ready @ 3/4\n      ready -> cooldown @ 1/4\n      cooldown -> ready @ 1\n    rewards:\n      value \"状态奖励\": dimensionless:\n        ready = 1\n        cooldown = 0\n\noutputs:\n  ready_share \"可用占比\": dimensionless =\n    steady_probability(cycle, ready)\n  long_run_value \"长期奖励\": dimensionless =\n    steady_reward(cycle, value)\n"
+  },
+  {
+    "id": "semantics",
+    "title": "量纲、单位与值域",
+    "summary": "游戏词汇由普通 entry 声明；内核只提供游戏中立的数学基础，不根据名字猜测单位。",
+    "keywords": ["dimensions", "units", "domains", "dimensionless", "量纲", "单位", "值域", "语义"],
+    "rules": [
+      "同名语义必须具有相同数学结构。",
+      "单位比例使用精确数值和量纲代数。",
+      "值域可以组合范围、整数要求和有限允许值。"
+    ],
+    "exampleTitle": "自定义强度语义",
+    "code": "@kirin 1\n@entry semantics_demo\n\ndimensions:\n  power \"强度\"\n\nunits:\n  power = power\n\ndomains:\n  rank: number[dimensionless] in 1..3 integer\n\ninputs:\n  base \"基础强度\": power = 10\n  level \"等级\": rank = 2\n\noutputs:\n  result \"最终强度\": power = base * level\n"
+  },
+  {
+    "id": "charts",
+    "title": "图表投影与导出",
+    "summary": "图表配置和公式保存在同一个 entry 中；预览自动出现，导出仍需要作者明确选择路径。",
+    "keywords": ["chart", "x", "range", "points", "y", "export", "图表", "曲线", "导出"],
+    "rules": [
+      "出现任一图表键时，x、range、points 和至少一个 y 必须一起完整声明。",
+      "as 后的标签只影响曲线显示。",
+      "导出路径默认必须位于工作区内，已有文件不会被静默覆盖。"
+    ],
+    "exampleTitle": "一条自动预览曲线",
+    "code": "@kirin 1\n@entry chart_demo\n\ninputs:\n  x_value \"横轴\": number[dimensionless] = 0 in 0..1\n\noutputs:\n  result \"平方\": dimensionless = x_value ** 2\n\nx: chart_demo.x_value\nrange: 0..1\npoints: 21\n\ny:\n  chart_demo.result as \"平方曲线\"\n\ntitle: \"示例曲线\"\nx-label: \"输入\"\ny-label: \"结果\"\n"
+  }
+]

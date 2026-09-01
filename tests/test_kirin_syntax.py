@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,23 @@ outputs:
   result: dimensionless = scaled
   doubled: dimensionless = multiply(2)
 """
+
+
+def test_bundled_syntax_reference_examples_are_complete_and_valid(tmp_path: Path) -> None:
+    reference_path = Path(__file__).parents[1] / "frontend" / "src" / "syntax-reference.json"
+    sections = json.loads(reference_path.read_text(encoding="utf-8"))
+    assert len(sections) >= 8
+    assert len({section["id"] for section in sections}) == len(sections)
+
+    for section in sections:
+        assert section["title"] and section["summary"] and section["rules"]
+        root = initialize(tmp_path / section["id"])
+        (root / "entries" / f"{section['id']}.kirin").write_text(
+            section["code"],
+            encoding="utf-8",
+        )
+        result = Engine(Workspace.load(root)).validate_all()
+        assert result["status"] == "ok", section["id"]
 
 
 @pytest.mark.parametrize(

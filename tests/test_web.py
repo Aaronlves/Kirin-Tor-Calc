@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -103,6 +104,50 @@ def test_web_validates_saves_and_calculates_from_shared_services(example_workspa
         assert status == 200
         assert saved["saved"][0]["path"] == relative
         assert source_path.read_text(encoding="utf-8") == modified
+
+
+def test_web_operation_jobs_report_stages_and_results(example_workspace: Path) -> None:
+    with RunningServer(example_workspace) as running:
+        status, _headers, body = running.request(
+            "/api/operation/job",
+            {"action": "start", "operation": "version", "payload": {}, "overlays": {}},
+        )
+        job = decoded(body)
+        assert status == 200
+        assert job["state"] in {"running", "completed"}
+        assert job["stage"] in {"executing", "completed"}
+        deadline = time.monotonic() + 5
+        while job["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.05)
+            job = decoded(running.request(
+                "/api/operation/job",
+                {"action": "status", "job_id": job["job_id"]},
+            )[2])
+        assert job["state"] == "completed"
+        assert job["cancellable"] is False
+        assert job["result"]["status"] == "ok"
+
+        slow = decoded(running.request(
+            "/api/operation/job",
+            {
+                "action": "start",
+                "operation": "scan",
+                "payload": {
+                    "x": "combo.crit",
+                    "range": "0:1",
+                    "points": 10_000,
+                    "targets": ["combo.total"],
+                    "timeout": 300,
+                },
+                "overlays": {},
+            },
+        )[2])
+        cancelled = decoded(running.request(
+            "/api/operation/job",
+            {"action": "cancel", "job_id": slow["job_id"]},
+        )[2])
+        assert cancelled["state"] == "cancelled"
+        assert cancelled["error"]["code"] == "operation_cancelled"
 
 
 def test_web_creates_static_template_drafts_without_writing(example_workspace: Path) -> None:

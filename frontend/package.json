@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/clean-generated-assets.mjs",
     "test": "npm run test:e2e",
     "test:e2e": "npm run build && playwright test",
+    "test:bundle": "node scripts/check-bundle-size.mjs",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },
@@ -30,6 +31,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -1,0 +1,1 @@
+import{J as e,L as t,W as n}from"./createLucideIcon-fs27rAxj.js";import{t as r}from"./InputBase-DLbSOsHj.js";var i=e(),a=t(e=>{let t=n([`Input`,`InputWrapper`,`TextInput`],null,e);return(0,i.jsx)(r,{component:`input`,...t,__staticSelector:`TextInput`})});a.classes=r.classes,a.displayName=`@mantine/core/TextInput`;export{a as t};

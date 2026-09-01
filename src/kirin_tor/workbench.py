@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
+import re
+import subprocess
 import threading
 import uuid
 from pathlib import Path
@@ -74,6 +77,80 @@ def _hash_text(text: str) -> str:
 
 def _validate_workspace(workspace: Workspace) -> dict:
     return Engine(workspace).validate_all()
+
+
+def _plain_replace(text: str, query: str, replacement: str, case_sensitive: bool) -> tuple[str, int]:
+    if case_sensitive:
+        return text.replace(query, replacement), text.count(query)
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    return pattern.subn(lambda _match: replacement, text)
+
+
+def _source_offset(text: str, line: int, column: int) -> int:
+    lines = text.splitlines(keepends=True)
+    if line < 1 or line > len(lines):
+        raise WorkspaceError("authoring location is outside the duplicated source")
+    return sum(len(item) for item in lines[:line - 1]) + max(0, column - 1)
+
+
+def _three_way_merge(base: str, draft: str, disk: str) -> dict:
+    if draft == disk:
+        return {"text": draft, "clean": True, "conflicts": 0}
+    if draft == base:
+        return {"text": disk, "clean": True, "conflicts": 0}
+    if disk == base:
+        return {"text": draft, "clean": True, "conflicts": 0}
+
+    base_lines = base.splitlines(keepends=True)
+
+    def edits(other: str) -> list[tuple[int, int, list[str]]]:
+        other_lines = other.splitlines(keepends=True)
+        matcher = difflib.SequenceMatcher(a=base_lines, b=other_lines, autojunk=False)
+        return [
+            (i1, i2, other_lines[j1:j2])
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes()
+            if tag != "equal"
+        ]
+
+    draft_edits = edits(draft)
+    disk_edits = edits(disk)
+
+    def overlaps(left: tuple[int, int, list[str]], right: tuple[int, int, list[str]]) -> bool:
+        left_start, left_end, _ = left
+        right_start, right_end, _ = right
+        if left_start == left_end and right_start == right_end:
+            return left_start == right_start
+        if left_start == left_end:
+            return right_start <= left_start < right_end
+        if right_start == right_end:
+            return left_start <= right_start < left_end
+        return max(left_start, right_start) < min(left_end, right_end)
+
+    conflicts = 0
+    for draft_edit in draft_edits:
+        for disk_edit in disk_edits:
+            if draft_edit == disk_edit:
+                continue
+            if overlaps(draft_edit, disk_edit):
+                conflicts += 1
+    if conflicts:
+        merged = (
+            "<<<<<<< WORKBENCH DRAFT\n"
+            + draft.rstrip("\n")
+            + "\n=======\n"
+            + disk.rstrip("\n")
+            + "\n>>>>>>> DISK VERSION\n"
+        )
+        return {"text": merged, "clean": False, "conflicts": conflicts}
+
+    combined: list[tuple[int, int, list[str]]] = list(draft_edits)
+    for edit in disk_edits:
+        if edit not in combined:
+            combined.append(edit)
+    merged_lines = list(base_lines)
+    for start, end, replacement in sorted(combined, key=lambda item: (item[0], item[1]), reverse=True):
+        merged_lines[start:end] = replacement
+    return {"text": "".join(merged_lines), "clean": True, "conflicts": 0}
 
 
 def package_summary(resolution) -> dict:
@@ -456,6 +533,101 @@ class Workbench:
                 "text": draft.source_text,
             }
 
+    def document_action(
+        self,
+        action: str,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        with self._lock:
+            data = dict(payload or {})
+            parsed = self._overlays(overlays)
+            if parsed:
+                raise WorkspaceError("save or discard all drafts before changing document files")
+            key = str(data.get("key", ""))
+            source_path = self._local_path(key)
+            source_text = source_path.read_text(encoding="utf-8")
+            expected = data.get("expected_sha256")
+            if isinstance(expected, str) and expected and _hash_text(source_text) != expected:
+                raise WorkspaceError(
+                    "document changed outside the workbench; reload before changing its file",
+                    SourceLocation(path=key),
+                )
+
+            if action == "move":
+                destination_key = str(data.get("destination", ""))
+                destination = self._local_path(destination_key, new=True)
+                if destination.exists():
+                    raise WorkspaceError(f"document already exists: {destination_key}")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(source_path, destination)
+                return {
+                    "status": "ok",
+                    "action": action,
+                    "path": destination.relative_to(self.root).as_posix(),
+                    "source_sha256": _hash_text(source_text),
+                }
+
+            if action == "duplicate":
+                document_id = str(data.get("document_id", ""))
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", document_id):
+                    raise ParameterError("document_id must be an ASCII identifier")
+                destination = self._local_path(f"entries/{document_id}.kirin", new=True)
+                if destination.exists():
+                    raise WorkspaceError(f"document already exists: entries/{document_id}.kirin")
+                header = re.search(r"^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$", source_text, re.MULTILINE)
+                if header is None:
+                    raise WorkspaceError(f"document has no @entry identity: {key}")
+                old_id = header.group(1)
+                duplicated = source_text[:header.start(1)] + document_id + source_text[header.end(1):]
+                authoring = build_authoring_index(self._authoring_sources({destination.resolve(): duplicated}))
+                edits = []
+                destination_key = destination.relative_to(self.root).as_posix()
+                for reference in authoring["references"]:
+                    location = reference["location"]
+                    text = reference["text"]
+                    if location["key"] != destination_key or not text.startswith(f"{old_id}."):
+                        continue
+                    edits.append((
+                        _source_offset(duplicated, location["line"], location["column"]),
+                        _source_offset(duplicated, location["line"], location["end_column"]),
+                        f"{document_id}.{text.split('.', 1)[1]}",
+                    ))
+                for start, end, replacement in sorted(edits, reverse=True):
+                    duplicated = duplicated[:start] + replacement + duplicated[end:]
+                candidate = {destination: duplicated}
+                workspace = Workspace.load_with_overlays(self.root, candidate)
+                run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
+                return {
+                    "status": "ok",
+                    "action": action,
+                    "path": destination.relative_to(self.root).as_posix(),
+                    "kind": "entry",
+                    "id": document_id,
+                    "text": duplicated,
+                }
+
+            if action == "remove":
+                trash_root = self.root / ".kirin" / "trash" / "documents"
+                trash_root.mkdir(parents=True, exist_ok=True)
+                trash_path = trash_root / f"{uuid.uuid4().hex}-{source_path.name}"
+                os.replace(source_path, trash_path)
+                try:
+                    workspace = Workspace.load(self.root)
+                    run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
+                except Exception:
+                    source_path.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(trash_path, source_path)
+                    raise
+                return {
+                    "status": "ok",
+                    "action": action,
+                    "path": key,
+                    "trash_path": trash_path.relative_to(self.root).as_posix(),
+                }
+
+            raise ParameterError(f"unknown document action: {action}")
+
     def completions(self, key: str, prefix: str, overlays: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
             path = self._local_path(key, new=True)
@@ -515,6 +687,104 @@ class Workbench:
                 workspace = Workspace.load_with_overlays(self.root, candidate)
                 run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
                 return result
+            if action == "search":
+                query = str(data.get("query", ""))
+                if not query:
+                    raise ParameterError("search query must not be empty")
+                case_sensitive = bool(data.get("case_sensitive"))
+                needle = query if case_sensitive else query.casefold()
+                matches = []
+                for source in sources:
+                    for line_number, line in enumerate(source.text.splitlines(), start=1):
+                        haystack = line if case_sensitive else line.casefold()
+                        start = 0
+                        while len(matches) < 1000:
+                            column = haystack.find(needle, start)
+                            if column < 0:
+                                break
+                            matches.append({
+                                "key": source.key,
+                                "path": source.path,
+                                "line": line_number,
+                                "column": column + 1,
+                                "preview": line.strip(),
+                                "read_only": source.read_only,
+                            })
+                            start = column + max(1, len(needle))
+                    if len(matches) >= 1000:
+                        break
+                return {"status": "ok", "matches": matches, "truncated": len(matches) >= 1000}
+            if action == "replace":
+                query = str(data.get("query", ""))
+                replacement = str(data.get("replacement", ""))
+                if not query:
+                    raise ParameterError("replace query must not be empty")
+                case_sensitive = bool(data.get("case_sensitive"))
+                changes = []
+                replacements = 0
+                for source in sources:
+                    if source.read_only:
+                        continue
+                    rendered, count = _plain_replace(source.text, query, replacement, case_sensitive)
+                    if count:
+                        replacements += count
+                        if replacements > 5000:
+                            raise ParameterError("workspace replacement exceeds 5,000 edits")
+                        changes.append({
+                            "key": source.key,
+                            "path": source.path,
+                            "before": source.text,
+                            "text": rendered,
+                            "edits": count,
+                        })
+                return {"status": "ok", "changes": changes, "edits": replacements}
+            if action == "merge":
+                base = data.get("base")
+                draft = data.get("draft")
+                disk = data.get("disk")
+                if not all(isinstance(value, str) for value in (base, draft, disk)):
+                    raise ParameterError("merge requires base, draft, and disk source text")
+                return {"status": "ok", **_three_way_merge(base, draft, disk)}
+            if action == "git_history":
+                try:
+                    top = subprocess.run(
+                        ["git", "rev-parse", "--show-toplevel"],
+                        cwd=self.root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    ).stdout.strip()
+                    log = subprocess.run(
+                        ["git", "log", "-n", "20", "--date=iso-strict", "--pretty=format:%H%x09%ad%x09%s"],
+                        cwd=self.root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    ).stdout
+                    status = subprocess.run(
+                        ["git", "status", "--short", "--", "."],
+                        cwd=self.root,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    ).stdout.splitlines()
+                except (FileNotFoundError, subprocess.SubprocessError):
+                    return {"status": "ok", "available": False, "commits": [], "working_tree": []}
+                commits = []
+                for line in log.splitlines():
+                    parts = line.split("\t", 2)
+                    if len(parts) == 3:
+                        commits.append({"sha": parts[0], "date": parts[1], "subject": parts[2]})
+                return {
+                    "status": "ok",
+                    "available": True,
+                    "root": top,
+                    "commits": commits,
+                    "working_tree": status,
+                }
             raise ParameterError(f"unknown authoring action: {action}")
 
     def list_runs(self) -> list[dict]:

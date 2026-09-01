@@ -1,0 +1,10 @@
+*, *::before, *::after {
+  animation-duration: 0s !important;
+  caret-color: transparent !important;
+  transition-duration: 0s !important;
+}
+
+.cm-cursor,
+.cm-dropCursor {
+  visibility: hidden !important;
+}
