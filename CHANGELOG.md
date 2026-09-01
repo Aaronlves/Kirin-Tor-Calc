@@ -7,6 +7,7 @@
 - Added `kt package new` and `kt package check` author workflows with a GitHub Actions template; community repositories remain the source authority and package code or hooks are never executed.
 - Made new workspaces entirely game-neutral, removed the bundled WoW starter, and moved probability, integer/count domains, and physical time units into the game-neutral mathematical core.
 - Added package provenance to CLI/TUI views and immutable run snapshots, enforced declared package dependency and semantic boundaries, and preserved replay after package removal.
+- Allowed data-only Package functions to transform workspace-supplied arguments without treating caller provenance as Package read authority; direct or undeclared Package reads remain rejected.
 
 - Added the author-facing `.kirin` v1 source format as the sole workspace authority for entries, plots, dimensions, units, and domains.
 - Added the `kirin.workspace` marker plus the `.kirin` WoW starter package and examples.

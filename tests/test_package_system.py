@@ -255,6 +255,80 @@ def test_package_cannot_use_an_undeclared_sibling_package(tmp_path: Path) -> Non
         Engine(Workspace.load(workspace)).validate_all()
 
 
+def test_package_function_accepts_workspace_local_arguments_without_read_authority(
+    tmp_path: Path,
+) -> None:
+    package = _package(
+        tmp_path / "package",
+        document_id="community_example_functions",
+    )
+    (package / "entries" / "value.kirin").write_text(
+        """@kirin 1
+@entry community_example_functions
+
+functions:
+  double(x: dimensionless) -> dimensionless = 2 * x
+""",
+        encoding="utf-8",
+    )
+    workspace = initialize(tmp_path / "workspace")
+    (workspace / "entries" / "consumer.kirin").write_text(
+        """@kirin 1
+@entry local_consumer
+
+inputs:
+  x: number[dimensionless] = 3
+
+outputs:
+  result: dimensionless = community_example_functions.double(x)
+""",
+        encoding="utf-8",
+    )
+    requirements = WorkspaceRequirements(
+        workspace,
+        (WorkspaceRequirement("example", f"path:{package}", "1.0.0"),),
+    )
+    _resolve_and_lock(workspace, requirements)
+
+    engine = Engine(Workspace.load(workspace))
+    assert engine.validate_all()["status"] == "ok"
+    assert evaluate(engine, "local_consumer.result")["exact"] == "6"
+
+
+def test_package_function_cannot_read_workspace_local_entries(tmp_path: Path) -> None:
+    package = _package(
+        tmp_path / "package",
+        document_id="community_example_functions",
+    )
+    (package / "entries" / "value.kirin").write_text(
+        """@kirin 1
+@entry community_example_functions
+
+functions:
+  add_local(x: dimensionless) -> dimensionless = x + local_authority.amount
+""",
+        encoding="utf-8",
+    )
+    workspace = initialize(tmp_path / "workspace")
+    (workspace / "entries" / "authority.kirin").write_text(
+        """@kirin 1
+@entry local_authority
+
+fields:
+  amount: dimensionless = 2
+""",
+        encoding="utf-8",
+    )
+    requirements = WorkspaceRequirements(
+        workspace,
+        (WorkspaceRequirement("example", f"path:{package}", "1.0.0"),),
+    )
+    _resolve_and_lock(workspace, requirements)
+
+    with pytest.raises(SchemaError, match="references workspace-local entry 'local_authority'"):
+        Engine(Workspace.load(workspace)).validate_all()
+
+
 def test_package_cannot_use_undeclared_sibling_semantics(tmp_path: Path) -> None:
     base = _package(
         tmp_path / "base",

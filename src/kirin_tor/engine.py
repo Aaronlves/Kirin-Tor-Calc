@@ -307,6 +307,7 @@ class Engine:
             )
         local_values = {}
         argument_conditions = []
+        argument_dependencies: Set[str] = set()
         location = entry.location(f"functions.{function_name}")
         for name, arg in zip(names, args):
             spec = _parse_input(name, params_raw[name], location, self.workspace.units)
@@ -320,7 +321,20 @@ class Engine:
                     f"argument {name!r} of {entry_id}.{function_name} expects {spec.unit_name}, got {arg.dimension.render()}",
                     location,
                 )
-            local_values[name] = arg
+            # A package function may transform values supplied by its caller without gaining
+            # authority to read the caller's documents. Compile the function body with the
+            # argument provenance removed, validate only dependencies introduced by that body,
+            # and restore caller provenance on the returned value below. This keeps transitive
+            # calculation records complete while preserving the package dependency boundary.
+            argument_dependencies.update(arg.dependencies)
+            local_values[name] = MathValue(
+                arg.expr,
+                arg.dimension,
+                list(arg.conditions),
+                dict(arg.inputs),
+                dependencies=set(),
+                is_boolean=arg.is_boolean,
+            )
             argument_conditions.extend(self.input_conditions(spec, arg.expr))
         self._stack.append(stack_key)
         try:
@@ -341,8 +355,9 @@ class Engine:
                 value.dimension = expected
             value.dependencies.add(entry.id)
             self._check_expanded_size(value.expr)
-            self._check_dependency_count(value)
             self._check_package_dependency_scope(entry, value, location)
+            value.dependencies.update(argument_dependencies)
+            self._check_dependency_count(value)
             return value
         finally:
             self._stack.pop()
