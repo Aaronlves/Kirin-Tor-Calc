@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .errors import SchemaError, SourceLocation
 from .limits import MAX_SOURCE_BYTES
 from .process_ast import ProcessAst
+from .scenario_ast import AnalysisAst, ScenarioAst
 
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -35,6 +36,8 @@ class ParsedKirinSource:
     raw: Dict[str, Any]
     positions: Dict[str, Tuple[int, int]]
     process_asts: Tuple[ProcessAst, ...] = ()
+    scenario_asts: Tuple[ScenarioAst, ...] = ()
+    analysis_asts: Tuple[AnalysisAst, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,8 @@ class LoadedKirinDocument:
     sha256: str
     positions: Dict[str, Tuple[int, int]]
     process_asts: Tuple[ProcessAst, ...] = ()
+    scenario_asts: Tuple[ScenarioAst, ...] = ()
+    analysis_asts: Tuple[AnalysisAst, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -334,8 +339,12 @@ def parse_kirin_source(
 
     from .kirin_v2 import parse_kirin_v2_source
 
-    raw, positions, process_asts = parse_kirin_v2_source(text, path)
-    return ParsedKirinSource(raw, positions, process_asts)
+    raw, positions, process_asts, scenario_asts, analysis_asts = parse_kirin_v2_source(
+        text, path
+    )
+    return ParsedKirinSource(
+        raw, positions, process_asts, scenario_asts, analysis_asts
+    )
 
 
 def render_kirin_document(document: Any) -> str:
@@ -346,10 +355,16 @@ def render_kirin_document(document: Any) -> str:
     if isinstance(document, dict):
         raw = document
         process_asts: Tuple[ProcessAst, ...] = ()
+        scenario_asts: Tuple[ScenarioAst, ...] = ()
+        analysis_asts: Tuple[AnalysisAst, ...] = ()
     else:
         raw = document.raw
         process_asts = tuple(getattr(document, "process_asts", ()))
-    return render_kirin_v2_document(raw, process_asts)
+        scenario_asts = tuple(getattr(document, "scenario_asts", ()))
+        analysis_asts = tuple(getattr(document, "analysis_asts", ()))
+    return render_kirin_v2_document(
+        raw, process_asts, scenario_asts, analysis_asts
+    )
 
 
 def load_kirin_document(
@@ -386,4 +401,6 @@ def load_kirin_document(
         hashlib.sha256(raw_bytes).hexdigest(),
         parsed.positions,
         parsed.process_asts,
+        parsed.scenario_asts,
+        parsed.analysis_asts,
     )

@@ -33,6 +33,8 @@ from .units import Dimension, DomainSpec, UnitRegistry
 if TYPE_CHECKING:
     from .process_ast import ProcessAst
     from .process_ir import ProcessIR
+    from .scenario_ast import AnalysisAst, ScenarioAst
+    from .scenario_ir import AnalysisIR, ScenarioIR
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -258,6 +260,10 @@ class Entry(Document):
     cycles: Dict[str, "CycleSpec"] = field(default_factory=dict)
     process_asts: Tuple["ProcessAst", ...] = ()
     processes: Dict[str, "ProcessIR"] = field(default_factory=dict)
+    scenario_asts: Tuple["ScenarioAst", ...] = ()
+    scenarios: Dict[str, "ScenarioIR"] = field(default_factory=dict)
+    analysis_asts: Tuple["AnalysisAst", ...] = ()
+    analyses: Dict[str, "AnalysisIR"] = field(default_factory=dict)
     x: Optional[str] = None
     range_start: Optional[str] = None
     range_end: Optional[str] = None
@@ -763,6 +769,8 @@ def parse_document(
     positions: Optional[Dict[str, Tuple[int, int]]] = None,
     package_origin: Optional[PackageOrigin] = None,
     process_asts: Optional[Tuple["ProcessAst", ...]] = None,
+    scenario_asts: Optional[Tuple["ScenarioAst", ...]] = None,
+    analysis_asts: Optional[Tuple["AnalysisAst", ...]] = None,
 ) -> Document:
     registry = registry or UnitRegistry()
     positions = positions or {}
@@ -1788,6 +1796,23 @@ def parse_document(
         )
         processes = {process.id: process for process in lowered_processes}
 
+        if scenario_asts is None or analysis_asts is None:
+            from .scenario_parser import parse_analysis_asts, parse_scenario_asts
+
+            if scenario_asts is None:
+                scenario_asts = parse_scenario_asts(text, path)
+            if analysis_asts is None:
+                analysis_asts = parse_analysis_asts(text, path)
+        for declaration, kind in (
+            *((item, "scenario") for item in scenario_asts),
+            *((item, "analysis") for item in analysis_asts),
+        ):
+            if declaration.id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {declaration.id!r}", declaration.location
+                )
+            occupied.add(declaration.id)
+
         semantics = dict(require_mapping(raw.get("semantics", {}), "semantics", root_location))
         return Entry(
             **base,
@@ -1812,6 +1837,8 @@ def parse_document(
             cycles=cycles,
             process_asts=process_asts,
             processes=processes,
+            scenario_asts=scenario_asts,
+            analysis_asts=analysis_asts,
             **chart,
         )
 
@@ -1830,4 +1857,6 @@ def load_document(path: Path, registry: Optional[UnitRegistry] = None) -> Docume
         registry,
         loaded.positions,
         process_asts=loaded.process_asts,
+        scenario_asts=loaded.scenario_asts,
+        analysis_asts=loaded.analysis_asts,
     )

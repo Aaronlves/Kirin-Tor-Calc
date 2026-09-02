@@ -22,6 +22,7 @@ from .limits import MAX_SOURCE_BYTES, MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_SOU
 from .package_manifest import package_source_paths
 from .package_store import PackageResolution, locked_workspace_resolution
 from .process_ir import ProcessIR
+from .scenario_ir import AnalysisIR, ScenarioIR
 from .units import UnitRegistry
 
 
@@ -60,6 +61,7 @@ class Workspace:
                     SourceLocation(path=str(document.path), entry_id=document.id),
                 )
             self.documents[document.id] = document
+        self._lower_scenarios_and_analyses()
         self._validate_package_semantic_scopes()
 
     @property
@@ -86,6 +88,40 @@ class Workspace:
             for process in entry.processes.values():
                 result[process.qualified_id] = process
         return result
+
+    @property
+    def scenarios(self) -> Dict[str, ScenarioIR]:
+        result: Dict[str, ScenarioIR] = {}
+        for entry in self.entries.values():
+            for scenario in entry.scenarios.values():
+                result[scenario.qualified_id] = scenario
+        return result
+
+    @property
+    def analyses(self) -> Dict[str, AnalysisIR]:
+        result: Dict[str, AnalysisIR] = {}
+        for entry in self.entries.values():
+            for analysis in entry.analyses.values():
+                result[analysis.qualified_id] = analysis
+        return result
+
+    def _lower_scenarios_and_analyses(self) -> None:
+        """Resolve composition only after every Process has been loaded."""
+
+        from .scenario_lowering import lower_analysis_asts, lower_scenario_asts
+
+        processes = self.processes
+        for entry in self.entries.values():
+            lowered = lower_scenario_asts(
+                entry.scenario_asts, self.units, processes
+            )
+            entry.scenarios = {scenario.id: scenario for scenario in lowered}
+        scenarios = self.scenarios
+        for entry in self.entries.values():
+            lowered = lower_analysis_asts(
+                entry.analysis_asts, self.units, scenarios
+            )
+            entry.analyses = {analysis.id: analysis for analysis in lowered}
 
     def allowed_package_sources(self, source: str) -> Optional[set[str]]:
         """Return one package's declared dependency closure, or None for snapshots."""
@@ -298,7 +334,8 @@ class Workspace:
                     return
                 if (
                     is_dataclass(value)
-                    and type(value).__module__ == "kirin_tor.process_ir"
+                    and type(value).__module__
+                    in {"kirin_tor.process_ir", "kirin_tor.scenario_ir"}
                 ):
                     node_location = getattr(value, "location", None) or location
                     for item in fields(value):
@@ -309,6 +346,14 @@ class Workspace:
             for process in document.processes.values():
                 check_process_value(
                     process, f"processes.{process.id}", process.location
+                )
+            for scenario in document.scenarios.values():
+                check_process_value(
+                    scenario, f"scenarios.{scenario.id}", scenario.location
+                )
+            for analysis in document.analyses.values():
+                check_process_value(
+                    analysis, f"analyses.{analysis.id}", analysis.location
                 )
 
     @classmethod
@@ -336,6 +381,8 @@ class Workspace:
         origins = cls._package_origins(package_resolution)
         raw_documents = []
         process_asts_by_path = {}
+        scenario_asts_by_path = {}
+        analysis_asts_by_path = {}
         for path in paths:
             loaded = cls._load_source_document(path)
             cls._validate_package_source(loaded.raw, path, origins.get(path))
@@ -343,6 +390,8 @@ class Workspace:
                 (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
             )
             process_asts_by_path[path] = loaded.process_asts
+            scenario_asts_by_path[path] = loaded.scenario_asts
+            analysis_asts_by_path[path] = loaded.analysis_asts
         registry = build_semantic_registry(raw_documents)
         documents = [
             parse_document(
@@ -354,6 +403,8 @@ class Workspace:
                 positions,
                 package_origin=origins.get(path),
                 process_asts=process_asts_by_path[path],
+                scenario_asts=scenario_asts_by_path[path],
+                analysis_asts=analysis_asts_by_path[path],
             )
             for raw, text, digest, path, positions in raw_documents
         ]
@@ -408,6 +459,8 @@ class Workspace:
             )
         raw_documents = []
         process_asts_by_path = {}
+        scenario_asts_by_path = {}
+        analysis_asts_by_path = {}
         for path in paths:
             loaded = cls._load_source_document(
                 path, resolved_overlays.get(path)
@@ -417,6 +470,8 @@ class Workspace:
                 (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
             )
             process_asts_by_path[path] = loaded.process_asts
+            scenario_asts_by_path[path] = loaded.scenario_asts
+            analysis_asts_by_path[path] = loaded.analysis_asts
         registry = build_semantic_registry(raw_documents)
         documents = [
             parse_document(
@@ -428,6 +483,8 @@ class Workspace:
                 positions,
                 package_origin=origins.get(path),
                 process_asts=process_asts_by_path[path],
+                scenario_asts=scenario_asts_by_path[path],
+                analysis_asts=analysis_asts_by_path[path],
             )
             for raw, text, digest, path, positions in raw_documents
         ]
@@ -556,6 +613,8 @@ class Workspace:
         origins = cls._package_origins(package_resolution)
         raw_documents = []
         process_asts_by_path = {}
+        scenario_asts_by_path = {}
+        analysis_asts_by_path = {}
         errors = []
         for path in cls._document_paths(root, package_resolution):
             try:
@@ -565,6 +624,8 @@ class Workspace:
                     (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
                 )
                 process_asts_by_path[path] = loaded.process_asts
+                scenario_asts_by_path[path] = loaded.scenario_asts
+                analysis_asts_by_path[path] = loaded.analysis_asts
             except KTError as exc:
                 errors.append(exc)
         try:
@@ -587,6 +648,8 @@ class Workspace:
                         positions,
                         package_origin=origins.get(path),
                         process_asts=process_asts_by_path[path],
+                        scenario_asts=scenario_asts_by_path[path],
+                        analysis_asts=analysis_asts_by_path[path],
                     )
                 )
             except KTError as exc:
@@ -647,6 +710,8 @@ class Workspace:
 
         raw_documents = []
         process_asts_by_path = {}
+        scenario_asts_by_path = {}
+        analysis_asts_by_path = {}
         errors = []
         for path in paths:
             try:
@@ -658,6 +723,8 @@ class Workspace:
                     (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
                 )
                 process_asts_by_path[path] = loaded.process_asts
+                scenario_asts_by_path[path] = loaded.scenario_asts
+                analysis_asts_by_path[path] = loaded.analysis_asts
             except KTError as exc:
                 errors.append(exc)
         try:
@@ -678,6 +745,8 @@ class Workspace:
                         positions,
                         package_origin=origins.get(path),
                         process_asts=process_asts_by_path[path],
+                        scenario_asts=scenario_asts_by_path[path],
+                        analysis_asts=analysis_asts_by_path[path],
                     )
                 )
             except KTError as exc:
@@ -697,6 +766,8 @@ class Workspace:
         virtual_root = Path("/snapshot")
         raw_documents = []
         process_asts_by_path = {}
+        scenario_asts_by_path = {}
+        analysis_asts_by_path = {}
         origins: Dict[Path, PackageOrigin] = {}
         for index, snapshot in enumerate(snapshots):
             raw = snapshot.get("content")
@@ -710,6 +781,8 @@ class Workspace:
             parsed = parse_kirin_source(text, path)
             raw_documents.append((raw, text, digest, path, parsed.positions))
             process_asts_by_path[path] = parsed.process_asts
+            scenario_asts_by_path[path] = parsed.scenario_asts
+            analysis_asts_by_path[path] = parsed.analysis_asts
             package = snapshot.get("package")
             if isinstance(package, dict):
                 required = {
@@ -738,6 +811,8 @@ class Workspace:
                     positions,
                     package_origin=origins.get(path),
                     process_asts=process_asts_by_path[path],
+                    scenario_asts=scenario_asts_by_path[path],
+                    analysis_asts=analysis_asts_by_path[path],
                 )
             )
         return cls(virtual_root, documents, registry)

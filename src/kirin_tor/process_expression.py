@@ -172,7 +172,7 @@ class ProcessExpressionCompiler:
         self.references: Dict[Tuple[str, str, ExpressionSymbolKind], SymbolRefIR] = {}
 
     def compile(
-        self, source: ExpressionAst, expected: ValueTypeIR
+        self, source: ExpressionAst, expected: Optional[ValueTypeIR]
     ) -> TypedExpressionIR:
         self.location = source.location
         self.source = normalize_expression(source.text, self.registry.units)
@@ -206,7 +206,8 @@ class ProcessExpressionCompiler:
             )
         self.references = {}
         expression = self._build(tree.body, expected)
-        self._require_assignable(expression, expected, "expression result")
+        if expected is not None:
+            self._require_assignable(expression, expected, "expression result")
         if len(self.references) > MAX_DIRECT_DEPENDENCIES:
             raise ExpressionError(
                 f"expression exceeds {MAX_DIRECT_DEPENDENCIES} direct dependencies",
@@ -219,7 +220,7 @@ class ProcessExpressionCompiler:
             )
         )
         return TypedExpressionIR(
-            self.source, expected, references, self.location, expression
+            self.source, expected or expression.value_type, references, self.location, expression
         )
 
     def _include(self, reference: SymbolRefIR) -> ReferenceExpressionIR:
@@ -653,7 +654,7 @@ class ProcessExpressionCompiler:
 
 def compile_process_expression(
     source: ExpressionAst,
-    expected: ValueTypeIR,
+    expected: Optional[ValueTypeIR],
     symbols: Mapping[str, SymbolRefIR],
     registry: UnitRegistry,
 ) -> TypedExpressionIR:

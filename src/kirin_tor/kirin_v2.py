@@ -15,8 +15,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .errors import SchemaError, SourceLocation
-from .limits import MAX_PROCESSES_PER_ENTRY, MAX_STRUCTURE_DEPTH
+from .limits import (
+    MAX_ANALYSES_PER_ENTRY,
+    MAX_PROCESSES_PER_ENTRY,
+    MAX_SCENARIOS_PER_ENTRY,
+    MAX_STRUCTURE_DEPTH,
+)
 from .process_ast import ProcessAst
+from .scenario_ast import AnalysisAst, ScenarioAst
 
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -375,7 +381,13 @@ def _parse_header(text: str, path: Path) -> Tuple[str, str, Optional[str], List[
 
 def parse_kirin_v2_source(
     text: str, path: Path
-) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]], Tuple["ProcessAst", ...]]:
+) -> Tuple[
+    Dict[str, Any],
+    Dict[str, Tuple[int, int]],
+    Tuple[ProcessAst, ...],
+    Tuple[ScenarioAst, ...],
+    Tuple[AnalysisAst, ...],
+]:
     from .kirin_syntax import _parse_dimension_expression, _parse_input_statement, _type_spec
 
     entry_id, entry_name, _description, remaining, metadata, positions = _parse_header(text, path)
@@ -410,11 +422,16 @@ def parse_kirin_v2_source(
     chart_seen = False
     process_asts = []
     process_ids = set()
+    scenario_asts = []
+    scenario_ids = set()
+    analysis_asts = []
+    analysis_ids = set()
 
     reserved = {
         "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
         "function", "output", "group", "preset", "table", "distribution", "recurrence",
-        "state_model", "display", "chart", "type", "cycle", "process",
+        "state_model", "display", "chart", "type", "cycle", "process", "scenario",
+        "analysis",
     }
 
     for node in nodes:
@@ -438,6 +455,48 @@ def parse_kirin_v2_source(
                     f"entry exceeds {MAX_PROCESSES_PER_ENTRY} processes",
                     node.line,
                     "processes",
+                )
+            continue
+        if text_head.startswith("scenario "):
+            from .scenario_parser import _parse_scenario
+
+            scenario_ast = _parse_scenario(node, path, entry_id)
+            if scenario_ast.id in scenario_ids:
+                _fail(
+                    path,
+                    f"duplicate scenario {scenario_ast.id!r}",
+                    node.line,
+                    f"scenarios.{scenario_ast.id}",
+                )
+            scenario_ids.add(scenario_ast.id)
+            scenario_asts.append(scenario_ast)
+            if len(scenario_asts) > MAX_SCENARIOS_PER_ENTRY:
+                _fail(
+                    path,
+                    f"entry exceeds {MAX_SCENARIOS_PER_ENTRY} scenarios",
+                    node.line,
+                    "scenarios",
+                )
+            continue
+        if text_head.startswith("analysis "):
+            from .scenario_parser import _parse_analysis
+
+            analysis_ast = _parse_analysis(node, path, entry_id)
+            if analysis_ast.id in analysis_ids:
+                _fail(
+                    path,
+                    f"duplicate analysis {analysis_ast.id!r}",
+                    node.line,
+                    f"analyses.{analysis_ast.id}",
+                )
+            analysis_ids.add(analysis_ast.id)
+            analysis_asts.append(analysis_ast)
+            if len(analysis_asts) > MAX_ANALYSES_PER_ENTRY:
+                _fail(
+                    path,
+                    f"entry exceeds {MAX_ANALYSES_PER_ENTRY} analyses",
+                    node.line,
+                    "analyses",
                 )
             continue
         if text_head.startswith("dimension "):
@@ -972,7 +1031,13 @@ def parse_kirin_v2_source(
     ):
         if value:
             raw[key] = value
-    return raw, positions, tuple(process_asts)
+    return (
+        raw,
+        positions,
+        tuple(process_asts),
+        tuple(scenario_asts),
+        tuple(analysis_asts),
+    )
 
 
 def _quoted(value: str) -> str:
@@ -992,7 +1057,10 @@ def _render_expression(prefix: str, expression: str, indent: str = "") -> List[s
 
 
 def render_kirin_v2_document(
-    raw: Dict[str, Any], process_asts: Tuple["ProcessAst", ...] = ()
+    raw: Dict[str, Any],
+    process_asts: Tuple[ProcessAst, ...] = (),
+    scenario_asts: Tuple[ScenarioAst, ...] = (),
+    analysis_asts: Tuple[AnalysisAst, ...] = (),
 ) -> str:
     lines = ["@kirin 2"]
     entry_name = raw.get("name", raw["id"])
@@ -1181,6 +1249,16 @@ def render_kirin_v2_document(
         for process in process_asts:
             lines.append("")
             lines.extend(render_process_ast(process))
+
+    if scenario_asts or analysis_asts:
+        from .scenario_renderer import render_analysis_ast, render_scenario_ast
+
+        for scenario in scenario_asts:
+            lines.append("")
+            lines.extend(render_scenario_ast(scenario))
+        for analysis in analysis_asts:
+            lines.append("")
+            lines.extend(render_analysis_ast(analysis))
 
     for name, data in raw.get("tables", {}).items():
         lines.extend(["", _labeled("table", name, data), f"  input = {data['input_unit']}", f"  output = {data['unit']}", "  points:"])

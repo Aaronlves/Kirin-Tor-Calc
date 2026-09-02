@@ -1,8 +1,8 @@
 # Kirin Tor 有界 Process 模型
 
-状态：目标设计；类型化 AST、Process IR、公开 workspace parser/renderer、完整表达式类型检查与安全
-求值、lowering 及 process 内转移冲突验证已经实现，但 scenario、analysis、跨实例 phase 验证和执行器
-尚未实现。
+状态：目标设计；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
+表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证已经实现，但执行器与分析
+操作尚未实现。
 
 本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
 但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以
@@ -317,8 +317,8 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
    所有权引用、事件参数、reducer、phase 和调度 key 的结构验证；九个纸面 Process 均可降低；
 4. **已完成：**改造类型化文档容器与 renderer，并在保证 source 往返不丢失后接入公开 workspace
    parser；
-5. **部分完成：**表达式结果类型、安全求值和单个 process 转移内的写入/调度 key 冲突已经验证；
-   同批跨实例写冲突、phase 先后和统一 fuel 随 scenario 实现完成；
+5. **已完成静态部分：**表达式结果类型、安全求值、单个 process 转移及可枚举场景批次的写入/调度
+   key 冲突、phase 映射与外部事件/决策 fuel 已验证；动态事件链 fuel 由执行器继续落实；
 6. 实现确定性 `run` 与完整 trace；
 7. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
 8. 实现有限随机分支、策略比较和有界优化；

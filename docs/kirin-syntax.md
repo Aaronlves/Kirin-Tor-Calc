@@ -399,11 +399,47 @@ slots, input/output/internal events, guarded actions and handlers, closed flow e
 independent/joint branches, and observations. Value types additionally include `event_id`,
 `list[TYPE, CAPACITY]`, and `map[KEY, VALUE, CAPACITY]`.
 
-At this implementation stage, loading performs structural type/name/ownership/event/phase/key
-validation and preserves complete source round trips. There is no public `scenario` or `analysis`
-declaration yet, and no operation executes a Process. Expression result-type inference, transition
-conflict validation, phase ordering, fuel accounting, and traces remain pending. The full target
-semantics and paper models are documented in [有界 Process 模型](bounded-process-model.md) and
+Loading now performs full Process expression type inference, lowers expressions to a safe immutable
+evaluation IR, and rejects possible duplicate state or schedule-key writes within one transition.
+
+The same source can declare a composition and an analysis request:
+
+```text
+scenario survival:
+  phases:
+    - incoming
+    - decision
+  use actor = delayed_damage:
+    maximum_health = 100 health
+    conversion = 80%
+    phase periodic_tick = incoming
+  every 1/2 second from 1/2 second phase incoming:
+    send actor.incoming_damage(amount = 50 health)
+  decide every 1/2 second from 0 second phase decision:
+    - wait
+  stop when not actor.alive
+  bounds:
+    horizon = 60 second
+    maximum_events = 1000
+    maximum_decisions = 121
+    maximum_branches = 10000
+    maximum_entities = 1
+
+analysis survival_run:
+  using = survival
+  operation = run
+```
+
+`scenario` lowering resolves every Process instance, input, local-to-global phase binding, event
+connection, send, composite action, decision point, observation, stop condition, and mandatory
+fuel bound. It rejects statically enumerable batch conflicts, invalid phase mappings, overlapping
+decision points, and schedules that already exceed their declared event/decision fuel. `analysis`
+resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests and typed objectives.
+
+No operation executes a Process yet, so these declarations currently establish and validate the
+complete composition rather than produce a trace. Runtime fuel accounting and analysis execution
+remain pending. The full contract and complete executable-target examples are documented in
+[有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
 
 ## Chart projection

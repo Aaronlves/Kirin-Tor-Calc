@@ -139,14 +139,15 @@ Process source 不进入旧 raw dictionary。Source parser 生成保留位置的
 的 source 结构，`Entry.processes` 保存已降低的语义结构；canonical renderer 必须接收这个类型化文档
 容器，不能从 raw schema 猜测或重建 Process。
 
-当前加载阶段验证声明命名空间、类型存在性、有界 list/map 容量、状态所有权、事件参数、reducer
-类型族、handler 参数、事件方向、phase 与 schedule key 引用，并对表达式执行受限 AST 与未声明名称
-检查。每个 entry 最多 256 个 Process；每个 Process 最多 1,024 个声明和 4,096 个 effect，effect
-最多嵌套 16 层，集合静态容量最多 10,000。
+当前加载阶段还完成表达式结果类型推导并生成不可变求值节点，验证声明命名空间、类型存在性、有界
+list/map 容量、状态所有权、事件参数、reducer 类型族、handler 参数、事件方向、phase 与 schedule key
+引用，以及单次转移内的写入冲突。每个 entry 最多 256 个 Process；每个 Process 最多 1,024 个声明和
+4,096 个 effect，effect 最多嵌套 16 层，集合静态容量最多 10,000。
 
-这些检查只证明 source 可以无损加载并形成结构正确的 IR。当前没有 scenario/analysis parser、Process
-执行操作、表达式结果类型推导、同批写冲突证明、全局 phase 排序、fuel 消耗或 trace；因此
-`Workspace.load` 成功不能解释为动态机制已经可运行。
+`ScenarioAst`/`ScenarioIR` 与 `AnalysisAst`/`AnalysisIR` 同样位于 raw schema 之外。Workspace 在所有
+Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射和五项 fuel bound，并预检可枚举的
+同时间同 phase 批次冲突、外部事件数量和决策数量。当前尚无 Process 执行操作、运行时 fuel 消耗或
+trace；因此 `Workspace.load` 成功表示完整动态模型已经静态成立，仍不表示分析已经运行。
 
 ## 9. 运行记录与重放
 

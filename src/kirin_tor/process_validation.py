@@ -108,3 +108,24 @@ def validate_process_ir(process: ProcessIR) -> None:
                         _combine(existing, addition, handler.effects[-1] if handler.effects else handler)
                     )
             alternatives = tuple(dict.fromkeys(combined))
+
+
+def possible_handler_footprints(
+    process: ProcessIR, trigger: ProcessMemberRefIR
+) -> Tuple[Tuple[FrozenSet[ProcessMemberRefIR], FrozenSet[Tuple[str, str]]], ...]:
+    """Expose finite transition alternatives for scenario batch validation."""
+
+    handlers = [handler for handler in process.handlers if handler.trigger == trigger]
+    alternatives: Tuple[_Footprint, ...] = (_Footprint(),)
+    for handler in handlers:
+        combined = []
+        for existing in alternatives:
+            for addition in _sequence(handler.effects):
+                combined.append(
+                    _Footprint(
+                        existing.states | addition.states,
+                        existing.schedule_slots | addition.schedule_slots,
+                    )
+                )
+        alternatives = tuple(dict.fromkeys(combined))
+    return tuple((item.states, item.schedule_slots) for item in alternatives)
