@@ -32,19 +32,35 @@ from .expression import (
     parse_exact_number,
 )
 from .limits import (
+    MAX_CYCLE_EFFECTS_PER_STEP,
+    MAX_CYCLE_RESOURCES,
     MAX_DEPENDENCY_DEPTH,
     MAX_DEPENDENCY_DOCUMENTS,
     MAX_EXPANDED_NODES,
     MAX_NUMERIC_PRECISION,
     MAX_RECURRENCE_STEPS,
     MAX_SCAN_POINTS,
+    MAX_STRUCTURE_DEPTH,
 )
-from .schema import Document, Entry, InputSpec, Preset, _parse_input
+from .schema import (
+    Document,
+    Entry,
+    InputSpec,
+    Preset,
+    StructureTypeSpec,
+    StructuredObjectSpec,
+    _parse_input,
+)
 from .units import DIMENSIONLESS, Dimension
 from .workspace import Workspace
 
 
-TARGET_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$")
+TARGET_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+)
+NUMBER_LITERAL_RE = re.compile(
+    r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$"
+)
 
 
 @dataclass
@@ -62,6 +78,7 @@ class Engine:
         self._symbols: Dict[str, sp.Symbol] = {}
         self._symbol_specs: Dict[str, InputSpec] = {}
         self._member_cache: Dict[tuple[str, str], MathValue] = {}
+        self._object_member_cache: Dict[tuple[str, str, tuple[str, ...]], MathValue] = {}
         self._distribution_cache: Dict[tuple[str, str], FiniteDistribution] = {}
         self._state_model_cache: Dict[tuple[str, str], FiniteStateModel] = {}
         self._state_steady_cache: Dict[tuple[str, str], tuple[tuple[sp.Expr, ...], sp.Expr]] = {}
@@ -77,17 +94,20 @@ class Engine:
 
     def target_unit_name(self, target: str, fallback_dimension: Dimension) -> str:
         """Return the unit explicitly chosen for a declared target when available."""
-        match = TARGET_RE.fullmatch(target.strip())
-        if match:
-            entry = self.workspace.entries.get(match.group(1))
+        normalized = target.strip()
+        if TARGET_RE.fullmatch(normalized):
+            parts = normalized.split(".")
+            entry = self.workspace.entries.get(parts[0])
             if entry is not None:
-                member = match.group(2)
+                member = parts[1]
                 if member in entry.inputs:
                     return entry.inputs[member].unit_name
                 if member in entry.fields:
                     return entry.fields[member].get("unit", "dimensionless")
                 if member in entry.outputs:
                     return entry.outputs[member].get("unit", "dimensionless")
+                if member in entry.objects and len(parts) > 2:
+                    return self._object_member_unit(entry, entry.objects[member], tuple(parts[2:]))
         return self.workspace.units.render(fallback_dimension)
 
     def input_symbol(self, name: str, spec: InputSpec) -> sp.Symbol:
@@ -160,9 +180,9 @@ class Engine:
         return conditions
 
     def resolve_target(self, target_or_expression: str) -> MathValue:
-        match = TARGET_RE.fullmatch(target_or_expression.strip())
-        if match and match.group(1) in self.workspace.entries:
-            value = self.resolve_member(match.group(1), match.group(2))
+        normalized = target_or_expression.strip()
+        if TARGET_RE.fullmatch(normalized) and normalized.split(".", 1)[0] in self.workspace.entries:
+            value = self.resolve_path(tuple(normalized.split(".")))
         else:
             value = RestrictedCompiler(self, None, location=SourceLocation(field="expression")).compile(
                 target_or_expression
@@ -173,13 +193,27 @@ class Engine:
 
     def display_label(self, target: str) -> Optional[str]:
         """Return non-authoritative presentation text for a canonical member target."""
-        match = TARGET_RE.fullmatch(target.strip())
-        if not match:
+        normalized = target.strip()
+        if not TARGET_RE.fullmatch(normalized):
             return None
-        entry = self.workspace.entries.get(match.group(1))
+        parts = normalized.split(".")
+        entry = self.workspace.entries.get(parts[0])
         if entry is None:
             return None
-        member = match.group(2)
+        member = parts[1]
+        if member in entry.objects:
+            if len(parts) == 2:
+                return entry.objects[member].label
+            type_spec = self.resolve_structure_type(entry, entry.objects[member].type_name)
+            type_owner = self.workspace.get_entry(type_spec.owner_id)
+            for index, segment in enumerate(parts[2:], start=2):
+                field_spec = type_spec.fields.get(segment)
+                if field_spec is None:
+                    return None
+                if index == len(parts) - 1:
+                    return field_spec.label
+                type_spec = self.resolve_structure_type(type_owner, field_spec.type_name)
+                type_owner = self.workspace.get_entry(type_spec.owner_id)
         if member in entry.inputs:
             return entry.inputs[member].label
         if member in entry.distributions:
@@ -193,6 +227,279 @@ class Engine:
                 label = collection[member].get("label")
                 return label if isinstance(label, str) else None
         return None
+
+    def resolve_structure_type(self, owner: Entry, type_name: str) -> StructureTypeSpec:
+        parts = type_name.split(".")
+        if len(parts) == 2:
+            entry = self.workspace.entries.get(parts[0])
+            if entry is None or parts[1] not in entry.structure_types:
+                raise ReferenceError(f"unknown structure type {type_name!r}")
+            return entry.structure_types[parts[1]]
+        if len(parts) != 1:
+            raise ReferenceError(f"structure type path {type_name!r} must use TYPE or ENTRY.TYPE")
+        if type_name in owner.structure_types:
+            return owner.structure_types[type_name]
+        matches = [
+            entry.structure_types[type_name]
+            for entry in self.workspace.entries.values()
+            if type_name in entry.structure_types
+        ]
+        if not matches:
+            raise ReferenceError(f"unknown structure type {type_name!r}")
+        if len(matches) > 1:
+            choices = ", ".join(sorted(item.qualified_id for item in matches))
+            raise ReferenceError(
+                f"structure type {type_name!r} is ambiguous; use one of: {choices}"
+            )
+        return matches[0]
+
+    def resolve_object_reference(
+        self, reference: str, owner: Entry
+    ) -> tuple[Entry, StructuredObjectSpec]:
+        parts = reference.split(".")
+        if len(parts) == 1:
+            if parts[0] not in owner.objects:
+                raise ReferenceError(
+                    f"entry {owner.id!r} has no structured object {parts[0]!r}"
+                )
+            return owner, owner.objects[parts[0]]
+        if len(parts) == 2:
+            entry = self.workspace.entries.get(parts[0])
+            if entry is None or parts[1] not in entry.objects:
+                raise ReferenceError(f"unknown structured object {reference!r}")
+            return entry, entry.objects[parts[1]]
+        raise ReferenceError(
+            f"structured object reference {reference!r} must use OBJECT or ENTRY.OBJECT"
+        )
+
+    def object_interface(
+        self,
+        owner: Entry,
+        reference: str,
+        interface_name: str,
+    ) -> tuple[Entry, StructuredObjectSpec, Dict[str, str]]:
+        object_owner, obj = self.resolve_object_reference(reference, owner)
+        type_spec = self.resolve_structure_type(object_owner, obj.type_name)
+        interface = type_spec.interfaces.get(interface_name)
+        if interface is None:
+            raise SchemaError(
+                f"type {type_spec.qualified_id!r} does not implement {interface_name!r}",
+                obj.location,
+            )
+        return object_owner, obj, dict(interface)
+
+    def object_interface_value(
+        self,
+        owner: Entry,
+        reference: str,
+        interface_name: str,
+        role: str,
+    ) -> MathValue:
+        object_owner, obj, interface = self.object_interface(
+            owner, reference, interface_name
+        )
+        member_path = interface.get(role)
+        if member_path is None:
+            raise SchemaError(
+                f"interface {interface_name!r} is missing role {role!r}",
+                obj.location,
+            )
+        return self.resolve_object_member(
+            object_owner, obj, tuple(member_path.split("."))
+        )
+
+    def _scalar_type(self, owner: Entry, type_name: str) -> tuple[str, str, Dimension]:
+        if type_name == "boolean":
+            return "boolean", "dimensionless", DIMENSIONLESS
+        if type_name.startswith("number[") and type_name.endswith("]"):
+            unit_name = type_name[7:-1]
+            return "number", unit_name, self.workspace.units.parse_unit(unit_name)
+        domain = self.workspace.units.domains.get(type_name)
+        if domain is not None:
+            return domain.value_type, domain.unit_name, self.workspace.units.parse_unit(domain.unit_name)
+        if type_name in self.workspace.units.units:
+            return "number", type_name, self.workspace.units.parse_unit(type_name)
+        raise ReferenceError(f"type {type_name!r} is not a scalar type")
+
+    def _is_scalar_type(self, type_name: str) -> bool:
+        return (
+            type_name == "boolean"
+            or (type_name.startswith("number[") and type_name.endswith("]"))
+            or type_name in self.workspace.units.units
+            or type_name in self.workspace.units.domains
+        )
+
+    def _object_member_spec(
+        self,
+        owner: Entry,
+        obj: StructuredObjectSpec,
+        path: tuple[str, ...],
+    ) -> tuple[Entry, Any, Any, set[str]]:
+        if not path:
+            raise ReferenceError(f"structured object {obj.qualified_id!r} requires a field path")
+        type_owner = owner
+        type_spec = self.resolve_structure_type(owner, obj.type_name)
+        type_owner = self.workspace.get_entry(type_spec.owner_id)
+        type_dependencies = {type_owner.id}
+        values: Mapping[str, object] = obj.values
+        for index, segment in enumerate(path):
+            field_spec = type_spec.fields.get(segment)
+            if field_spec is None:
+                choices = ", ".join(sorted(type_spec.fields))
+                raise ReferenceError(
+                    f"type {type_spec.qualified_id!r} has no field {segment!r}; available: {choices}"
+                )
+            raw_value = values.get(segment, field_spec.default)
+            if raw_value is None and not field_spec.optional:
+                raise SchemaError(
+                    f"object {obj.qualified_id!r} is missing required field {'.'.join(path[: index + 1])!r}",
+                    obj.location,
+                )
+            final = index == len(path) - 1
+            if self._is_scalar_type(field_spec.type_name):
+                if not final:
+                    raise ReferenceError(
+                        f"scalar field {segment!r} has no nested member {path[index + 1]!r}"
+                    )
+                return type_owner, field_spec, raw_value, type_dependencies
+            if final:
+                raise ReferenceError(
+                    f"structured field {segment!r} must be followed by a declared leaf field"
+                )
+            if not isinstance(raw_value, Mapping):
+                raise SchemaError(
+                    f"object field {segment!r} must contain a nested {field_spec.type_name} object",
+                    obj.location,
+                )
+            type_spec = self.resolve_structure_type(type_owner, field_spec.type_name)
+            type_owner = self.workspace.get_entry(type_spec.owner_id)
+            type_dependencies.add(type_owner.id)
+            values = raw_value
+        raise AssertionError("unreachable")
+
+    def _object_member_unit(
+        self, owner: Entry, obj: StructuredObjectSpec, path: tuple[str, ...]
+    ) -> str:
+        type_owner, field_spec, _raw_value, _type_dependencies = self._object_member_spec(
+            owner, obj, path
+        )
+        _value_type, unit_name, _dimension = self._scalar_type(type_owner, field_spec.type_name)
+        return unit_name
+
+    def resolve_object_member(
+        self, owner: Entry, obj: StructuredObjectSpec, path: tuple[str, ...]
+    ) -> MathValue:
+        key = (owner.id, obj.id, path)
+        if key in self._object_member_cache:
+            cached = self._object_member_cache[key]
+            return MathValue(
+                cached.expr,
+                cached.dimension,
+                list(cached.conditions),
+                dict(cached.inputs),
+                set(cached.dependencies),
+                cached.is_boolean,
+            )
+        type_owner, field_spec, raw_value, type_dependencies = self._object_member_spec(
+            owner, obj, path
+        )
+        if raw_value is None and field_spec.optional:
+            raise ReferenceError(
+                f"optional field {obj.qualified_id}.{'.'.join(path)} has no value"
+            )
+        value_type, unit_name, dimension = self._scalar_type(type_owner, field_spec.type_name)
+        stack_key = f"{obj.qualified_id}.{'.'.join(path)}"
+        if stack_key in self._stack:
+            start = self._stack.index(stack_key)
+            raise DependencyCycleError(
+                "dependency cycle: " + " -> ".join(self._stack[start:] + [stack_key])
+            )
+        self._stack.append(stack_key)
+        try:
+            if value_type == "boolean" and isinstance(raw_value, bool):
+                value = MathValue(
+                    sp.true if raw_value else sp.false,
+                    DIMENSIONLESS,
+                    dependencies={owner.id, *type_dependencies},
+                    is_boolean=True,
+                )
+            elif value_type != "boolean" and isinstance(raw_value, (str, int)) and NUMBER_LITERAL_RE.fullmatch(str(raw_value)):
+                value = MathValue(
+                    parse_exact_number(str(raw_value)) * self.unit_scale_expr(unit_name),
+                    dimension,
+                    dependencies={owner.id, *type_dependencies},
+                )
+            else:
+                value = self._compile_entry_expression(
+                    owner,
+                    str(raw_value).lower() if isinstance(raw_value, bool) else str(raw_value),
+                    f"objects.{obj.id}.values.{'.'.join(path)}",
+                    apply_constraints=True,
+                )
+                self._require_declared_dimension(
+                    value.dimension,
+                    dimension,
+                    owner,
+                    f"objects.{obj.id}.values.{'.'.join(path)}",
+                    value.expr,
+                )
+                if value.expr == 0:
+                    value.dimension = dimension
+                value.dependencies.update({owner.id, *type_dependencies})
+            domain = self.workspace.units.domains.get(field_spec.type_name)
+            if domain is not None and not value.is_boolean:
+                scale = self.unit_scale_expr(unit_name)
+                if domain.minimum is not None:
+                    value.conditions.append(
+                        sp.Ge(value.expr, parse_exact_number(domain.minimum) * scale, evaluate=False)
+                    )
+                if domain.maximum is not None:
+                    value.conditions.append(
+                        sp.Le(value.expr, parse_exact_number(domain.maximum) * scale, evaluate=False)
+                    )
+                if domain.integer:
+                    value.conditions.append(
+                        sp.Contains(value.expr / scale, sp.S.Integers, evaluate=False)
+                    )
+            self._check_expanded_size(value.expr)
+            self._check_dependency_count(value)
+            self._check_package_dependency_scope(
+                owner, value, owner.location(f"objects.{obj.id}.values.{'.'.join(path)}")
+            )
+            self._object_member_cache[key] = value
+            return MathValue(
+                value.expr,
+                value.dimension,
+                list(value.conditions),
+                dict(value.inputs),
+                set(value.dependencies),
+                value.is_boolean,
+            )
+        finally:
+            self._stack.pop()
+
+    def resolve_path(
+        self, path: Sequence[str], current_entry: Optional[Entry] = None
+    ) -> MathValue:
+        parts = tuple(path)
+        if not parts:
+            raise ReferenceError("member path may not be empty")
+        if any(part.startswith("__") for part in parts):
+            raise ReferenceError("private member path segments are not allowed")
+        if current_entry is not None and parts[0] in current_entry.objects:
+            return self.resolve_object_member(
+                current_entry, current_entry.objects[parts[0]], parts[1:]
+            )
+        if parts[0] in self.workspace.entries:
+            entry = self.workspace.get_entry(parts[0])
+            if len(parts) >= 2 and parts[1] in entry.objects:
+                return self.resolve_object_member(entry, entry.objects[parts[1]], parts[2:])
+            if len(parts) == 2:
+                return self.resolve_member(parts[0], parts[1])
+            raise ReferenceError(f"unknown structured member path {'.'.join(parts)!r}")
+        if current_entry is not None and len(parts) == 1:
+            return self.resolve_member(current_entry.id, parts[0])
+        raise ReferenceError(f"missing reference: unknown member path {'.'.join(parts)!r}")
 
     def resolve_member(self, entry_id: str, member: str) -> MathValue:
         key = (entry_id, member)
@@ -1359,6 +1666,222 @@ class Engine:
         for reward in model.rewards.values():
             validate_conditions(reward.inputs, reward.conditions)
 
+    def _validate_structured_object(
+        self, owner: Entry, obj: StructuredObjectSpec
+    ) -> None:
+        def visit(
+            type_owner: Entry,
+            type_spec: StructureTypeSpec,
+            values: Mapping[str, object],
+            prefix: tuple[str, ...],
+            depth: int,
+        ) -> None:
+            if depth > MAX_STRUCTURE_DEPTH:
+                raise SchemaError(
+                    f"structured object exceeds depth {MAX_STRUCTURE_DEPTH}", obj.location
+                )
+            unknown = sorted(set(values) - set(type_spec.fields))
+            if unknown:
+                raise SchemaError(
+                    f"object {obj.qualified_id!r} has unknown field(s): "
+                    + ", ".join(unknown),
+                    obj.location,
+                )
+            for field_name, field_spec in type_spec.fields.items():
+                raw_value = values.get(field_name, field_spec.default)
+                field_path = (*prefix, field_name)
+                if raw_value is None:
+                    if not field_spec.optional:
+                        raise SchemaError(
+                            f"object {obj.qualified_id!r} is missing required field {'.'.join(field_path)!r}",
+                            obj.location,
+                        )
+                    continue
+                if self._is_scalar_type(field_spec.type_name):
+                    value = self.resolve_object_member(owner, obj, field_path)
+                    self._validate_math_value_defaults(value)
+                    continue
+                if not isinstance(raw_value, Mapping):
+                    raise SchemaError(
+                        f"object field {'.'.join(field_path)!r} must contain a nested object",
+                        obj.location,
+                    )
+                nested_type = self.resolve_structure_type(
+                    type_owner, field_spec.type_name
+                )
+                nested_owner = self.workspace.get_entry(nested_type.owner_id)
+                visit(
+                    nested_owner,
+                    nested_type,
+                    raw_value,
+                    field_path,
+                    depth + 1,
+                )
+
+        type_spec = self.resolve_structure_type(owner, obj.type_name)
+        type_owner = self.workspace.get_entry(type_spec.owner_id)
+        visit(type_owner, type_spec, obj.values, (), 1)
+
+    def _validate_cycle_contract(self, owner: Entry, cycle_name: str) -> None:
+        cycle = owner.cycles[cycle_name]
+        _profile_owner, profile, resources = self.cycle_profile_contract(
+            owner, cycle.profile
+        )
+        time_dimension = self.workspace.units.parse_unit("time")
+        resource_dimensions = {}
+        for resource_id, mappings in resources.items():
+            values = {
+                role: self.resolve_object_member(
+                    _profile_owner,
+                    profile,
+                    tuple(mappings[role].split(".")),
+                )
+                for role in ("initial", "maximum", "regeneration")
+            }
+            resource_dimension = values["initial"].dimension
+            if values["maximum"].dimension != resource_dimension:
+                raise UnitError(
+                    f"cycle resource {resource_id!r} initial and maximum must use the same dimension",
+                    profile.location,
+                )
+            if values["regeneration"].dimension != resource_dimension.divide(time_dimension):
+                raise UnitError(
+                    f"cycle resource {resource_id!r} regeneration must use resource divided by time",
+                    profile.location,
+                )
+            resource_dimensions[resource_id] = resource_dimension
+        for step in cycle.sequence:
+            step_owner, step_object, duration_path, spends, gains = self.cycle_step_contract(
+                owner, step
+            )
+            unknown_resources = sorted((set(spends) | set(gains)) - set(resources))
+            if unknown_resources:
+                raise SchemaError(
+                    f"cycle step {step!r} uses undeclared resource(s): "
+                    + ", ".join(unknown_resources),
+                    step_object.location,
+                )
+            duration_value = self.resolve_object_member(
+                step_owner, step_object, tuple(duration_path.split("."))
+            )
+            if duration_value.dimension != time_dimension:
+                raise UnitError(
+                    f"cycle step {step!r} occupies must use time", step_object.location
+                )
+            for resource_id, member_path in (*spends.items(), *gains.items()):
+                value = self.resolve_object_member(
+                    step_owner, step_object, tuple(member_path.split("."))
+                )
+                if value.dimension != resource_dimensions[resource_id]:
+                    raise UnitError(
+                        f"cycle step {step!r} effect for resource {resource_id!r} "
+                        "uses an incompatible unit",
+                        step_object.location,
+                    )
+
+    def cycle_profile_contract(
+        self, owner: Entry, reference: str
+    ) -> tuple[Entry, StructuredObjectSpec, Dict[str, Dict[str, str]]]:
+        """Normalize legacy and vector cycle profiles to resource-role mappings."""
+
+        object_owner, obj, interface = self.object_interface(
+            owner, reference, "cycle_profile"
+        )
+        legacy_roles = {"initial", "maximum", "regeneration"}
+        if set(interface) & legacy_roles:
+            unknown = sorted(set(interface) - legacy_roles)
+            missing = sorted(legacy_roles - set(interface))
+            if unknown or missing:
+                details = []
+                if missing:
+                    details.append("missing: " + ", ".join(missing))
+                if unknown:
+                    details.append("unexpected: " + ", ".join(unknown))
+                raise SchemaError(
+                    "legacy cycle_profile must declare exactly initial, maximum, and regeneration ("
+                    + "; ".join(details)
+                    + ")",
+                    obj.location,
+                )
+            return object_owner, obj, {"resource": dict(interface)}
+
+        resources: Dict[str, Dict[str, str]] = {}
+        for role, member_path in interface.items():
+            parts = role.split(".")
+            if (
+                len(parts) != 3
+                or parts[0] != "resources"
+                or parts[2] not in legacy_roles
+            ):
+                raise SchemaError(
+                    "cycle_profile roles must use resources.RESOURCE.initial, "
+                    "resources.RESOURCE.maximum, or resources.RESOURCE.regeneration",
+                    obj.location,
+                )
+            resources.setdefault(parts[1], {})[parts[2]] = member_path
+        if not resources:
+            raise SchemaError("cycle_profile must declare at least one resource", obj.location)
+        if len(resources) > MAX_CYCLE_RESOURCES:
+            raise SchemaError(
+                f"cycle_profile exceeds {MAX_CYCLE_RESOURCES} resources", obj.location
+            )
+        for resource_id, mappings in resources.items():
+            missing = sorted(legacy_roles - set(mappings))
+            if missing:
+                raise SchemaError(
+                    f"cycle resource {resource_id!r} is missing role(s): "
+                    + ", ".join(missing),
+                    obj.location,
+                )
+        return object_owner, obj, resources
+
+    def cycle_step_contract(
+        self, owner: Entry, reference: str
+    ) -> tuple[
+        Entry,
+        StructuredObjectSpec,
+        str,
+        Dict[str, str],
+        Dict[str, str],
+    ]:
+        """Normalize one action to duration plus named resource spends and gains."""
+
+        object_owner, obj, interface = self.object_interface(
+            owner, reference, "cycle_step"
+        )
+        duration_path = interface.get("occupies")
+        if duration_path is None:
+            raise SchemaError("cycle_step is missing role 'occupies'", obj.location)
+        if "cost" in interface:
+            unknown = sorted(set(interface) - {"cost", "occupies"})
+            if unknown:
+                raise SchemaError(
+                    "legacy cycle_step cost may not be mixed with vector effects: "
+                    + ", ".join(unknown),
+                    obj.location,
+                )
+            return object_owner, obj, duration_path, {"resource": interface["cost"]}, {}
+
+        spends: Dict[str, str] = {}
+        gains: Dict[str, str] = {}
+        for role, member_path in interface.items():
+            if role == "occupies":
+                continue
+            parts = role.split(".")
+            if len(parts) != 2 or parts[0] not in {"spends", "gains"}:
+                raise SchemaError(
+                    "cycle_step roles must use occupies, spends.RESOURCE, or gains.RESOURCE",
+                    obj.location,
+                )
+            target = spends if parts[0] == "spends" else gains
+            target[parts[1]] = member_path
+        if len(spends) + len(gains) > MAX_CYCLE_EFFECTS_PER_STEP:
+            raise SchemaError(
+                f"cycle_step exceeds {MAX_CYCLE_EFFECTS_PER_STEP} resource effects",
+                obj.location,
+            )
+        return object_owner, obj, duration_path, spends, gains
+
     def validate_all(self) -> dict:
         checked = []
         errors = []
@@ -1376,7 +1899,9 @@ class Engine:
                 checked.append(f"{entry.id}.semantics")
             for alias, target in entry.aliases.items():
                 def validate_alias(entry=entry, alias=alias, target=target):
-                    target_entry_id, target_member = target.split(".", 1)
+                    target_parts = target.split(".")
+                    target_entry_id = target_parts[0]
+                    target_member = target_parts[1] if len(target_parts) == 2 else ""
                     target_entry = self.workspace.get_entry(target_entry_id)
                     if target_member in target_entry.functions:
                         self._check_package_dependency_scope(
@@ -1411,7 +1936,7 @@ class Engine:
                             entry.location(f"aliases.{alias}"),
                         )
                         return
-                    value = self.resolve_member(target_entry_id, target_member)
+                    value = self.resolve_path(tuple(target_parts), entry)
                     self._check_package_dependency_scope(
                         entry, value, entry.location(f"aliases.{alias}")
                     )
@@ -1429,6 +1954,18 @@ class Engine:
                         self._check_constraint(spec, self._parse_parameter_value(spec, spec.default))
 
                 capture(spec.key, validate_spec)
+            for object_name, obj in entry.objects.items():
+                capture(
+                    f"{entry.id}.{object_name}<object>",
+                    lambda entry=entry, obj=obj: self._validate_structured_object(entry, obj),
+                )
+            for cycle_name in entry.cycles:
+                capture(
+                    f"{entry.id}.{cycle_name}<cycle>",
+                    lambda entry=entry, cycle_name=cycle_name: self._validate_cycle_contract(
+                        entry, cycle_name
+                    ),
+                )
             for member in entry.fields:
                 capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
             for recurrence_name in entry.recurrences:

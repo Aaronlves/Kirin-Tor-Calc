@@ -14,16 +14,16 @@ from conftest import make_cli_runner
 def _workspace(tmp_path: Path) -> Path:
     root = initialize(tmp_path / "advanced")
     (root / "entries" / "build_math.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry build_math
 
-inputs:
-  power "主属性": number[dimensionless] = 2 in 0..10
-  speed "急速": number[dimensionless] = 1 in 0..10
+input power "主属性": number[dimensionless] = 2 in 0..10
 
-outputs:
-  total "总收益": dimensionless = 2 * power + speed
-  balance "属性差": dimensionless = power - speed
+input speed "急速": number[dimensionless] = 1 in 0..10
+
+output total "总收益": dimensionless = 2 * power + speed
+
+output balance "属性差": dimensionless = power - speed
 """,
         encoding="utf-8",
     )

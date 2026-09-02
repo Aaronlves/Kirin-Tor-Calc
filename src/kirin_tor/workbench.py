@@ -38,6 +38,7 @@ from .engine import Engine
 from .errors import KTError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
+    analyze_cycle,
     differentiate,
     evaluate,
     explain,
@@ -413,7 +414,10 @@ class Workbench:
         with self._lock:
             documents = self._document_catalog()
             validation = self.validate(overlays)
-            index = validation.get("index", {"targets": [], "inputs": [], "presets": [], "charts": []})
+            index = validation.get(
+                "index",
+                {"targets": [], "inputs": [], "presets": [], "charts": [], "cycles": []},
+            )
             return {
                 "status": "ok",
                 "version": __version__,
@@ -578,6 +582,7 @@ class Workbench:
             "inputs": [item.__dict__ for item in index.inputs],
             "presets": [item.__dict__ for item in index.presets],
             "charts": [item.__dict__ for item in index.charts],
+            "cycles": [item.__dict__ for item in index.cycles],
             "document_ids": list(index.document_ids),
         }
 
@@ -719,7 +724,11 @@ class Workbench:
                 destination = self._local_path(f"entries/{document_id}.kirin", new=True)
                 if destination.exists():
                     raise WorkspaceError(f"document already exists: entries/{document_id}.kirin")
-                header = re.search(r"^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$", source_text, re.MULTILINE)
+                header = re.search(
+                    r'^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$',
+                    source_text,
+                    re.MULTILINE,
+                )
                 if header is None:
                     raise WorkspaceError(f"document has no @entry identity: {key}")
                 old_id = header.group(1)
@@ -1026,6 +1035,28 @@ class Workbench:
                 return record_operation(
                     workspace, save_run_id, "eval", request,
                     lambda: evaluate(engine, request["target"], preset, overrides, precision, display_digits, timeout),
+                    [preset] if preset else [],
+                )
+
+            if operation == "cycle":
+                request = {
+                    "target": str(payload.get("target", "")),
+                    "preset": preset,
+                    "overrides": overrides,
+                    "timeout_seconds": timeout,
+                }
+                return record_operation(
+                    workspace,
+                    save_run_id,
+                    "cycle",
+                    request,
+                    lambda: analyze_cycle(
+                        engine,
+                        request["target"],
+                        preset,
+                        overrides,
+                        timeout,
+                    ),
                     [preset] if preset else [],
                 )
 

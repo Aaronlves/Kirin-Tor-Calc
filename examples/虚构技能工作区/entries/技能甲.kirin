@@ -1,19 +1,16 @@
-@kirin 1
-@entry skill_a
-@game-version fictional
-@status example_only
+@kirin 2
+@entry skill_a "技能 A（虚构）"
+@game-version "fictional"
+@status "example_only"
 
-// 技能 A（虚构）
-
----
+----
 完全虚构的验收数据，不代表任何实际《魔兽世界》技能。
----
+----
 
-sources:
-  {"kind":"note","citation":"本地验收示例，无游戏数据来源"}
+source source_1:
+  kind = "note"
+  citation = "本地验收示例，无游戏数据来源"
 
-fields:
-  base_damage: damage = 1000
+field base_damage: damage = 1000
 
-functions:
-  expected(c: probability) -> damage = base_damage * (1 + c)
+function expected(c: probability): damage = base_damage * (1 + c)

@@ -83,7 +83,7 @@ function documentIcon(item: DocumentItem) {
 }
 
 function sourceEntryId(source: string): string | null {
-  return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
+  return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$/m)?.[1] ?? null;
 }
 
 function isSafeDocumentPath(value: string): boolean {
@@ -416,7 +416,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       notifications.show({ color: "red", message: "请先保存当前文档，再将它保存为创建模板。" });
       return;
     }
-    const header = currentText.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m);
+    const header = currentText.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$/m);
     if (!header) {
       notifications.show({ color: "red", message: "当前源码没有有效的 @entry 文档头。" });
       return;
@@ -517,10 +517,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
 
         <section className="workspace-panel editor-panel" aria-label="源码编辑器">
           {emptyWorkspace ? (
-            <div className="workspace-welcome" aria-label="Kirin 入门">
+            <div className="workspace-welcome" aria-label="Kirin Tor 入门">
               <section className="workspace-welcome-intro">
                 <Text className="page-kicker">GET STARTED</Text>
-                <Title order={1}>从一份真正的 Kirin 源码开始</Title>
+                <Title order={1}>从一份真正的 Kirin Tor 源码开始</Title>
                 <Text c="dimmed" maw={720}>
                   当前工作区仍然为空。内置教程只读展示完整 `.kirin`；只有主动复制后，它才会成为当前工作区中的未保存草稿。
                 </Text>
@@ -699,7 +699,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   ref={editorRef}
                   documentKey={current.key}
                   value={currentText}
-                  ariaLabel={`Kirin 源码：${current.title}`}
+                  ariaLabel={`Kirin Tor 源码：${current.title}`}
                   readOnly={current.read_only}
                   diagnostics={currentDiagnostics}
                   authoring={controller.authoringIndex}
@@ -716,7 +716,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               </div>
               <div className="editor-statusbar">
                 <span>{currentDiagnostics.length ? `${currentDiagnostics.length} 个当前文档问题` : "当前文档有效"}</span>
-                <span className="editor-signature-hint">{callSymbol?.signature ? `${callSymbol.signature}${cursorContext.activeParameter ? ` · 参数 ${cursorContext.activeParameter}` : ""}` : "Kirin 文档"}</span>
+                <span className="editor-signature-hint">{callSymbol?.signature ? `${callSymbol.signature}${cursorContext.activeParameter ? ` · 参数 ${cursorContext.activeParameter}` : ""}` : "Kirin Tor 文档"}</span>
                 <span
                   className={`editor-cursor-status${cursorContext.selectionCharacters ? " is-selection" : ""}`}
                   aria-live="polite"

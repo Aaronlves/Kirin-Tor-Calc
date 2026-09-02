@@ -12,36 +12,30 @@ from kirin_tor.operations import evaluate, explain, scan_values
 from kirin_tor.workspace import Workspace, initialize
 
 
-ENTRY_SOURCE = """@kirin 1
+ENTRY_SOURCE = """@kirin 2
 @entry model
-
-// Model title is an author comment, not schema data.
 
 ----
 Exact model description.
 This line is ordinary text: ---
-\tTabs inside prose are preserved.
+	Tabs inside prose are preserved.
 ----
 
-inputs:
-  x: number[dimensionless] = 0.25 in 0..1
+input x: number[dimensionless] = 0.25 in 0..1
 
-fields:
-  base: dimensionless = 2
-  scaled: dimensionless =
-    base * (1 + x)
+require x >= 0
 
-constraints:
-  x >= 0
-  x <= 1
+require x <= 1
 
-functions:
-  multiply(n: number[dimensionless]) -> dimensionless =
-    scaled * n
+field base: dimensionless = 2
 
-outputs:
-  result: dimensionless = scaled
-  doubled: dimensionless = multiply(2)
+field scaled: dimensionless = base * (1 + x)
+
+function multiply(n: number[dimensionless]): dimensionless = scaled * n
+
+output result: dimensionless = scaled
+
+output doubled: dimensionless = multiply(2)
 """
 
 
@@ -65,15 +59,17 @@ def test_bundled_syntax_reference_examples_are_complete_and_valid(tmp_path: Path
 @pytest.mark.parametrize(
     "body, message",
     [
-        ("@template model\n\noutputs:\n  result: dimensionless = 1\n", "unknown directive"),
-        ("info:\n  note = text\n", "unknown entry section"),
-        ("fields:\n  derived: dimensionless := 1 + 1\n", "field must use"),
+        ("@template model\n\noutput result: dimensionless = 1\n", "unknown or incomplete directive"),
+        ("info:\n  note = text\n", "unknown v2 declaration"),
+        ("field derived: dimensionless := 1 + 1\n", "field must use"),
     ],
 )
 def test_removed_source_forms_are_rejected(tmp_path: Path, body: str, message: str) -> None:
     root = initialize(tmp_path / "removed")
     (root / "entries" / "removed.kirin").write_text(
-        "@kirin 1\n@entry removed\n" + body,
+        """@kirin 2
+@entry removed
+""" + body,
         encoding="utf-8",
     )
     with pytest.raises(SchemaError, match=message):
@@ -84,31 +80,26 @@ def test_kirin_entry_preset_groups_display_and_plot_use_existing_engine(tmp_path
     root = initialize(tmp_path / "workspace")
     source = ENTRY_SOURCE + """
 
-groups:
-  results "结果":
-    result
-    doubled
+group results "结果":
+  - result
+  - doubled
 
-presets:
-  baseline "基线":
-    model.x = 0.5
+preset baseline "基线":
+  model.x = 0.5
 
-display:
-  result: percent digits 1
+display result = percent digits 1
 
-x: model.x
-range: 0..1
-points: 3
-
-y:
-  model.result as "Result"
-
-preset: model.baseline
-title: "Preview"
-x-label: "Input"
-y-label: "Value"
-export-svg: "results/curve.svg"
-export-csv: "results/curve.csv"
+chart preview "Preview":
+  x = model.x
+  range = 0..1
+  points = 3
+  y:
+    - model.result as "Result"
+  using = model.baseline
+  x_label = "Input"
+  y_label = "Value"
+  export_svg = "results/curve.svg"
+  export_csv = "results/curve.csv"
 """
     (root / "entries" / "model.kirin").write_text(
         source,
@@ -137,7 +128,7 @@ def test_kirin_reports_source_line_and_rejects_unknown_sections(tmp_path: Path) 
     root = initialize(tmp_path / "workspace")
     path = root / "entries" / "broken.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry broken
 
 unknown:
@@ -145,33 +136,36 @@ unknown:
 """,
         encoding="utf-8",
     )
-    with pytest.raises(SchemaError, match="unknown entry section") as caught:
+    with pytest.raises(SchemaError, match="unknown v2 declaration") as caught:
         Workspace.load(root)
     assert caught.value.location.path == str(path)
-    assert caught.value.location.field == "unknown"
+    assert caught.value.location.field is None
 
 
 def test_versioned_lookup_tables_support_exact_lookup_and_interpolation(tmp_path: Path) -> None:
     root = initialize(tmp_path / "lookup")
     (root / "entries" / "lookup.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry lookup_model
-@game-version test-1
+@game-version "test-1"
 
-sources:
-  {"kind":"test","citation":"lookup fixture","game_version":"test-1"}
+source source_1:
+  kind = "test"
+  citation = "lookup fixture"
+  game_version = "test-1"
 
-inputs:
-  level: number[dimensionless] = 1 in 1..3
+input level: number[dimensionless] = 1 in 1..3
 
-tables:
-  rating "等级换算": dimensionless -> dimensionless:
+output exact: dimensionless = lookup(rating, level)
+
+output interpolated: dimensionless = interpolate(rating, level)
+
+table rating "等级换算":
+  input = dimensionless
+  output = dimensionless
+  points:
     1 = 10
     3 = 30
-
-outputs:
-  exact: dimensionless = lookup(rating, level)
-  interpolated: dimensionless = interpolate(rating, level)
 """,
         encoding="utf-8",
     )
@@ -195,15 +189,16 @@ def test_source_metadata_rejects_version_drift_and_invalid_digest(tmp_path: Path
     root = initialize(tmp_path / "sources")
     path = root / "entries" / "source_model.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry source_model
-@game-version patch-a
+@game-version "patch-a"
 
-sources:
-  {"kind":"note","citation":"fixture","game_version":"patch-b"}
+source source_1:
+  kind = "note"
+  citation = "fixture"
+  game_version = "patch-b"
 
-outputs:
-  result: dimensionless = 1
+output result: dimensionless = 1
 """,
         encoding="utf-8",
     )
@@ -211,14 +206,15 @@ outputs:
         Workspace.load(root)
 
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry source_model
 
-sources:
-  {"kind":"note","citation":"fixture","digest":"not-a-digest"}
+source source_1:
+  kind = "note"
+  citation = "fixture"
+  digest = "not-a-digest"
 
-outputs:
-  result: dimensionless = 1
+output result: dimensionless = 1
 """,
         encoding="utf-8",
     )
@@ -288,27 +284,24 @@ def test_workspace_marker_is_game_neutral_and_reads_legacy_metadata(tmp_path: Pa
 def test_chinese_local_aliases_and_member_labels(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     (root / "entries" / "base.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry base
 
-inputs:
-  amount "基础值": number[dimensionless] = 2
+input amount "基础值": number[dimensionless] = 2
 
-functions:
-  double "翻倍"(value: number[dimensionless]) -> dimensionless = value * 2
+function double "翻倍"(value: number[dimensionless]): dimensionless = value * 2
 """,
         encoding="utf-8",
     )
     (root / "entries" / "model.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry model
 
-aliases:
-  基础 = base.amount
-  加倍 = base.double
+alias 基础 = base.amount
 
-outputs:
-  result "总计": dimensionless = 加倍(基础)
+alias 加倍 = base.double
+
+output result "总计": dimensionless = 加倍(基础)
 """,
         encoding="utf-8",
     )
@@ -330,17 +323,14 @@ def test_alias_cannot_conflict_with_a_formal_member(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     path = root / "entries" / "collision.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry collision
 
-aliases:
-  x = collision.result
+alias x = collision.result
 
-inputs:
-  x: number[dimensionless] = 1
+input x: number[dimensionless] = 1
 
-outputs:
-  result: dimensionless = x
+output result: dimensionless = x
 """,
         encoding="utf-8",
     )
@@ -351,14 +341,12 @@ outputs:
 def test_unused_alias_target_is_still_validated(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     (root / "entries" / "model.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry model
 
-aliases:
-  缺失 = missing.value
+alias 缺失 = missing.value
 
-outputs:
-  result: dimensionless = 1
+output result: dimensionless = 1
 """,
         encoding="utf-8",
     )

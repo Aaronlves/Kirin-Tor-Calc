@@ -1,37 +1,30 @@
-@kirin 1
-@entry combo
-@game-version fictional
-@status example_only
+@kirin 2
+@entry combo "双技能组合（虚构）"
+@game-version "fictional"
+@status "example_only"
 
-// 双技能组合（虚构）
-
----
+----
 完全虚构的组合验收模型。
----
+----
 
-aliases:
-  技能甲 = skill_a.expected
-  技能乙 = skill_b.expected
+alias 技能甲 = skill_a.expected
 
-inputs:
-  crit "暴击率": probability = 0.10 in 0..1
+alias 技能乙 = skill_b.expected
 
-outputs:
-  total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
+input crit "暴击率": probability = 0.10 in 0..1
 
-groups:
-  damage "伤害":
-    total
+output total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
+display total = integer
 
-display:
-  total: integer
+group damage "伤害":
+  - total
 
-x: combo.crit
-range: 0..0.6
-points: 61
-
-y:
-  combo.total
-preset: presets.baseline
-export-svg: "results/damage.svg"
-export-csv: "results/damage.csv"
+chart preview "combo":
+  x = combo.crit
+  range = 0..0.6
+  points = 61
+  y:
+    - combo.total
+  using = presets.baseline
+  export_svg = "results/damage.svg"
+  export_csv = "results/damage.csv"

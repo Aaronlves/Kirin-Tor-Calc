@@ -306,6 +306,7 @@ export interface WorkspaceIndex {
   inputs: InputItem[];
   presets: PresetItem[];
   charts: ChartItem[];
+  cycles: ChartItem[];
   document_ids?: string[];
 }
 

@@ -19,6 +19,7 @@ from .errors import KTError, SchemaError, UnsupportedError, WorkspaceError
 from .kirin_syntax import parse_kirin_source
 from .limits import MAX_RUN_RECORD_BYTES
 from .operations import (
+    analyze_cycle,
     differentiate,
     evaluate,
     scan_grid,
@@ -147,7 +148,7 @@ def save_run(
         "domain": result.get("conditions", []),
         "assumptions": {
             "symbols": "real unless declared boolean",
-            "input_constraints": "embedded in schema-v1 definition snapshots",
+            "input_constraints": "embedded in Kirin Tor source-v2 definition snapshots",
         },
         "units": result.get("units", result.get("unit")),
         "precision": request.get("precision"),
@@ -235,6 +236,14 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             overrides=parameters,
             precision=request["precision"],
             display_digits=request["display_digits"],
+            timeout_seconds=request["timeout_seconds"],
+        )
+    if operation == "cycle":
+        return analyze_cycle(
+            engine,
+            request["target"],
+            preset=preset,
+            overrides=parameters,
             timeout_seconds=request["timeout_seconds"],
         )
     if operation == "compare":

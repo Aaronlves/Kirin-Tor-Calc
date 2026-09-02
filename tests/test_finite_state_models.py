@@ -14,57 +14,55 @@ from kirin_tor.workspace import Workspace, initialize
 def _state_workspace(root: Path) -> Path:
     root = initialize(root)
     (root / "entries" / "semantics.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry semantics
 
-dimensions:
-  damage
+dimension damage
 
-units:
-  damage = damage
+unit damage = damage
 """,
         encoding="utf-8",
     )
     (root / "entries" / "state_model.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry state_model
 
-inputs:
-  proc_chance: probability = 1/4
+input proc_chance: probability = 1/4
 
-fields:
-  hit: damage = 100
+field hit: damage = 100
 
-state_models:
-  proc_cycle "触发循环":
-    states:
-      ready
-      cooldown
-    transitions:
-      ready -> ready @ 1 - proc_chance
-      ready -> cooldown @ proc_chance
-      cooldown -> ready @ 1
-    rewards:
-      damage_reward "状态伤害": damage:
-        ready = hit
-        cooldown = 0
+output ready_probability: dimensionless = steady_probability(proc_cycle, ready)
 
-outputs:
-  ready_probability: dimensionless = steady_probability(proc_cycle, ready)
-  cooldown_probability: dimensionless = steady_probability(proc_cycle, cooldown)
-  steady_damage: damage = steady_reward(proc_cycle, damage_reward)
-  reaches_cooldown: dimensionless = hitting_probability(proc_cycle, ready, cooldown)
-  steps_to_cooldown: dimensionless = expected_steps(proc_cycle, ready, cooldown)
-  steps_to_ready: dimensionless = expected_steps(proc_cycle, cooldown, ready)
+output cooldown_probability: dimensionless = steady_probability(proc_cycle, cooldown)
+
+output steady_damage: damage = steady_reward(proc_cycle, damage_reward)
+
+output reaches_cooldown: dimensionless = hitting_probability(proc_cycle, ready, cooldown)
+
+output steps_to_cooldown: dimensionless = expected_steps(proc_cycle, ready, cooldown)
+
+output steps_to_ready: dimensionless = expected_steps(proc_cycle, cooldown, ready)
+
+state_model proc_cycle "触发循环":
+  states:
+    - ready
+    - cooldown
+  transitions:
+    - ready -> ready @ 1 - proc_chance
+    - ready -> cooldown @ proc_chance
+    - cooldown -> ready @ 1
+  rewards:
+    reward damage_reward "状态伤害": damage:
+      ready = hit
+      cooldown = 0
 """,
         encoding="utf-8",
     )
     (root / "entries" / "consumer.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry consumer
 
-outputs:
-  imported: dimensionless = steady_probability(state_model.proc_cycle, cooldown)
+output imported: dimensionless = steady_probability(state_model.proc_cycle, cooldown)
 """,
         encoding="utf-8",
     )
@@ -108,17 +106,16 @@ def test_state_model_validates_probability_rows_and_reward_coverage(tmp_path: Pa
     root = initialize(tmp_path / "invalid")
     path = root / "entries" / "invalid.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-state_models:
-  model:
-    states:
-      a
-      b
-    transitions:
-      a -> a @ 1/2
-      b -> b @ 1
+state_model model:
+  states:
+    - a
+    - b
+  transitions:
+    - a -> a @ 1/2
+    - b -> b @ 1
 """,
         encoding="utf-8",
     )
@@ -126,20 +123,19 @@ state_models:
         Engine(Workspace.load(root)).validate_all()
 
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-state_models:
-  model:
-    states:
-      a
-      b
-    transitions:
-      a -> b @ 1
-      b -> a @ 1
-    rewards:
-      value: dimensionless:
-        a = 1
+state_model model:
+  states:
+    - a
+    - b
+  transitions:
+    - a -> b @ 1
+    - b -> a @ 1
+  rewards:
+    reward value: dimensionless:
+      a = 1
 """,
         encoding="utf-8",
     )
@@ -151,20 +147,18 @@ def test_state_queries_reject_nonunique_or_unreachable_systems(tmp_path: Path) -
     root = initialize(tmp_path / "nonunique")
     path = root / "entries" / "model.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry model
 
-state_models:
-  split:
-    states:
-      left
-      right
-    transitions:
-      left -> left @ 1
-      right -> right @ 1
+output invalid_steady: dimensionless = steady_probability(split, left)
 
-outputs:
-  invalid_steady: dimensionless = steady_probability(split, left)
+state_model split:
+  states:
+    - left
+    - right
+  transitions:
+    - left -> left @ 1
+    - right -> right @ 1
 """,
         encoding="utf-8",
     )
@@ -193,18 +187,17 @@ def test_state_model_preserves_reward_units_and_detects_cycles(tmp_path: Path) -
     root = initialize(tmp_path / "units")
     path = root / "entries" / "invalid.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-state_models:
-  model:
-    states:
-      only
-    transitions:
-      only -> only @ 1
-    rewards:
-      duration: time:
-        only = 1
+state_model model:
+  states:
+    - only
+  transitions:
+    - only -> only @ 1
+  rewards:
+    reward duration: time:
+      only = 1
 """,
         encoding="utf-8",
     )
@@ -212,18 +205,17 @@ state_models:
         Engine(Workspace.load(root)).validate_all()
 
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-state_models:
-  model:
-    states:
-      only
-    transitions:
-      only -> only @ 1
-    rewards:
-      value: dimensionless:
-        only = steady_reward(model, value)
+state_model model:
+  states:
+    - only
+  transitions:
+    - only -> only @ 1
+  rewards:
+    reward value: dimensionless:
+      only = steady_reward(model, value)
 """,
         encoding="utf-8",
     )

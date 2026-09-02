@@ -19,7 +19,7 @@ interface DocumentRelationshipPreviewProps {
 type RelationshipDirection = "both" | "dependencies" | "users";
 
 function entryId(source: string): string | null {
-  return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)$/m)?.[1] ?? null;
+  return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$/m)?.[1] ?? null;
 }
 
 function normalizedPath(path: string): string {

@@ -61,7 +61,7 @@ requires_kirin = "{current_feature_line()}"
     entries.mkdir()
     entry_id = document_id or f"{namespace}_value"
     (entries / "value.kirin").write_text(
-        f"@kirin 1\n@entry {entry_id}\n\noutputs:\n  result: dimensionless = {expression}\n",
+        f"@kirin 2\n@entry {entry_id}\n\noutput result: dimensionless = {expression}\n",
         encoding="utf-8",
     )
     return root
@@ -106,13 +106,10 @@ def test_package_static_templates_are_locked_and_expand_once(tmp_path: Path) -> 
     template_dir.mkdir(parents=True)
     template_path = template_dir / "consumer.kirin"
     template_path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry package_template
 
-// Package consumer template
-
-outputs:
-  result: dimensionless = community_example_value.result + 1
+output result: dimensionless = community_example_value.result + 1
 """,
         encoding="utf-8",
     )
@@ -186,14 +183,12 @@ def test_package_semantic_exports_require_the_same_namespace(tmp_path: Path) -> 
     workspace = initialize(tmp_path / "workspace")
     package = _package(tmp_path / "package")
     (package / "entries" / "value.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry community_example_semantics
 
-dimensions:
-  damage
+dimension damage
 
-units:
-  damage = damage
+unit damage = damage
 """,
         encoding="utf-8",
     )
@@ -209,14 +204,12 @@ units:
 def test_local_semantics_cannot_shadow_package_semantics(tmp_path: Path) -> None:
     workspace = initialize(tmp_path / "workspace")
     package = _package(tmp_path / "package")
-    semantic_source = """@kirin 1
+    semantic_source = """@kirin 2
 @entry community_example_semantics
 
-dimensions:
-  community_example_damage
+dimension community_example_damage
 
-units:
-  community_example_damage = community_example_damage
+unit community_example_damage = community_example_damage
 """
     (package / "entries" / "value.kirin").write_text(semantic_source, encoding="utf-8")
     requirements = WorkspaceRequirements(
@@ -292,24 +285,21 @@ def test_package_function_accepts_workspace_local_arguments_without_read_authori
         document_id="community_example_functions",
     )
     (package / "entries" / "value.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry community_example_functions
 
-functions:
-  double(x: dimensionless) -> dimensionless = 2 * x
+function double(x: dimensionless): dimensionless = 2 * x
 """,
         encoding="utf-8",
     )
     workspace = initialize(tmp_path / "workspace")
     (workspace / "entries" / "consumer.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry local_consumer
 
-inputs:
-  x: number[dimensionless] = 3
+input x: number[dimensionless] = 3
 
-outputs:
-  result: dimensionless = community_example_functions.double(x)
+output result: dimensionless = community_example_functions.double(x)
 """,
         encoding="utf-8",
     )
@@ -330,21 +320,19 @@ def test_package_function_cannot_read_workspace_local_entries(tmp_path: Path) ->
         document_id="community_example_functions",
     )
     (package / "entries" / "value.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry community_example_functions
 
-functions:
-  add_local(x: dimensionless) -> dimensionless = x + local_authority.amount
+function add_local(x: dimensionless): dimensionless = x + local_authority.amount
 """,
         encoding="utf-8",
     )
     workspace = initialize(tmp_path / "workspace")
     (workspace / "entries" / "authority.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry local_authority
 
-fields:
-  amount: dimensionless = 2
+field amount: dimensionless = 2
 """,
         encoding="utf-8",
     )
@@ -366,14 +354,12 @@ def test_package_cannot_use_undeclared_sibling_semantics(tmp_path: Path) -> None
         document_id="community_base_semantics",
     )
     (base / "entries" / "value.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry community_base_semantics
 
-dimensions:
-  community_base_damage
+dimension community_base_damage
 
-units:
-  community_base_damage = community_base_damage
+unit community_base_damage = community_base_damage
 """,
         encoding="utf-8",
     )
@@ -383,14 +369,12 @@ units:
         namespace="community_feature",
     )
     (feature / "entries" / "value.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry community_feature_value
 
-fields:
-  amount: community_base_damage = 1
+field amount: community_base_damage = 1
 
-outputs:
-  result: community_base_damage = amount
+output result: community_base_damage = amount
 """,
         encoding="utf-8",
     )
@@ -445,11 +429,10 @@ def test_remove_refuses_to_break_workspace_dependencies(tmp_path: Path) -> None:
     package = _package(tmp_path / "package")
     add_path_package(workspace, "example", package)
     (workspace / "entries" / "consumer.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry consumer
 
-outputs:
-  result: dimensionless = community_example_value.result + 1
+output result: dimensionless = community_example_value.result + 1
 """,
         encoding="utf-8",
     )

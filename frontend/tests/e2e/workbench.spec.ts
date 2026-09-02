@@ -14,10 +14,10 @@ async function openWorkbench(page: Page) {
 
 async function openCombo(page: Page) {
   await page.getByRole("button", { name: comboButtonName }).click();
-  await expect(page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" })).toBeVisible();
 }
 
-test.describe.serial("Kirin 浏览器工作台交互", () => {
+test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   test.afterEach(async ({ request }) => {
     await request.post("/api/recovery", {
       headers: { "X-Kirin-Token": "kirin-e2e-token" },
@@ -57,7 +57,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "Build 大厅", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "工作区", exact: true }).click();
-    await page.getByText("Kirin 默认", { exact: true }).click();
+    await page.getByText("Kirin Tor 默认", { exact: true }).click();
     await expect(page.getByRole("button", { name: "关系图" })).toBeVisible();
 
     await page.getByRole("button", { name: /命令/ }).click();
@@ -184,13 +184,13 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await openWorkbench(page);
     await page.getByLabel("语法参考", { exact: true }).click();
 
-    let reference = page.getByRole("dialog", { name: "Kirin 语法参考" });
+    let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
-    await expect(reference.getByText("10 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByText("11 个匹配主题", { exact: true })).toBeVisible();
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
-    await expect(reference.getByText("distributions:", { exact: false })).toBeVisible();
+    await expect(reference.getByText("distribution proc", { exact: false })).toBeVisible();
 
     const copy = reference.getByRole("button", { name: "复制示例：有限离散分布" });
     await copy.click();
@@ -199,8 +199,8 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await reference.locator(".mantine-Drawer-close").click();
     await page.getByRole("button", { name: /命令/ }).click();
     await page.getByPlaceholder("搜索页面或命令…").fill("语法参考");
-    await page.getByText("打开 Kirin 语法参考", { exact: true }).click();
-    reference = page.getByRole("dialog", { name: "Kirin 语法参考" });
+    await page.getByText("打开 Kirin Tor 语法参考", { exact: true }).click();
+    reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
   });
 
@@ -211,7 +211,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     expect(results.violations).toEqual([]);
 
     await page.getByLabel("语法参考", { exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Kirin 语法参考" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" })).toBeVisible();
     await page.waitForTimeout(350);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(results.violations).toEqual([]);
@@ -246,13 +246,13 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await review.locator(".mantine-Drawer-close").click();
 
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("unknown：");
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
-    await expect(page.getByRole("dialog", { name: "Kirin 语法参考" }).getByRole("heading", { name: "文档、注释与说明" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" }).getByRole("heading", { name: "文档、注释与说明" })).toBeVisible();
   });
 
   test("文档复制明确生成未保存源码草稿", async ({ page }) => {
@@ -263,15 +263,15 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     const duplicate = page.getByRole("dialog", { name: "复制为新文档" });
     await duplicate.getByRole("textbox", { name: "新文档 ID" }).fill("combo_copy");
     await duplicate.getByRole("button", { name: "创建复制草稿" }).click();
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：combo_copy" })).toContainText("@entry combo_copy");
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：combo_copy" })).toContainText("combo_copy.total");
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：combo_copy" })).toContainText("@entry combo_copy");
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：combo_copy" })).toContainText("combo_copy.total");
     await expect(page.getByText("已修改", { exact: true })).toBeVisible();
   });
 
   test("文档切换与新建文档 Enter 使用同一校验", async ({ page }) => {
     await openWorkbench(page);
     await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：技能 A（虚构）" })).toContainText("@entry skill_a");
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：技能 A（虚构）" })).toContainText("@entry skill_a");
     await openCombo(page);
 
     await page.getByRole("button", { name: "新建文档" }).click();
@@ -297,7 +297,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
   test("补全片段替换前缀并把光标放进参数", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("  平方根");
@@ -312,7 +312,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
   test("光标、活动行和文本选择具有可见且可读的交互状态", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await editor.press(`${modKey}+f`);
     await page.locator('.cm-search input[name="search"]').fill("combo.total");
     await page.locator('.cm-search button[name="next"]').click();
@@ -343,7 +343,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
   test("编辑器提供查找、大纲、源码联动、引用与安全重命名", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
 
     await editor.press(`${modKey}+f`);
     const searchPanel = page.locator(".cm-search");
@@ -367,7 +367,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await editor.press("Shift+F12");
     const references = page.getByRole("dialog", { name: /定义与引用 · combo.total/ });
     await expect(references).toContainText("entries/组合模型.kirin:20");
-    await expect(references).toContainText("entries/组合模型.kirin:34");
+    await expect(references).toContainText("entries/组合模型.kirin:27");
     await references.locator(".mantine-Drawer-close").click();
 
     await page.getByRole("button", { name: "文档符号大纲" }).click();
@@ -389,10 +389,10 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     const paletteSearch = page.getByPlaceholder("搜索页面或命令…");
     await paletteSearch.fill("技能 A");
     await page.getByText("打开文档：技能 A（虚构）", { exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：技能 A（虚构）" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：技能 A（虚构）" })).toBeVisible();
 
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await editor.press(`${modKey}+f`);
     const definitionSearch = page.locator('.cm-search input[name="search"]');
     await definitionSearch.fill("skill_a.expected");
@@ -400,7 +400,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator(".cm-activeLine")).toContainText("skill_a.expected");
     await editor.press("F12");
-    await expect(page.getByRole("textbox", { name: "Kirin 源码：技能 A（虚构）" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：技能 A（虚构）" })).toBeVisible();
     await expect(page.locator(".cm-activeLine")).toContainText("expected(c: probability)");
 
     await openCombo(page);
@@ -411,20 +411,20 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await page.keyboard.press("Escape");
     await editor.press("ArrowRight");
     await editor.press("ArrowRight");
-    await expect(page.locator(".editor-signature-hint")).toContainText("expected(c: probability) -> damage · 参数 1");
+    await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 1");
     await expect(page.locator(".cm-foldGutter")).toBeVisible();
   });
 
   test("撤销历史跨文档保留且未保存草稿可在重载后恢复", async ({ page, request }) => {
     await openWorkbench(page);
     await openCombo(page);
-    let editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    let editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("// undo across documents");
     await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
     await openCombo(page);
-    editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await editor.press(`${modKey}+z`);
     await expect(editor).not.toContainText("// undo across documents");
 
@@ -439,7 +439,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await page.reload();
     await expect(page.getByText("已恢复 1 个草稿", { exact: true })).toBeVisible();
     await openCombo(page);
-    const recoveredEditor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const recoveredEditor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await recoveredEditor.press(`${modKey}+f`);
     await page.locator('.cm-search input[name="search"]').fill("recovered after reload");
     await page.locator('.cm-search button[name="next"]').click();
@@ -469,6 +469,22 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await expect(page.locator(".formula-result")).toContainText("2200*combo.crit + 2200");
   });
 
+  test("固定技能循环自动报告首次等待与每分钟等待时间", async ({ page }) => {
+    await openWorkbench(page);
+    await page.getByRole("button", { name: "循环可行性（虚构） entries/循环分析.kirin", exact: true }).click();
+    await page.getByRole("tab", { name: "预览", exact: true }).click();
+
+    const preview = page.locator(".document-result-preview");
+    await expect(preview).toContainText("需要等待，可持续循环");
+    await expect(preview).toContainText("资源：charge / focus / mana");
+    await expect(preview).toContainText("首次等待：第 4 步");
+    await expect(preview).toContainText("受限：focus");
+    await expect(preview).toContainText("每分钟等待：75/2 秒");
+
+    await page.getByRole("button", { name: "定位循环源码" }).click();
+    await expect(page.locator(".cm-activeLine")).toContainText('cycle main_rotation "多资源奥术循环"');
+  });
+
   test("结果、图表、公式与局部关系都能返回源码位置", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
@@ -486,7 +502,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
     await expect(page.getByRole("button", { name: "定位图表源码" })).toBeVisible();
     await page.getByRole("button", { name: "定位图表源码" }).click();
-    await expect(activeLine).toContainText("x: combo.crit");
+    await expect(activeLine).toContainText('chart preview "combo"');
 
     await focusChoice("仅预览").click();
     await page.getByRole("tab", { name: "公式", exact: true }).click();
@@ -515,7 +531,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
   test("诊断项跳转到编辑器中的错误位置", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("unknown：");
@@ -528,7 +544,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
   test("外部修改冲突可比较、保留草稿副本并重新加载", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    const editor = page.getByRole("textbox", { name: "Kirin 源码：双技能组合（虚构）" });
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("// local workbench draft");
@@ -559,8 +575,8 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
     await mkdir(entries);
     try {
       await page.goto(sessionUrl);
-      await expect(page.getByLabel("Kirin 入门")).toBeVisible();
-      await expect(page.getByRole("heading", { name: "从一份真正的 Kirin 源码开始" })).toBeVisible();
+      await expect(page.getByLabel("Kirin Tor 入门")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "从一份真正的 Kirin Tor 源码开始" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "三个虚构、游戏中立的练习" })).toBeVisible();
       expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
       if (browserName !== "firefox") {
@@ -579,7 +595,7 @@ test.describe.serial("Kirin 浏览器工作台交互", () => {
 
       await tutorial.getByRole("textbox", { name: "文档 ID" }).fill("my_first_model");
       await tutorial.getByRole("button", { name: "复制为未保存草稿" }).click();
-      const editor = page.getByRole("textbox", { name: "Kirin 源码：教程 1：基础公式" });
+      const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：教程 1：基础公式" });
       await expect(editor).toContainText("@entry my_first_model");
       await expect(page.getByText("已修改", { exact: true })).toBeVisible();
       await expect(access(resolve(entries, "my_first_model.kirin"))).rejects.toThrow();

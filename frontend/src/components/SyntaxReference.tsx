@@ -85,7 +85,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
   };
 
   return (
-    <div className="syntax-reference" aria-label="Kirin 语法参考内容">
+    <div className="syntax-reference" aria-label="Kirin Tor 语法参考内容">
       <header className="syntax-reference-header">
         <Box>
           <Text className="page-kicker">AUTHORING REFERENCE</Text>
@@ -132,7 +132,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
               <Stack gap="lg">
                 <Box>
                   <Group gap="xs" mb="xs">
-                    <Badge variant="outline" color="gray">Kirin v1</Badge>
+                    <Badge variant="outline" color="gray">Kirin Tor v2</Badge>
                     <Badge variant="light" color="orange">只读参考</Badge>
                   </Group>
                   <Text id={`syntax-reference-${selected.id}`} component="h2" fw={700} fz="xl">

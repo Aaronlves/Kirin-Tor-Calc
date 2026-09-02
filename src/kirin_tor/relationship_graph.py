@@ -1,4 +1,4 @@
-"""Deterministic dependency projections derived from validated Kirin expressions."""
+"""Deterministic dependency projections derived from validated Kirin Tor expressions."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from collections import Counter
 from typing import Iterable, Optional
 
 from .diagnostics import extract_author_title
+from .kirin_v2 import normalize_expression
 from .schema import Entry
 from .workspace import Workspace
 
@@ -36,6 +37,10 @@ def _member_kind(entry: Entry, name: str) -> Optional[str]:
         return "state_model"
     if name in entry.outputs:
         return "output"
+    if name in entry.objects:
+        return "object"
+    if name in entry.cycles:
+        return "cycle"
     return None
 
 
@@ -60,7 +65,11 @@ def _expression_references(
     local_names: Iterable[str] = (),
 ) -> set[str]:
     """Return direct semantic member references from one already validated expression."""
-    tree = ast.parse(" ".join(line.strip() for line in expression.splitlines()), mode="eval")
+    normalized = normalize_expression(
+        " ".join(line.strip() for line in expression.splitlines()),
+        workspace.units.units,
+    )
+    tree = ast.parse(normalized, mode="eval")
     bound = set(local_names)
     ignored_name_nodes: set[int] = set()
     for node in ast.walk(tree):
@@ -80,15 +89,40 @@ def _expression_references(
             )
 
     attribute_bases = {
-        id(node.value)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+        id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)
     }
+
+    def attribute_segments(node: ast.Attribute) -> tuple[str, ...]:
+        segments: list[str] = []
+        candidate: ast.AST = node
+        while isinstance(candidate, ast.Attribute):
+            segments.append(candidate.attr)
+            candidate = candidate.value
+        if not isinstance(candidate, ast.Name):
+            return ()
+        segments.append(candidate.id)
+        return tuple(reversed(segments))
+
+    def canonical_path(parts: tuple[str, ...]) -> Optional[str]:
+        if not parts:
+            return None
+        if parts[0] in workspace.entries:
+            owner = workspace.entries[parts[0]]
+            if len(parts) >= 2 and parts[1] in owner.objects:
+                return f"{owner.id}.{parts[1]}"
+            if len(parts) == 2 and _member_kind(owner, parts[1]):
+                return ".".join(parts)
+            return None
+        if parts[0] in entry.objects:
+            return f"{entry.id}.{parts[0]}"
+        if len(parts) == 1:
+            return _qualified_reference(workspace, entry, parts[0])
+        return None
     result: set[str] = set()
     for node in ast.walk(tree):
         reference: Optional[str] = None
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            reference = f"{node.value.id}.{node.attr}"
+        if isinstance(node, ast.Attribute) and id(node) not in attribute_bases:
+            reference = canonical_path(attribute_segments(node))
         elif (
             isinstance(node, ast.Name)
             and id(node) not in attribute_bases
@@ -96,7 +130,7 @@ def _expression_references(
         ):
             if node.id in bound or node.id in _BUILTINS or node.id in workspace.units.units:
                 continue
-            reference = _qualified_reference(workspace, entry, node.id)
+            reference = canonical_path((node.id,))
         if reference is None or "." not in reference:
             continue
         owner_id, member = reference.split(".", 1)
@@ -137,6 +171,12 @@ def _node(entry: Entry, name: str, kind: str, metadata: object) -> dict:
             f"{transition.source} -> {transition.target} @ {transition.probability}"
             for transition in metadata.transitions
         )
+    elif kind == "object":
+        expression = "; ".join(
+            f"{key} = {value}" for key, value in metadata.values.items()
+        )
+    elif kind == "cycle":
+        expression = f"using = {metadata.profile}; sequence = " + ", ".join(metadata.sequence)
     return {
         "id": qualified,
         "label": label or name,
@@ -184,6 +224,8 @@ def build_relationship_graph(workspace: Workspace) -> dict:
             ("distribution", entry.distributions),
             ("recurrence", entry.recurrences),
             ("state_model", entry.state_models),
+            ("object", entry.objects),
+            ("cycle", entry.cycles),
             ("output", entry.outputs),
         )
         for kind, collection in collections:
@@ -233,6 +275,18 @@ def build_relationship_graph(workspace: Workspace) -> dict:
                 for reward in model.rewards.values()
                 for expression in reward.values.values()
             )
+        for name, obj in entry.objects.items():
+            def object_expressions(values):
+                for value in values.values():
+                    if isinstance(value, dict):
+                        yield from object_expressions(value)
+                    elif isinstance(value, str):
+                        yield value
+
+            formulae.extend(
+                (f"{entry.id}.{name}", expression, ())
+                for expression in object_expressions(obj.values)
+            )
         for target, expression, local_names in formulae:
             for source in sorted(
                 _expression_references(
@@ -245,6 +299,23 @@ def build_relationship_graph(workspace: Workspace) -> dict:
                         "source": source,
                         "target": target,
                         "kind": "formula",
+                    }
+                )
+        for name, cycle in entry.cycles.items():
+            target = f"{entry.id}.{name}"
+            for reference in (cycle.profile, *cycle.sequence):
+                parts = reference.split(".")
+                source = (
+                    f"{entry.id}.{parts[0]}"
+                    if len(parts) == 1
+                    else f"{parts[0]}.{parts[1]}"
+                )
+                edges.append(
+                    {
+                        "id": f"{source}->{target}",
+                        "source": source,
+                        "target": target,
+                        "kind": "sequence",
                     }
                 )
 

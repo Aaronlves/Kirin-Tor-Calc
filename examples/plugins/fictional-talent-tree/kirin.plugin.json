@@ -4,7 +4,7 @@
   "name": "Fictional Talent Workbench",
   "version": "1.0.0",
   "api": "1",
-  "description": "把 Kirin 验收示例投影成虚构的游戏天赋界面。",
+  "description": "把 Kirin Tor 验收示例投影成虚构的游戏天赋界面。",
   "license": "MIT",
   "contributes": {
     "renderers": [

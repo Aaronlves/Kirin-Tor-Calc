@@ -248,7 +248,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
           </Tabs.Panel>
           <Tabs.Panel value="new-workspace" pl="lg">
             <Stack>
-              <Box><Text fw={650}>初始化新工作区</Text><Text c="dimmed" fz="xs" mt={3}>在指定目录创建 Kirin 工作区结构。</Text></Box>
+              <Box><Text fw={650}>初始化新工作区</Text><Text c="dimmed" fz="xs" mt={3}>在指定目录创建 Kirin Tor 工作区结构。</Text></Box>
               <TextInput label="目标目录" value={workspacePath} onChange={(event) => setWorkspacePath(event.currentTarget.value)} />
               <Button loading={working} disabled={!workspacePath} onClick={() => { void initializeWorkspace(); }}>初始化工作区</Button>
             </Stack>

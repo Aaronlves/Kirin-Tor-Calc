@@ -1,299 +1,359 @@
-# Kirin source syntax v1
+# Kirin Tor source syntax v2
 
-Kirin source is the sole workspace source format. Every source is one `entry` document; formulas, presets, and optional chart configuration live in that same authority. Documents use the `.kirin` extension.
+Kirin Tor uses one public source format: `.kirin` with `@kirin 2`. Each file is one
+`entry`; calculations, game data, named objects, fixed sequences, presets, and optional charts
+can live in the same file. The source remains the editable authority. Indexes, previews, and run
+records are derived projections.
 
-## Document header, comments, and prose
-
-Every document starts with a format declaration and one document identity:
+The surface language deliberately reuses four forms:
 
 ```text
-@kirin 1
-@entry skill_a
+keyword name: type = expression
+
+kind name "可选显示名":
+  property = value
+
+block:
+  - ordered item
+
+object.child.leaf
 ```
 
-IDs use `[A-Za-z_][A-Za-z0-9_]*`. A line whose first non-space characters are `//` is an author comment and has no schema meaning. The typed document name currently defaults to its ID.
+There are no section containers such as `inputs:` or `outputs:` in v2.
 
-One document-level description may be enclosed by matching fences of three or more hyphens:
+## Document header, labels, comments, and prose
 
 ```text
+@kirin 2
+@entry rotation "奥术循环"
+@game-version "11.2.0"
+@status "draft"
+
+// This comment has no schema meaning.
+
 ----
-This prose is preserved as description text.
-A line containing --- is ordinary prose because the fence has four hyphens.
+Free-form UTF-8 explanation, evidence notes, and scope boundaries.
+Tabs and text that resemble syntax are preserved inside this fence.
 ----
 ```
 
-Fence contents are opaque UTF-8 text. Outside a prose fence, tabs are rejected and spaces control indentation.
+Formal IDs use `[A-Za-z_][A-Za-z0-9_]*`. The quoted entry label and other quoted labels
+are presentation-only and may use Chinese. The supported directives are `@game-version` and
+`@status`. Outside prose fences, indentation uses spaces; tabs are rejected.
 
-## Entry
+Only `@kirin 2` is public. A v1 file fails explicitly instead of being guessed or silently
+translated.
 
-```text
-@kirin 1
-@entry model
-
-// Model
-
-inputs:
-  x "Input": number[dimensionless] = 0.25 in 0..1
-  enabled: boolean = true
-
-fields:
-  base: dimensionless = 2
-  scaled: dimensionless = base * (1 + x)
-
-constraints:
-  x >= 0
-  x <= 1
-
-functions:
-  multiply(n: number[dimensionless]) -> dimensionless =
-    scaled * n
-
-outputs:
-  result "Result": dimensionless = scaled
-```
-
-Supported directives are `@game-version` and `@status`. Supported sections are:
-
-- `sources`: one structured JSON object per line, including at least `kind` and `citation`; optional fields include `location`, `verified_at`, `digest`, and `game_version`.
-- `aliases`: `UNICODE_NAME = ENTRY_ID.MEMBER`; aliases are local to this entry.
-- `inputs`: `NAME ["LABEL"]: TYPE [= DEFAULT] [in MIN..MAX] [integer] [one-of [...]]`.
-- `constraints`: one boolean expression per declaration; indented continuation lines are joined.
-- `fields`: `NAME ["LABEL"]: TYPE = VALUE_OR_EXPRESSION`.
-- `functions`: `NAME ["LABEL"](PARAMETERS) -> UNIT = EXPRESSION`.
-- `tables`: versioned ordered lookup points, with explicit input and output units.
-- `distributions`: finite numeric outcomes written as `VALUE @ PROBABILITY`, with one declared result unit.
-- `recurrences`: bounded pure recurrences with an initial value, finite step count, and `next(CURRENT, INDEX)` expression.
-- `state_models`: finite transition systems with optional typed rewards for analytical queries.
-- `outputs`: `NAME ["LABEL"]: UNIT = EXPRESSION`.
-- `groups`: author-defined named output groups; the engine supplies no built-in categories.
-- `presets`: named input assignments belonging to this entry.
-- `display`: output formatting as `number`, `integer`, `percent`, or `coefficient_percent`, optionally followed by `digits N`.
-
-Types are `boolean`, `number[UNIT]`, or a named unit/domain. Function parameters use the same type and constraint spelling as inputs but cannot define defaults.
-
-One-sided bounds use `*` for the open side: `in 0..*` or `in *..1`.
-
-## Local aliases and display labels
-
-Formal document and member IDs remain ASCII. An entry may give frequently used qualified
-members a Unicode alias for formulas in that entry:
+## Scalar declarations and expressions
 
 ```text
-aliases:
-  法强 = character.spell_power
-  暴击率 = character.crit
-  技能 = fireball.expected
+input crit "暴击率": probability = 25%
+input targets "目标数": count = 3 in 1..8
+input enabled "启用": boolean = true
 
-outputs:
-  result "期望伤害": damage = 技能(法强, 暴击率)
+field base "基础伤害": damage = 1000
+field adjusted "修正伤害": damage = base * (1 + crit)
+
+require targets >= 1
+
+function per_target(n: count): damage = adjusted / n
+
+output result "结果": damage = if_else(enabled, per_target(targets), 0)
+display result = integer
 ```
 
-An alias may target an input, field, function, distribution, recurrence, state model, or output. It may not shadow a declared
-member or a built-in expression function, and other documents cannot reference it.
-Dependencies, parameters, presets, CLI arguments, and run results continue to use
-canonical qualified identities.
+- `input` declares a variable and may add a default, `in MIN..MAX`, `integer`, or
+  `one-of [A, B, ...]`.
+- `field` declares a literal or derived value.
+- `require` adds a boolean condition to the entry.
+- `function` declares explicit parameters. Parameters may have ranges and allowed values but no
+  defaults.
+- `output` declares a public scalar result.
+- `display` changes presentation only: `number`, `integer`, `percent`, or
+  `coefficient_percent`, optionally followed by `digits N`.
 
-The optional quoted label on an input, field, function, or output is
-presentation-only. Changing it does not change references. Chart previews and exports use
-member labels by default; an explicit curve `as "LABEL"` still takes precedence.
+Types are `boolean`, `number[UNIT]`, a named unit, or a named domain. Exact integers,
+decimals, fractions, and percentages are accepted. `25%` means exactly `25 / 100`.
+Whitespace makes a numeric unit literal readable: `3/2 second` is lowered to
+`3/2 * second`. General implicit multiplication is not accepted.
+
+Expressions remain restricted mathematical expressions. They do not support assignment,
+imports, arbitrary Python calls, mutation, or executable hooks. Supported families include
+arithmetic and comparisons, `if_else`, `piecewise`, `min`, `max`, `abs`, `sqrt`, exact finite
+sums/products, lookup and interpolation, finite distribution functions, finite recurrence
+functions, and finite-state analytical functions.
 
 ## Dimensions, units, and domains
 
-The mathematical core always provides `dimensionless`, physical `time`, `second`,
-`millisecond`, and the game-neutral domains `probability`, `count`,
-`nonnegative_integer`, and `positive_integer`. It does not provide damage, healing,
-attributes, resources, classes, or any other game vocabulary.
-
-Any entry may declare shared mathematical semantics:
+The core provides `dimensionless`, physical `time`, `second`, `millisecond`, and the
+game-neutral domains `probability`, `count`, `nonnegative_integer`, and `positive_integer`.
+Game vocabulary is ordinary source data:
 
 ```text
-dimensions:
-  damage "伤害"
-  time "时间"
+dimension damage "伤害"
+dimension resource "资源"
 
-units:
-  damage = damage
-  time = time
-  millisecond = 1/1000 * time
-  damage_per_time = damage / time
+unit damage = damage
+unit resource = resource
+unit resource_per_time = resource / time
+unit damage_per_resource = damage / resource
 
-domains:
-  probability: number[dimensionless] in 0..1
-  positive_integer: number[dimensionless] in 1..* integer
+domain rank: number[dimensionless] in 1..3 integer
 ```
 
-Unit expressions allow a positive exact scale, dimension names, multiplication, division, and exact integer or rational powers. Values are converted to one exact canonical scale during calculation and converted back to the declared unit for results, scans, tables, bounds, and solves. For example, `500 * millisecond + 1 * time` is exactly `3/2 time`.
+Unit expressions allow a positive exact scale, dimensions, multiplication, division, and exact
+integer or rational powers. Values are converted to an exact canonical scale and displayed in the
+declared unit. Kirin Tor never infers a unit from a field name.
 
-Expressions use the existing restricted Kirin Tor expression language. They do not acquire assignment, imports, arbitrary Python calls, or implicit multiplication.
+## Closed types and named objects
 
-Community Package sources use the same syntax and parser. Package protocol v1 requires every
-exported document, dimension, unit, and domain to begin with the manifest namespace prefix;
-cross-Package references continue using those stable prefixed IDs. Package sources are read-only
-inside a consuming workspace and cannot install executable extensions. See
-[Kirin community package protocol v1](package-system-v1.md).
-
-## Groups, presets, tables, and display
+A `type` gives a reusable set of allowed properties. An object declaration uses that type name as
+its first word:
 
 ```text
-groups:
-  throughput "输出收益":
-    result
+type coefficient:
+  direct: damage
+  periodic: damage
 
-presets:
-  baseline "当前配装":
-    model.x = 0.5
-    selection.enabled = true
+type skill:
+  cost: resource
+  occupies: time
+  coefficient: coefficient
 
-tables:
-  rating "等级换算": dimensionless -> dimensionless:
+skill arcane_blast "奥术冲击":
+  cost = 30
+  occupies = 3/2 second
+  coefficient:
+    direct = 1000 damage
+    periodic = 250 damage
+
+output dot "持续部分": damage = arcane_blast.coefficient.periodic
+```
+
+Objects are closed: an unknown property is an error, as is a missing required property. A field can
+be optional with `?`, or supply a default:
+
+```text
+type skill:
+  cost: resource = 0
+  cooldown?: time
+```
+
+Member paths are statically resolved and may have multiple levels:
+
+- `arcane_blast.cost` inside the owning entry;
+- `skills.arcane_blast.cost` from another entry;
+- `arcane_blast.coefficient.periodic` for a nested structure.
+
+A type can be reused from another entry as `entry.type`. Type and field names are stable ASCII
+identity; quoted labels remain presentation-only.
+
+## Semantic interfaces for fixed cycles
+
+Kirin Tor does not assume resource names such as mana, energy, rage, or charges. A type maps
+author-chosen fields to named resource roles used by cycle analysis:
+
+```text
+type skill:
+  mana_cost: mana = 0
+  charge_cost: charge = 0
+  charge_gain: charge = 0
+  cast_time: time
+  cycle_step:
+    occupies = cast_time
+    spends:
+      mana = mana_cost
+      charge = charge_cost
+    gains:
+      charge = charge_gain
+
+type character_profile:
+  starting_mana: mana
+  maximum_mana: mana
+  mana_per_time: mana_per_time
+  starting_charge: charge
+  maximum_charge: charge
+  charge_per_time: charge_per_time
+  cycle_profile:
+    resources:
+      mana:
+        initial = starting_mana
+        maximum = maximum_mana
+        regeneration = mana_per_time
+      charge:
+        initial = starting_charge
+        maximum = maximum_charge
+        regeneration = charge_per_time
+```
+
+The mapping is written once on the type. Every skill object then contains only its own values:
+
+```text
+input haste "急速": probability = 20%
+
+skill arcane_blast "奥术冲击":
+  mana_cost = 30
+  charge_gain = 1
+  cast_time = 3/2 second / (1 + haste)
+```
+
+`spends` is applied at action start; `gains` is applied at action finish. Both sections are optional,
+but `occupies` is required. Every named profile resource requires `initial`, `maximum`, and
+`regeneration`. The resource name connects step effects to the profile; units are still independently
+checked. A fixed cycle may use at most 64 resources and 256 spend/gain mappings per step.
+
+For a deliberately single-resource model, the compact `cost` plus flat `initial`, `maximum`, and
+`regeneration` interface remains valid and is normalized to the same state-vector engine.
+
+## Fixed sequence analysis
+
+```text
+character_profile raid_profile "团队副本角色":
+  starting_mana = 100
+  maximum_mana = 100
+  mana_per_time = 10
+  starting_charge = 0
+  maximum_charge = 4
+  charge_per_time = 0
+
+cycle main_rotation "主要循环":
+  using = raid_profile
+  sequence:
+    - arcane_blast
+    - arcane_blast
+    - arcane_barrage
+```
+
+Analyze it with:
+
+```bash
+kt cycle rotation.main_rotation
+kt cycle rotation.main_rotation --set rotation.haste=0.3 --json
+```
+
+The operation returns one of three exact outcomes:
+
+- `continuous`: the declared sequence can repeat forever without inserted resource waits;
+- `waiting`: it can repeat forever if Kirin Tor waits just long enough before resource-starved
+  steps;
+- `blocked`: a step can never execute, for example because its cost exceeds the maximum or the
+  resource cannot recover.
+
+The report includes every declared resource and unit, the resources that fail a step, the resource
+or resources that determine the first wait, the global step number, cycle and position, waiting time
+per eventual cycle, waiting time per minute, and eventual cycle duration. Preset and temporary input
+values are honored, and a cycle run can be saved and replayed like other operations.
+
+The current timeline is deliberately exact and narrow:
+
+1. A step checks and applies all named `spends` at the start.
+2. Every resource regenerates simultaneously during `occupies`, independently capped at its own
+   `maximum`.
+3. All named `gains` are applied at action finish and capped.
+4. If the next step lacks one or more resources, analysis waits for the slowest recoverable deficit;
+   every pool continues to regenerate during that shared wait.
+5. A resource with zero passive regeneration can still be produced by earlier skills. If it is
+   insufficient when required, waiting cannot repair the deficit and the sequence is blocked.
+
+Current cycle analysis has a deterministic fixed sequence, non-negative spends/gains, positive
+durations, and bounded resource pools. It does not yet model conditional priorities, cooldown
+timers, discrete recharge queues, random procs, clipping, latency, or branching action lists. Those
+belong to later state-transition layers and are not guessed from property names.
+
+## Aliases and structured sources
+
+```text
+alias 法强 = character.spell_power
+alias 周期伤害 = skills.arcane_blast.coefficient.periodic
+
+source hotfix_note:
+  citation = "Patch note URL or bibliographic citation"
+  location = "Section 3"
+  verified_at = "2026-09-02"
+```
+
+An alias is local to its entry and may target a multi-level member path. Dependencies, CLI targets,
+presets, and run records continue to use canonical paths. A source block requires `citation`; its
+declaration name becomes `kind`. Optional properties are `location`, `verified_at`, `digest`, and
+`game_version`.
+
+## Groups and presets
+
+```text
+group summary "摘要":
+  - result
+  - dot
+
+preset raid "团队副本":
+  rotation.haste = 20%
+  rotation.targets = 1
+```
+
+Groups organize local outputs without changing mathematics. Presets store named assignments to
+formal inputs. One-sided ranges use `*`, as in `in 0..*`.
+
+## Tables, finite distributions, recurrences, and state models
+
+```text
+table rating:
+  input = dimensionless
+  output = dimensionless
+  points:
     1 = 10
     3 = 30
 
-display:
-  result: percent digits 2
+distribution proc: damage:
+  outcomes:
+    - 0 @ 1 - chance
+    - hit @ chance
+
+recurrence protection: probability:
+  initial = chance
+  steps = failures
+  next(current, index) = min(current + increment, 1)
+
+state_model proc_state:
+  states:
+    - ready
+    - cooldown
+  transitions:
+    - ready -> ready @ 1 - chance
+    - ready -> cooldown @ chance
+    - cooldown -> ready @ 1
+  rewards:
+    reward value: damage:
+      ready = hit
+      cooldown = 0
 ```
 
-Group members must be local outputs and may appear in at most one group. Preset values must refer to declared inputs; use `entry.preset` outside the owning entry. `lookup(rating, key)` requires an exact table key, while `interpolate(rating, key)` linearly interpolates within the declared domain. Exact decimals need no quoting in Kirin source.
+Tables are ordered and exact. Finite distributions require probabilities in `0..1` that sum
+exactly to one. Recurrences are pure and statically bounded to at most 1,000 steps. State models
+are finite analytical systems, not event simulations; the current bounds are 16 states, 256
+transitions, and 64 rewards.
 
-## Finite discrete distributions
-
-An entry may declare a finite numeric distribution using exact scalar expressions for both
-outcomes and probabilities:
+## Chart projection
 
 ```text
-inputs:
-  proc_chance: probability = 0.25
-
-fields:
-  proc_damage: damage = 100
-
-distributions:
-  proc_result "触发结果": damage:
-    0 @ 1 - proc_chance
-    proc_damage @ proc_chance
-
-outputs:
-  expected_damage: damage = expectation(proc_result)
-  damage_variance: damage_squared = variance(proc_result)
-  proc_probability: dimensionless = probability(proc_result, proc_damage)
+chart preview "伤害曲线":
+  x = model.targets
+  range = 1..8
+  points = 8
+  y:
+    - model.result as "总伤害"
+  using = model.raid
+  x_label = "目标数"
+  y_label = "伤害"
+  export_svg = "results/damage.svg"
+  export_csv = "results/damage.csv"
 ```
 
-Every outcome must be numeric and compatible with the distribution's declared unit. Every
-probability must be dimensionless, between zero and one, and all probabilities must add to exactly
-one after effective inputs are applied. These rules are definition-domain conditions, so invalid
-defaults, presets, or temporary overrides fail instead of being normalized silently.
+One entry may declare one chart. `x`, `range`, `points`, and at least one `y` item are required.
+Preview is derived from the current source; export paths are explicit and confined to the workspace
+unless the caller deliberately opts out.
 
-`expectation(DISTRIBUTION)` returns the declared distribution unit. `variance(DISTRIBUTION)`
-returns that unit squared. `probability(DISTRIBUTION, VALUE)` sums the probabilities of every
-outcome equal to `VALUE` and returns a dimensionless scalar. A distribution can be referenced as a
-local name, `ENTRY.DISTRIBUTION`, or a local alias, but it cannot be used directly as a scalar.
+## Authoring boundary
 
-Distribution transformations are syntax expressions:
-
-```text
-outputs:
-  doubled_mean: damage = expectation(map(proc_result, value, value * 2))
-  two_roll_mean: damage = expectation(independent_sum(proc_result, proc_result))
-  repeated_mean: damage = expectation(repeat_sum(proc_result, attempts))
-  triggered_mean: damage =
-    expectation(condition(proc_result, value, value > 0))
-```
-
-`map(DISTRIBUTION, VARIABLE, EXPRESSION)` applies a pure numeric expression to every outcome.
-`independent_sum(LEFT, RIGHT)` explicitly declares independence and convolves equal-unit results.
-`repeat_sum(DISTRIBUTION, COUNT)` explicitly declares independent repetitions; `COUNT` must be a
-constant non-negative integer or one direct integer input with finite bounds or allowed values.
-`condition(DISTRIBUTION, VARIABLE, PREDICATE)` retains matching outcomes and renormalizes them; a
-zero-probability condition is a domain error. Equivalent transformed outcomes are merged.
-
-Kirin never infers independence from names or dependency shape and never samples. One resulting
-distribution may contain at most 1,000 merged outcomes; one binary convolution may inspect at most
-10,000 outcome pairs, and a repeat count may not exceed 1,000.
-
-## Finite recurrences
-
-```text
-recurrences:
-  protected_chance "失败保护概率": dimensionless:
-    initial = base_chance
-    steps = failures
-    next(current, index) = min(current + increase, cap)
-
-outputs:
-  current_chance: dimensionless = protected_chance
-```
-
-A recurrence is a numeric member and can be referenced locally or as `ENTRY.RECURRENCE`. Its
-initial and every next value must match the declared unit. `steps` must be a constant non-negative
-integer or resolve directly to one numeric input whose integer values are statically finite. The
-validator unfolds at most 1,000 pure steps; `current` and zero-based `index` are local names only.
-There is no mutation, unbounded recursion, or event clock.
-
-## Finite analytical state models
-
-```text
-state_models:
-  proc_cycle "触发循环":
-    states:
-      ready
-      cooldown
-    transitions:
-      ready -> ready @ 1 - proc_chance
-      ready -> cooldown @ proc_chance
-      cooldown -> ready @ 1
-    rewards:
-      damage_reward "状态伤害": damage:
-        ready = hit
-        cooldown = 0
-
-outputs:
-  ready_share: dimensionless = steady_probability(proc_cycle, ready)
-  long_run_damage: damage = steady_reward(proc_cycle, damage_reward)
-  reaches_cooldown: dimensionless =
-    hitting_probability(proc_cycle, ready, cooldown)
-  steps_to_cooldown: dimensionless =
-    expected_steps(proc_cycle, ready, cooldown)
-```
-
-Every state requires an outgoing transition. Transition probabilities are dimensionless, lie in
-`0..1`, and every source row must sum exactly to one. Rewards are optional, numeric, unit-checked,
-and cover every state. The four query functions solve finite linear systems exactly. A non-unique
-steady state or singular hitting system is a domain failure, including parameter values at which
-an otherwise symbolic system becomes singular.
-
-State models are limited to 16 states, 256 transitions, and 64 named rewards. They contain no
-actions, actors, APL, mutable runtime state, event queue, timeline, or random sampling.
-
-## Optional chart projection
-
-```text
-@kirin 1
-@entry model
-
-inputs:
-  x: number[dimensionless] = 0
-
-outputs:
-  result: dimensionless = x
-
-x: model.x
-range: 0..1
-points: 101
-
-y:
-  model.result as "Result"
-  alternative.result as "Alternative"
-
-preset: model.baseline
-title: "Comparison"
-x-label: "Input"
-y-label: "Value"
-export-svg: "results/curve.svg"
-export-csv: "results/curve.csv"
-```
-
-When any chart key is present, `x`, `range`, `points`, and at least one indented `y` target are required together. Without them the document simply has no chart projection. A quoted label after `as` becomes the curve label. Browser-workbench export paths remain confined to the workspace.
-
-## Authoring tools
-
-The browser editor provides completion, snippets, highlighting, navigation, and other tolerant projections over complete or incomplete source. These tools do not extend the grammar or make an invalid draft executable. Their interaction, persistence, and authority contracts are specified in [Kirin Tor browser workbench](web-workbench.md).
+The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
+multi-level paths, navigation, safe rename for scalar declarations, diagnostics, live scalar/chart/
+cycle previews, and a syntax reference. These are tolerant projections over complete or incomplete
+drafts. They do not extend the grammar or make invalid source executable.

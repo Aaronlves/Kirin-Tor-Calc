@@ -2,17 +2,25 @@
 
 ## Unreleased
 
+- Replaced public `.kirin` v1 section syntax with the single-declaration `@kirin 2` grammar; migrated built-in tutorials, examples, templates, Package scaffolds, syntax help, completion, highlighting, and tests. V1 source is now rejected rather than maintained as a second public dialect.
+- Added closed reusable structure types, named typed objects, exact percentage and numeric-unit literals, and statically resolved multi-level paths such as `entry.skill.coefficient.periodic`.
+- Added author-mapped `cycle_step` and `cycle_profile` interfaces plus exact deterministic fixed-sequence analysis. `kt cycle` and the browser projection report no-wait sustainability, the first wait or terminal block, eventual wait per cycle/minute, and replayable run provenance.
+- Generalized fixed-cycle analysis to an exact bounded resource-state vector. Profiles may expose up to 64 named resources; steps may spend several resources at start and produce resources at finish, while shared waits report the limiting pools.
 - Added Workbench Extension Plugin protocol v1 with strict local manifests, immutable content-addressed snapshots, separate user-local executable approvals, requirements/lock files, offline verification, enable/disable/remove/update commands, and `kt web --safe-mode` recovery.
 - Added sandboxed document renderers, top-level plugin views, workspace tools, declarative commands, and composable layout Profiles. Plugin frames receive permission-filtered validated projections through a bounded message protocol and cannot access the host DOM, session token, filesystem, network, Save All, or Package mutation.
 - Added a game-neutral fictional talent-tree example and focused Python, CLI, HTTP-security, TypeScript, and real-browser plugin coverage; the example demonstrates source navigation and host-brokered evaluation without shipping real game data.
 - Added an empty-workspace welcome surface and a persistent tutorial library with three strictly validated, game-neutral `.kirin` examples; viewing remains read-only and explicit copying creates only an unsaved source draft.
 - Prevented deleted game starters and obsolete modules from leaking out of a stale setuptools build directory; distribution CI now seeds an old layout and verifies the resulting wheel member-for-member against the current game-neutral source tree.
 - Added visible insertion-cursor, active-line, focused/unfocused text-selection states, plus live line/column and selection counts in the editor status bar.
-- Added an in-app, read-only Kirin syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.
+- Added an in-app, read-only Kirin Tor syntax reference with Chinese and canonical-term search, concise rules, and copyable complete examples that are strictly validated against the current language implementation.
 - Added workspace-wide search and draft-only replacement, save-before-write change review with read-only Git history, contextual syntax-reference links, and base/draft/disk three-way conflict merging.
 - Added clean-workspace document path moves, validated duplication into a new unsaved entry, and dependency-safe removal into a recoverable `.kirin` trash area; entry IDs, aliases, and mathematical semantics remain source-authored.
 - Added process-isolated cancellable browser operation jobs with truthful lifecycle stages while retaining mathematical timeouts.
 - Added frontend CI gates for TypeScript, Chromium/Firefox/WebKit Playwright coverage, axe-core accessibility checks, Chromium/WebKit visual baselines, packaged asset synchronization, bundle budgets, and a 100-document validation benchmark.
+
+Breaking changes:
+
+- All editable and Package `.kirin` documents must use `@kirin 2`; v1 section syntax is no longer accepted.
 
 ## 0.3.0rc1 — 2026-09-01 (pre-release)
 

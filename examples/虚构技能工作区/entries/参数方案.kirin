@@ -1,14 +1,11 @@
-@kirin 1
-@entry presets
-@game-version fictional
-@status example_only
+@kirin 2
+@entry presets "参数方案（虚构）"
+@game-version "fictional"
+@status "example_only"
 
-// 参数方案（虚构）
+preset baseline "基线":
+  combo.crit = 0.25
 
-presets:
-  baseline "基线":
-    combo.crit = 0.25
-
-  no_talent "关闭天赋":
-    aoe_pattern.targets = 4
-    aoe_pattern.talent_enabled = false
+preset no_talent "关闭天赋":
+  aoe_pattern.targets = 4
+  aoe_pattern.talent_enabled = false

@@ -27,22 +27,20 @@ from kirin_tor.workspace import Workspace, initialize
 def test_mixed_game_versions_are_rejected_at_dependency_boundary(tmp_path: Path) -> None:
     root = initialize(tmp_path / "versions")
     (root / "entries" / "old.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry old
-@game-version patch-a
+@game-version "patch-a"
 
-outputs:
-  value: dimensionless = 1
+output value: dimensionless = 1
 """,
         encoding="utf-8",
     )
     (root / "entries" / "new.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry new
-@game-version patch-b
+@game-version "patch-b"
 
-outputs:
-  mixed: dimensionless = old.value + 1
+output mixed: dimensionless = old.value + 1
 """,
         encoding="utf-8",
     )
@@ -140,7 +138,7 @@ def test_restricted_parser_blocks_code_and_complexity(example_workspace: Path) -
     engine = Engine(Workspace.load(example_workspace))
     with pytest.raises(ExpressionError, match="not allowed or declared"):
         engine.resolve_target("__import__(1)")
-    with pytest.raises(ExpressionError, match="nested attribute access|not allowed"):
+    with pytest.raises(ReferenceError, match="unknown structured member path"):
         engine.resolve_target("skill_a.base_damage.real")
     with pytest.raises(ExpressionError, match="AST nodes|AST depth"):
         engine.resolve_target(" + ".join(["1"] * 110))
@@ -152,7 +150,12 @@ def test_restricted_parser_blocks_code_and_complexity(example_workspace: Path) -
 def test_kirin_decimal_is_exact_without_quotes(example_workspace: Path) -> None:
     preset_path = example_workspace / "entries" / "decimal_preset.kirin"
     preset_path.write_text(
-        "@kirin 1\n@entry decimal_preset\n\npresets:\n  decimal:\n    combo.crit = 0.2\n",
+        """@kirin 2
+@entry decimal_preset
+
+preset decimal:
+  combo.crit = 0.2
+""",
         encoding="utf-8",
     )
     result = evaluate(
@@ -164,17 +167,17 @@ def test_kirin_decimal_is_exact_without_quotes(example_workspace: Path) -> None:
 def test_duplicate_kirin_members_are_rejected(example_workspace: Path) -> None:
     path = example_workspace / "entries" / "duplicate_key.kirin"
     path.write_text(
-        "@kirin 1\n@entry duplicate\n\ninputs:\n  x: number[dimensionless] = 1\n  x: number[dimensionless] = 2\n",
+        "@kirin 2\n@entry duplicate\n\ninput x: number[dimensionless] = 1\ninput x: number[dimensionless] = 2\n",
         encoding="utf-8",
     )
     with pytest.raises(SchemaError, match="duplicate input 'x'") as caught:
         Workspace.load(example_workspace)
-    assert caught.value.location.line == 6
+    assert caught.value.location.line == 5
 
 
 def test_legacy_business_entry_types_are_not_core_schema_types(example_workspace: Path) -> None:
     path = example_workspace / "entries" / "legacy.kirin"
-    path.write_text("@kirin 1\n@skill legacy\n", encoding="utf-8")
+    path.write_text("@kirin 2\n@skill legacy\n", encoding="utf-8")
     with pytest.raises(SchemaError, match="second declaration"):
         Workspace.load(example_workspace)
 

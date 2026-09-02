@@ -12,26 +12,26 @@ from kirin_tor.workspace import initialize
 def _workspace(tmp_path: Path) -> Path:
     root = initialize(tmp_path / "workbench")
     (root / "entries" / "build_math.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry build_math
 
 // Build math
 
-inputs:
-  power "主属性": number[dimensionless] = 2 in 0..10
-  speed "急速": number[dimensionless] = 1 in 0..10
+input power "主属性": number[dimensionless] = 2 in 0..10
 
-outputs:
-  total "总收益": dimensionless = 2 * power + speed
-  balance "属性差": dimensionless = power - speed
+input speed "急速": number[dimensionless] = 1 in 0..10
 
-x: build_math.power
-range: 1..3
-points: 3
+output total "总收益": dimensionless = 2 * power + speed
 
-y:
-  build_math.total
-export-svg: "results/build.svg"
+output balance "属性差": dimensionless = power - speed
+
+chart preview "build_math":
+  x = build_math.power
+  range = 1..3
+  points = 3
+  y:
+    - build_math.total
+  export_svg = "results/build.svg"
 """,
         encoding="utf-8",
     )
@@ -51,7 +51,7 @@ def test_bundled_tutorials_are_read_only_valid_sources_and_copy_to_drafts(
         "preset-comparison",
         "scan-chart",
     ]
-    assert all(item["source"].startswith("@kirin 1\n@entry ") for item in bootstrap["tutorials"])
+    assert all(item["source"].startswith("@kirin 2\n@entry ") for item in bootstrap["tutorials"])
     tutorial_templates = {
         item["value"]: item for item in bootstrap["templates"] if item["origin"] == "tutorial"
     }
@@ -300,7 +300,11 @@ def test_workbench_document_lifecycle_is_validated_and_recoverable(tmp_path: Pat
 
     dependent = root / "entries" / "dependent.kirin"
     dependent.write_text(
-        "@kirin 1\n@entry dependent\n\noutputs:\n  result: dimensionless = build_math.total\n",
+        """@kirin 2
+@entry dependent
+
+output result: dimensionless = build_math.total
+""",
         encoding="utf-8",
     )
     with pytest.raises((ReferenceError, ValidationErrors)):

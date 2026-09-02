@@ -77,28 +77,13 @@ export interface EditorCursorContext {
   selectionRanges: number;
 }
 
-const topLevelSections = new Set([
-  "aliases",
-  "dimensions",
-  "units",
-  "domains",
-  "inputs",
-  "constraints",
-  "fields",
-  "functions",
-  "tables",
-  "distributions",
-  "recurrences",
-  "state_models",
-  "outputs",
-  "sources",
-  "groups",
-  "presets",
-  "display",
-  "y",
+const declarationKeywords = new Set([
+  "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
+  "function", "output", "group", "preset", "table", "distribution", "recurrence",
+  "state_model", "display", "chart", "type", "cycle", "reward",
 ]);
 
-const nestedSections = new Set(["states", "transitions", "rewards"]);
+const nestedSections = new Set(["states", "transitions", "rewards", "resources", "spends", "gains"]);
 
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);
@@ -214,19 +199,24 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       return "string";
     }
     if (stream.match(/^@(kirin|entry|game-version|status)\b/)) return "keyword";
-    const section = stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/, false);
-    if (section && typeof section !== "boolean" && (topLevelSections.has(section[1]) || nestedSections.has(section[1]))) {
-      stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
-      if (stream.indentation() === 0 && topLevelSections.has(section[1])) state.section = section[1];
+    const declaration = stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/, false);
+    if (declaration && typeof declaration !== "boolean" && stream.indentation() === 0 && declarationKeywords.has(declaration[1])) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
+      state.section = declaration[1];
       return "heading";
     }
-    if (stream.match(/^(x|range|points|preset|title|x-label|y-label|export-svg|export-csv)\s*:/)) return "heading";
+    const section = stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/, false);
+    if (section && typeof section !== "boolean" && nestedSections.has(section[1])) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
+      return "heading";
+    }
+    if (stream.match(/^(using|sequence|outcomes|states|transitions|rewards|resources|spends|gains|initial|maximum|regeneration|cost|occupies|points|x|range|y|title|x_label|y_label|export_svg|export_csv|next)\b/)) return "keyword";
     if (stream.match(/^(true|false)\b/)) return "bool";
     if (stream.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?/)) return "number";
     if (stream.match(/^(number|probability|boolean|integer|dimensionless|nonnegative_integer|positive_integer|count|time|second|millisecond)\b/)) return "typeName";
-    if (stream.match(/^(in|if|else|and|or|not|one-of|as)\b/)) return "keyword";
+    if (stream.match(/^(in|if|else|and|or|not|one-of|as|digits)\b/)) return "keyword";
     if (stream.match(/^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u)) {
-      return state.section === "outputs" || state.section === "fields" ? "variableName" : "propertyName";
+      return state.section === "output" || state.section === "field" ? "variableName" : "propertyName";
     }
     if (stream.match(/^(?:->|==|!=|<=|>=|\+|-|\*|\/|\^|=|@|:|\.\.)/)) return "operator";
     stream.next();
@@ -392,7 +382,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
               const dom = document.createElement("div");
               dom.className = "kirin-completion-info";
               const detail = document.createElement("span");
-              detail.textContent = item.detail || "Kirin 写作项";
+              detail.textContent = item.detail || "Kirin Tor 写作项";
               const help = document.createElement("button");
               help.type = "button";
               help.textContent = "查看相关语法";
@@ -558,7 +548,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         EditorState.readOnly.of(readOnly),
         EditorView.contentAttributes.of({
           "aria-label": ariaLabel,
-          "aria-description": "Kirin 源码编辑器。Control 加空格补全；F12 转到定义；Shift F12 查看引用；F2 重命名。",
+          "aria-description": "Kirin Tor 源码编辑器。Control 加空格补全；F12 转到定义；Shift F12 查看引用；F2 重命名。",
         }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) changeRef.current(update.state.doc.toString());
@@ -633,7 +623,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         to: Math.min(view.state.doc.length, Math.max(from + 1, line.to)),
         severity: "error",
         message: item.author_message || item.message || "文档校验失败",
-        source: item.code || "Kirin",
+        source: item.code || "Kirin Tor",
         actions: [
           ...quickFixes(view, requestedLine),
           { name: "查看相关语法", apply: () => openSyntaxReference(topic) },

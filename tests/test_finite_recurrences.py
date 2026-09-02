@@ -14,38 +14,38 @@ from kirin_tor.workspace import Workspace, initialize
 def _recurrence_workspace(root: Path) -> Path:
     root = initialize(root)
     (root / "entries" / "recurrence_model.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry recurrence_model
 
-inputs:
-  failures: nonnegative_integer = 3 in 0..5
-  base_chance: probability = 1/10
-  increase: probability = 1/20
-  cap: probability = 3/10
+input failures: nonnegative_integer = 3 in 0..5
 
-recurrences:
-  protected_chance "失败保护概率": dimensionless:
-    initial = base_chance
-    steps = failures
-    next(current, index) = min(current + increase, cap)
+input base_chance: probability = 1/10
 
-  triangular "三角数": dimensionless:
-    initial = 0
-    steps = failures
-    next(total, index) = total + index + 1
+input increase: probability = 1/20
 
-outputs:
-  current_chance: dimensionless = protected_chance
-  triangular_value: dimensionless = triangular
+input cap: probability = 3/10
+
+output current_chance: dimensionless = protected_chance
+
+output triangular_value: dimensionless = triangular
+
+recurrence protected_chance "失败保护概率": dimensionless:
+  initial = base_chance
+  steps = failures
+  next(current, index) = min(current + increase, cap)
+
+recurrence triangular "三角数": dimensionless:
+  initial = 0
+  steps = failures
+  next(total, index) = total + index + 1
 """,
         encoding="utf-8",
     )
     (root / "entries" / "consumer.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry consumer
 
-outputs:
-  imported: dimensionless = recurrence_model.protected_chance
+output imported: dimensionless = recurrence_model.protected_chance
 """,
         encoding="utf-8",
     )
@@ -91,17 +91,15 @@ def test_recurrence_requires_statically_bounded_nonnegative_steps(tmp_path: Path
     root = initialize(tmp_path / "unbounded")
     path = root / "entries" / "unbounded.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry unbounded
 
-inputs:
-  steps: nonnegative_integer = 2
+input steps: nonnegative_integer = 2
 
-recurrences:
-  result: dimensionless:
-    initial = 0
-    steps = steps
-    next(current, index) = current + 1
+recurrence result: dimensionless:
+  initial = 0
+  steps = steps
+  next(current, index) = current + 1
 """,
         encoding="utf-8",
     )
@@ -123,14 +121,13 @@ def test_recurrence_preserves_units_and_rejects_cycles(tmp_path: Path) -> None:
     root = initialize(tmp_path / "invalid")
     path = root / "entries" / "invalid.kirin"
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-recurrences:
-  result: time:
-    initial = 1 * second
-    steps = 2
-    next(current, index) = current + 1
+recurrence result: time:
+  initial = 1 * second
+  steps = 2
+  next(current, index) = current + 1
 """,
         encoding="utf-8",
     )
@@ -138,14 +135,13 @@ recurrences:
         Engine(Workspace.load(root)).validate_all()
 
     path.write_text(
-        """@kirin 1
+        """@kirin 2
 @entry invalid
 
-recurrences:
-  result: dimensionless:
-    initial = 0
-    steps = 1
-    next(current, index) = result + 1
+recurrence result: dimensionless:
+  initial = 0
+  steps = 1
+  next(current, index) = result + 1
 """,
         encoding="utf-8",
     )

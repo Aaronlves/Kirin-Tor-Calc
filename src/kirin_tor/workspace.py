@@ -277,7 +277,7 @@ class Workspace:
 
     @classmethod
     def load_with_overlay(cls, root: Path, source_path: Path, source_text: str) -> "Workspace":
-        """Load a workspace with one unsaved Kirin editor buffer overlaid."""
+        """Load a workspace with one unsaved Kirin Tor editor buffer overlaid."""
         return cls.load_with_overlays(root, {source_path: source_text})
 
     @classmethod
@@ -288,7 +288,7 @@ class Workspace:
         *,
         package_resolution: Optional[PackageResolution] = None,
     ) -> "Workspace":
-        """Load a workspace with unsaved Kirin editor buffers overlaid."""
+        """Load a workspace with unsaved Kirin Tor editor buffers overlaid."""
         root = root.resolve()
         if not (root / MARKER).is_file():
             raise WorkspaceError(f"{root} is not a Kirin Tor workspace")
@@ -705,69 +705,51 @@ def build_document_draft(
     path = root / "entries" / f"{document_id}.kirin"
 
     if document_kind == "entry" and entry_template == "blank":
-        source_text = f"""@kirin 1
-@entry {document_id}
-
-// {document_id}
+        source_text = f"""@kirin 2
+@entry {document_id} "{document_id}"
 
 ---
 说明这个条目的数据、公式和适用范围。
 ---
 """
     elif document_kind == "entry" and entry_template == "data":
-        source_text = f"""@kirin 1
-@entry {document_id}
+        source_text = f"""@kirin 2
+@entry {document_id} "{document_id}"
 
-// {document_id}
-
-fields:
-  base_value: dimensionless = 0
+field base_value: dimensionless = 0
 """
     elif document_kind == "entry" and entry_template == "model":
-        source_text = f"""@kirin 1
-@entry {document_id}
+        source_text = f"""@kirin 2
+@entry {document_id} "{document_id}"
 
-// {document_id}
+input x: number[dimensionless] = 0
 
-inputs:
-  x: number[dimensionless] = 0
-
-outputs:
-  result: dimensionless = x
+output result: dimensionless = x
 """
     elif entry_template == "semantics":
-        source_text = f"""@kirin 1
-@entry {document_id}
+        source_text = f"""@kirin 2
+@entry {document_id} "{document_id}"
 
-// {document_id}
+dimension value
 
-dimensions:
-  value
+unit value = value
 
-units:
-  value = value
-
-domains:
-  nonnegative: number[dimensionless] in 0..*
+domain nonnegative: number[dimensionless] in 0..*
 """
     else:
-        source_text = f"""@kirin 1
-@entry {document_id}
+        source_text = f"""@kirin 2
+@entry {document_id} "{document_id}"
 
-// {document_id}
+input x: number[dimensionless] = 0
 
-inputs:
-  x: number[dimensionless] = 0
+output result: dimensionless = x
 
-outputs:
-  result: dimensionless = x
-
-x: {document_id}.x
-range: 0..1
-points: 101
-
-y:
-  {document_id}.result
+chart preview:
+  x = {document_id}.x
+  range = 0..1
+  points = 101
+  y:
+    - {document_id}.result
 """
     return DocumentDraft(document_kind, document_id, path.resolve(), source_text)
 

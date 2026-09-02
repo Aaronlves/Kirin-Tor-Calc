@@ -85,7 +85,7 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
             "preset-comparison",
             "scan-chart",
         ]
-        assert all(item["source"].startswith("@kirin 1") for item in result["tutorials"])
+        assert all(item["source"].startswith("@kirin 2") for item in result["tutorials"])
 
         with pytest.raises(urllib.error.HTTPError) as failure:
             running.request("/api/bootstrap", token="wrong")
@@ -249,7 +249,7 @@ def test_web_creates_static_template_drafts_without_writing(example_workspace: P
         assert tutorial["path"] == "entries/learning_curve.kirin"
         assert tutorial["title"] == "教程 3：扫描与图表"
         assert "@entry learning_curve" in tutorial["text"]
-        assert "x: learning_curve.investment" in tutorial["text"]
+        assert "x = learning_curve.investment" in tutorial["text"]
         assert not (example_workspace / tutorial["path"]).exists()
 
 

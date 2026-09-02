@@ -92,7 +92,7 @@ def _read_toml(path: Path) -> Mapping[str, Any]:
 def current_feature_line() -> str:
     match = re.match(r"^(\d+)\.(\d+)", __version__)
     if match is None:  # pragma: no cover - guarded by project version tests
-        raise PackageError(f"installed Kirin version {__version__!r} has no feature line")
+        raise PackageError(f"installed Kirin Tor version {__version__!r} has no feature line")
     return f"{match.group(1)}.{match.group(2)}"
 
 
@@ -311,7 +311,7 @@ def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> Pa
         )
     if check_compatibility and requires_kirin != current_feature_line():
         raise PackageError(
-            f"package requires Kirin {requires_kirin}, installed feature line is {current_feature_line()}",
+            f"package requires Kirin Tor {requires_kirin}, installed feature line is {current_feature_line()}",
             _location(path, "requires_kirin"),
         )
     game = raw.get("game")
@@ -506,7 +506,7 @@ def package_source_paths(root: Path) -> Tuple[Path, ...]:
                 if path.suffix.lower() != ".kirin":
                     continue
                 if path.is_symlink() or not path.is_file():
-                    raise PackageError("package Kirin sources must be regular files", _location(path))
+                    raise PackageError("package Kirin Tor sources must be regular files", _location(path))
                 try:
                     path.resolve().relative_to(root)
                 except ValueError as exc:
@@ -519,7 +519,7 @@ def package_source_paths(root: Path) -> Tuple[Path, ...]:
                 result.append(path)
                 if len(result) > MAX_WORKSPACE_DOCUMENTS:
                     raise PackageError(
-                        f"package exceeds {MAX_WORKSPACE_DOCUMENTS} Kirin documents", _location(root)
+                        f"package exceeds {MAX_WORKSPACE_DOCUMENTS} Kirin Tor documents", _location(root)
                     )
     if not result:
         raise PackageError("package must contain at least one .kirin source under entries/", _location(root))

@@ -44,7 +44,7 @@ const builtinViewMetadata: Record<string, { title: string; eyebrow: string; desc
   documents: {
     title: "文档",
     eyebrow: "创作",
-    description: "编辑 Kirin 权威源码，并从当前草稿派生诊断与公式。",
+    description: "编辑 Kirin Tor 权威源码，并从当前草稿派生诊断与公式。",
   },
   graph: {
     title: "关系图",
@@ -180,7 +180,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
     },
     {
       id: "open-syntax-reference",
-      label: "打开 Kirin 语法参考",
+      label: "打开 Kirin Tor 语法参考",
       description: "搜索写作规则并查看可复制的完整示例",
       leftSection: <BookOpenText size={17} strokeWidth={1.7} />,
       onClick: () => onOpenTool("syntax"),
@@ -353,7 +353,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   ))}
                   <Menu.Divider />
                   <Menu.Label>参考</Menu.Label>
-                  <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin 语法参考</Menu.Item>
+                  <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin Tor 语法参考</Menu.Item>
                 </Menu.Dropdown>
               </Menu>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
@@ -449,7 +449,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
               {!compactNavigation && (
                 <Box className="workspace-meta-copy">
                   <Text fz="xs" fw={600} truncate>{workspaceName(controller.bootstrapData?.workspace)}</Text>
-                  <Text fz="10px" c="dimmed" truncate>Kirin {controller.bootstrapData?.version ?? "—"}</Text>
+                  <Text fz="10px" c="dimmed" truncate>Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
                 </Box>
               )}
             </Box>

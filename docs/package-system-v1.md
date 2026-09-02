@@ -1,4 +1,4 @@
-# Kirin community package protocol v1
+# Kirin Tor community package protocol v1
 
 ## Purpose and authority
 
@@ -12,7 +12,7 @@ workspace requirement file records which packages the user requested, `kirin.loc
 exact resolved package graph, and the downloaded package store plus any search or UI index are
 rebuildable projections.
 
-Packages are data only. Kirin never executes package scripts, binaries, Python modules, Git
+Packages are data only. Kirin Tor never executes package scripts, binaries, Python modules, Git
 hooks, or GitHub Actions. A package may contain ordinary project files, but only its manifest and
 `.kirin` files under `entries/` participate in validation or calculation.
 
@@ -43,7 +43,7 @@ The core gives those declarations no privileged meaning.
 ## Package layout
 
 A package root contains exactly one `kirin.package.toml` and may contain recursively discovered
-Kirin sources under `entries/`:
+Kirin Tor sources under `entries/`:
 
 ```text
 kirin.package.toml
@@ -87,7 +87,7 @@ Required fields are `schema`, `name`, `version`, `namespace`, `description`, `li
 - `name` is a dotted, lower-case public name. It is descriptive and is not a source identity.
 - `version` is an exact `MAJOR.MINOR.PATCH` semantic version. V1 deliberately has no version
   range solver.
-- `namespace` matches `[a-z][a-z0-9_]*` and scopes exported Kirin identifiers.
+- `namespace` matches `[a-z][a-z0-9_]*` and scopes exported Kirin Tor identifiers.
 - `description` and `license` are non-empty text. `license` should normally be an SPDX identifier.
 - `requires_kirin` is an exact supported `MAJOR.MINOR` feature line.
 - `game` and `game_version` are optional descriptive compatibility values. Entry-level
@@ -111,8 +111,8 @@ The immutable identity of an installed release is the tuple:
 The human-readable package name does not replace source identity. Moving to another GitHub owner
 therefore creates a new source unless the workspace requirement is explicitly changed.
 
-Kirin source syntax v1 uses two-part `ENTRY.MEMBER` references. To preserve that syntax while
-allowing independently authored packages, every package document ID must begin with
+Kirin Tor source syntax v2 uses stable `ENTRY.MEMBER` and `ENTRY.OBJECT.FIELD` paths. To preserve
+unambiguous identity while allowing independently authored packages, every package document ID must begin with
 `NAMESPACE_`. Every dimension, unit, and reusable domain declared by a package must also begin
 with `NAMESPACE_`. Examples for namespace `community_example` are
 `community_example_model` and `community_example_resource`.
@@ -120,7 +120,7 @@ with `NAMESPACE_`. Examples for namespace `community_example` are
 The package loader rejects two different resolved packages that claim the same namespace. It
 also rejects duplicate document IDs and conflicting mathematical declarations across the final
 package graph. There is no implicit local override of package content. V1 uses explicit exported
-prefixes so formulas, plots, records, and editor tooling keep one stable grammar.
+prefixes so formulas, typed objects, plots, records, and editor tooling keep one stable grammar.
 
 ## Workspace requirements
 
@@ -139,7 +139,7 @@ loads an immutable cached snapshot; editing the source directory does not silent
 validated workspace. Running package update or restore is required to accept changed content.
 
 Aliases are local presentation handles used by package-management commands. They do not change
-Kirin document IDs or source identities.
+Kirin Tor document IDs or source identities.
 
 ## Community discovery
 
@@ -148,7 +148,7 @@ explicit **Discover Package** action searches that topic and reads `kirin.packag
 candidate repository's current default branch. GitHub normalizes topic names to lower case.
 
 Topic membership is a self-declaration, not an official listing or correctness review. The
-discovery surface shows only candidates whose manifest is strict, uses the current Kirin feature
+discovery surface shows only candidates whose manifest is strict, uses the current Kirin Tor feature
 line, and declares only GitHub dependencies. Repositories with missing, invalid, or incompatible
 manifests are counted but not presented as compatible Packages. Repository activity, stars,
 forks, and license are independent descriptive signals and never form a trust score.
@@ -222,7 +222,7 @@ kt package check [DIRECTORY]
 
 `package new` creates data-only source, documentation, license placeholder, and GitHub Actions
 validation templates. `package check` validates the manifest, namespace, dependency closure,
-all Kirin sources, and all mathematical references without publishing anything.
+all Kirin Tor sources, and all mathematical references without publishing anything.
 
 Packages may additionally ship static creation templates under `templates/entries/**/*.kirin`.
 These files may contain optional `x/y` chart configuration and are included in the Package content digest and
@@ -236,7 +236,7 @@ Each loaded document retains its package source, package name, namespace, versio
 commit when available, and content digest. CLI and browser-workbench document listings expose this origin and
 mark package documents read-only.
 
-Immutable calculation records continue embedding the exact participating Kirin source snapshots.
+Immutable calculation records continue embedding the exact participating Kirin Tor source snapshots.
 They additionally record package release identity for auditability. Replay therefore remains
 possible after the package is removed or its remote repository becomes unavailable.
 

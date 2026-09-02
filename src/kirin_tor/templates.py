@@ -16,7 +16,10 @@ from .workspace import DocumentDraft, Workspace, build_document_draft
 
 
 TEMPLATE_DIRECTORY = "templates"
-_HEADER_RE = re.compile(r"^@(entry)\s+([A-Za-z_][A-Za-z0-9_]*)$", re.MULTILINE)
+_HEADER_RE = re.compile(
+    r'^@(entry)\s+([A-Za-z_][A-Za-z0-9_]*)(\s+"(?:[^"\\]|\\.)*")?$',
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -153,7 +156,7 @@ def expand_template_source(source: str, kind: str, document_id: str) -> str:
     if match is None or match.group(1) != kind:
         raise SchemaError(f"selected template does not create a {kind} document")
     old_id = match.group(2)
-    header = f"@{kind} {document_id}"
+    header = f"@{kind} {document_id}{match.group(3) or ''}"
     expanded = source[: match.start()] + header + source[match.end() :]
     if old_id != document_id:
         expanded = re.sub(rf"(?<![A-Za-z0-9_]){re.escape(old_id)}\.", f"{document_id}.", expanded)

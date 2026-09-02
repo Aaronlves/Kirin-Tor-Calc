@@ -10,78 +10,84 @@ from kirin_tor.workspace import Workspace, initialize
 def _build_wow_mechanics_workspace(root: Path) -> Path:
     root = initialize(root)
     (root / "entries" / "fixture_game_semantics.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry fixture_game_semantics
 
-// Test-owned fictional game semantics; not supplied by the Kirin core.
+dimension damage
 
-dimensions:
-  damage
-  armor
+dimension armor
 
-units:
-  damage = damage
-  armor = armor
-  damage_per_time = damage / time
+unit damage = damage
+
+unit armor = armor
+
+unit damage_per_time = damage * time ** (-1)
 """,
         encoding="utf-8",
     )
     (root / "entries" / "combat_math.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry combat_math
-@game-version representative
-@status capability_test
+@game-version "representative"
+@status "capability_test"
 
-// 魔兽世界式机制的抽象能力测试；数值为虚构测试数据。
+unit per_time = time ** (-1)
 
-units:
-  per_time = 1 / time
+input crit "暴击率": probability = 0.25
 
-inputs:
-  crit "暴击率": probability = 0.25
-  target_health "目标生命比例": probability = 1
-  targets "目标数量": nonnegative_integer = 1 in 1..20
-  haste "急速": number[dimensionless] = 0.25 in 0..3
-  duration "持续时间": number[time] = 12 in 0..60
-  charges "充能数": nonnegative_integer = 2 in 1..5
-  proc_chance "触发概率": probability = 0.10
-  attempt_rate "每秒触发机会": number[per_time] = 2 in 0..100
-  armor_value "目标护甲": number[armor] = 1000 in 0..1000000
-  stacks "层数": nonnegative_integer = 7 in 0..20
+input target_health "目标生命比例": probability = 1
 
-fields:
-  hit: damage = 1000
-  crit_multiplier: dimensionless = 2
-  execute_multiplier: dimensionless = 23/20
-  dot_tick: damage = 100
-  tick_interval: time = 2
-  cooldown: time = 30
-  proc_damage: damage = 500
-  armor_constant: armor = 1000
-  bounce_decay: dimensionless = 1/2
+input targets "目标数量": nonnegative_integer = 1 in 1..20
 
-outputs:
-  expected_hit "单次期望伤害": damage =
-    hit * (1 + crit * (crit_multiplier - 1))
-  execute_hit "斩杀阶段期望伤害": damage =
-    expected_hit * if_else(target_health < 0.30, execute_multiplier, 1)
-  aoe_total "软上限范围伤害": damage =
-    piecewise(
-    targets <= 5, expected_hit * targets,
-    expected_hit * (5 + sqrt(targets - 5))
-    )
-  periodic_total "急速后的周期总伤害": damage =
-    dot_tick * floor(duration / (tick_interval / (1 + haste)))
-  charge_dps "充能等效秒伤": damage_per_time =
-    expected_hit * charges / cooldown
-  proc_dps "触发效果等效秒伤": damage_per_time =
-    proc_damage * proc_chance * attempt_rate
-  mitigated_hit "护甲减伤后伤害": damage =
-    expected_hit * armor_constant / (armor_value + armor_constant)
-  capped_stack_multiplier "封顶层数倍率": dimensionless =
-    1 + min(stacks, 4) / 20
-  expected_bounce_total "递减弹射总伤害": damage =
-    sum(hit * bounce_decay ** i, i, 0, 3)
+input haste "急速": number[dimensionless] = 0.25 in 0..3
+
+input duration "持续时间": number[time] = 12 in 0..60
+
+input charges "充能数": nonnegative_integer = 2 in 1..5
+
+input proc_chance "触发概率": probability = 0.10
+
+input attempt_rate "每秒触发机会": number[per_time] = 2 in 0..100
+
+input armor_value "目标护甲": number[armor] = 1000 in 0..1000000
+
+input stacks "层数": nonnegative_integer = 7 in 0..20
+
+field hit: damage = 1000
+
+field crit_multiplier: dimensionless = 2
+
+field execute_multiplier: dimensionless = 23/20
+
+field dot_tick: damage = 100
+
+field tick_interval: time = 2
+
+field cooldown: time = 30
+
+field proc_damage: damage = 500
+
+field armor_constant: armor = 1000
+
+field bounce_decay: dimensionless = 1/2
+
+output expected_hit "单次期望伤害": damage = hit * (1 + crit * (crit_multiplier - 1))
+
+output execute_hit "斩杀阶段期望伤害": damage = expected_hit * if_else(target_health < 0.30, execute_multiplier, 1)
+
+output aoe_total "软上限范围伤害": damage = piecewise( targets <= 5, expected_hit * targets, expected_hit * (5 + sqrt(targets - 5)) )
+
+output periodic_total "急速后的周期总伤害": damage = dot_tick * floor(duration / (tick_interval / (1 + haste)))
+
+output charge_dps "充能等效秒伤": damage_per_time = expected_hit * charges / cooldown
+
+output proc_dps "触发效果等效秒伤": damage_per_time = proc_damage * proc_chance * attempt_rate
+
+output mitigated_hit "护甲减伤后伤害": damage = expected_hit * armor_constant / (armor_value + armor_constant)
+
+output capped_stack_multiplier "封顶层数倍率": dimensionless = 1 + min(stacks, 4) / 20
+
+output expected_bounce_total "递减弹射总伤害": damage = sum(hit * bounce_decay ** i, i, 0, 3)
 """,
         encoding="utf-8",
     )

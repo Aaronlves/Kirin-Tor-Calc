@@ -69,6 +69,7 @@ class WorkspaceIndex:
     inputs: Tuple[InputOption, ...]
     presets: Tuple[NamedOption, ...]
     charts: Tuple[ChartOption, ...]
+    cycles: Tuple[ChartOption, ...]
     document_ids: Tuple[str, ...]
 
 @dataclass(frozen=True)
@@ -227,11 +228,24 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                 position[1] if position else None,
             )
         )
+    cycles = []
+    for entry in sorted(workspace.entries.values(), key=lambda item: item.id):
+        for cycle in sorted(entry.cycles.values(), key=lambda item: item.id):
+            position = entry.positions.get(f"cycles.{cycle.id}")
+            cycles.append(
+                ChartOption(
+                    cycle.qualified_id,
+                    cycle.label,
+                    position[0] if position else None,
+                    position[1] if position else None,
+                )
+            )
     return WorkspaceIndex(
         tuple(targets),
         tuple(inputs),
         presets,
         tuple(charts),
+        tuple(cycles),
         tuple(sorted(workspace.documents)),
     )
 

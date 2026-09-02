@@ -53,27 +53,20 @@ kt web
 kt new entry basic_model --template model
 ```
 
-一份最小而完整的 Kirin source 如下：
+一份最小而完整的 Kirin Tor source 如下：
 
 ```text
-@kirin 1
-@entry basic_model
+@kirin 2
+@entry basic_model "基础公式"
 
-// 基础公式
+input unit_price "单价": number[dimensionless] = 12 in 0..*
+input quantity "数量": number[dimensionless] = 5 in 0..100 integer
+input discount "折扣": probability = 10%
 
-inputs:
-  unit_price "单价": number[dimensionless] = 12 in 0..*
-  quantity "数量": number[dimensionless] = 5 in 0..100 integer
-  discount "折扣": probability = 0.10
+field subtotal "小计": dimensionless = unit_price * quantity
 
-fields:
-  subtotal "小计": dimensionless = unit_price * quantity
-
-outputs:
-  total "折后总价": dimensionless = subtotal * (1 - discount)
-
-display:
-  total: number digits 2
+output total "折后总价": dimensionless = subtotal * (1 - discount)
+display total = number digits 2
 ```
 
 保存为 `entries/basic_model.kirin` 后可以校验和计算：
@@ -91,9 +84,9 @@ kt eval basic_model.total
 
 工作台的主要能力包括：
 
-- 在中央 CodeMirror 编辑器中完成全部源码编辑；`Ctrl+Space` 提供 Kirin 补全和中文结构片段。
+- 在中央 CodeMirror 编辑器中完成全部源码编辑；`Ctrl+Space` 提供 Kirin Tor 补全和中文结构片段。
 - 同时保留多个未保存草稿，按完整工作区校验，并通过 Save All 原子写入。
-- 自动派生只读结果、图表、公式、诊断和局部关系；检查器不提供临时计算参数或参数方案填写字段。
+- 自动派生只读结果、图表、固定循环分析、公式、诊断和局部关系；检查器不提供临时计算参数或参数方案填写字段。
 - 提供定义跳转、引用查找、符号大纲、签名提示、安全重命名、查找替换和安全空白格式化。
 - 提供工作区全文搜索、草稿式批量替换、保存前变更审查、只读 Git 摘要和外部冲突三方合并。
 - 支持文档路径移动、复制为新草稿，以及依赖安全的可恢复删除；这些文件操作不会改写源码中的 `@entry` ID 或数学语义。
@@ -121,7 +114,7 @@ kt eval basic_model.total
 
 ## 语言和数学能力
 
-Kirin source v1 使用一个 `entry` 文档模型。正式 ID 保持 ASCII；中文别名只在声明它的条目中参与公式，显示标签只影响界面、解释和图表。跨文档引用、CLI 参数、运行记录和 Package 导出继续使用稳定的正式身份。
+Kirin Tor source v2 使用一个 `entry` 文档模型和一致的逐项声明语法。正式 ID 保持 ASCII；中文别名只在声明它的条目中参与公式，显示标签只影响界面、解释和图表。跨文档引用、CLI 参数、运行记录和 Package 导出继续使用稳定的正式身份。
 
 当前内核支持：
 
@@ -129,13 +122,15 @@ Kirin source v1 使用一个 `entry` 文档模型。正式 ID 保持 ASCII；中
 - 数值与布尔输入、范围、整数限制、有限允许值和组合约束；
 - 用户声明的量纲、精确比例单位和可复用值域；
 - 字段、函数、输出、分组、参数方案、显示格式和版本化查表；
+- 封闭的可复用类型、具名对象和静态多层属性访问；
+- 多资源固定 sequence 的联合可持续性、技能资源产出、首次等待/阻塞步数和稳态等待占比分析；
 - 条件、分段、有限求和与连乘；
 - 有限离散分布、显式独立组合、条件化和有限重复；
 - 有界纯递推和有限状态模型的解析查询；
 - 化简、展开、因式分解、求导、单变量求解和最多八个变量的有限符号联立求解；
 - 一维扫描、双输入网格、SVG/PNG/CSV 图表以及可重放运行记录。
 
-完整语法写法见 [Kirin source syntax v1](docs/kirin-syntax.md)；数学语义、安全边界和固定限制见[结构模型、表达式与安全边界](docs/schema-and-expressions.md)。
+完整语法写法见 [Kirin Tor source syntax v2](docs/kirin-syntax.md)；数学语义、安全边界和固定限制见[结构模型、表达式与安全边界](docs/schema-and-expressions.md)。
 
 ## 社区 Package
 
@@ -164,11 +159,11 @@ kt package verify
 
 `kirin.packages.toml` 记录用户请求的直接依赖，`kirin.lock` 锁定完整依赖图、Git commit 和内容摘要，`.kirin/packages/` 是可删除并显式恢复的只读缓存。普通工作区加载不会隐式联网。
 
-完整协议见 [Kirin community package protocol v1](docs/package-system-v1.md)。
+完整协议见 [Kirin Tor community package protocol v1](docs/package-system-v1.md)。
 
 ## Workbench Extension Plugins
 
-Workbench Plugin 可以为验证后的文档增加游戏化呈现器，也可以注册顶层页面、工作区工具、声明式命令和布局 Profile。插件不会改变 Kirin 语法或数学结果；`.kirin`、验证器、Save All、Package 解析和运行记录仍由官方工作台控制。
+Workbench Plugin 可以为验证后的文档增加游戏化呈现器，也可以注册顶层页面、工作区工具、声明式命令和布局 Profile。插件不会改变 Kirin Tor 语法或数学结果；`.kirin`、验证器、Save All、Package 解析和运行记录仍由官方工作台控制。
 
 公开仓库可添加 GitHub topic `kirin-tor-plugin`，从工作台的只读发现抽屉中被找到。只有当前协议可解析的 manifest 会显示；发现不会下载、安装、批准、启用或执行插件。
 
@@ -203,6 +198,7 @@ kt show ID
 kt explain TARGET
 kt check
 kt eval TARGET [--preset ENTRY.PRESET] [--set ENTRY.INPUT=VALUE]
+kt cycle ENTRY.CYCLE [--preset ENTRY.PRESET] [--set ENTRY.INPUT=VALUE]
 kt simplify TARGET
 kt expand TARGET
 kt factor TARGET
@@ -232,15 +228,17 @@ kt simplify combo.total --keep combo.crit
 kt diff combo.total --var combo.crit
 kt solve combo.total --var combo.crit --equals "3000 damage" --range "0:1"
 kt plot --config combo --force
+kt cycle rotation.main_rotation
 ```
 
-关键结果为 `2750 damage`、`2200*combo.crit + 2200`、导数 `2200 damage` 和解 `4/11`。这些是测试数据的结果，不代表任何真实游戏技能。
+关键结果包括 `2750 damage`、`2200*combo.crit + 2200`、导数 `2200 damage`、解 `4/11`，以及三资源循环首次在第 4 步因 `focus` 等待、稳态每分钟等待 `75/2` 秒。这些都是测试数据，不代表任何真实游戏技能。
 
 ## 能力边界
 
-Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推和有限状态解析模型，但不会从技能说明自动推导完整战斗循环。当前没有：
+Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推、有限状态解析模型，以及确定的多资源固定技能序列。它不会从技能说明自动推导完整战斗循环。当前没有：
 
-- 可变事件状态机、APL、战斗时间线或随机采样；
+- 优先级 APL、分支动作选择、完整战斗时间线或随机采样；
+- 冷却、充能、触发、条件优先级、延迟和动态目标状态的通用调度器；
 - 通用联合分布、动态目标集合、列表、向量或矩阵语言；
 - 连续或离散全局优化器；
 - 积分、极限和完整通用数值根搜索。
@@ -251,10 +249,10 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限�
 
 | 文档 | 职责 |
 | --- | --- |
-| [Kirin source syntax v1](docs/kirin-syntax.md) | 表面语法、章节与声明写法 |
+| [Kirin Tor source syntax v2](docs/kirin-syntax.md) | 表面语法、类型化属性、多层访问与固定循环写法 |
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
 | [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
-| [Kirin community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
+| [Kirin Tor community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
 | [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md) | 沙箱 UI 插件、贡献点、权限、批准、锁定和安全模式 |
 | [游戏机制计算能力边界](docs/game-mechanics-capability-audit.md) | 已证明能力、需要外部等效模型的情况和明确非目标 |
 | [Changelog](CHANGELOG.md) | 版本历史、破坏性变更和未发布修改 |

@@ -19,6 +19,7 @@ from .engine import Engine
 from .errors import KTError, ParameterError, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
+    analyze_cycle,
     differentiate,
     evaluate,
     explain,
@@ -56,7 +57,7 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
-new_app = typer.Typer(help="Create a document from a minimal Kirin v1 template.")
+new_app = typer.Typer(help="Create a document from a minimal Kirin Tor v2 template.")
 app.add_typer(new_app, name="new")
 package_app = typer.Typer(help="Install, verify, and author data-only community packages.")
 app.add_typer(package_app, name="package")
@@ -103,7 +104,7 @@ def version_command() -> None:
 def web_command(
     source: Optional[Path] = typer.Argument(
         None,
-        help="Workspace directory or Kirin source path; defaults to the current workspace.",
+        help="Workspace directory or Kirin Tor source path; defaults to the current workspace.",
     ),
     port: int = typer.Option(0, "--port", help="Loopback port; 0 selects an available port."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not open the default browser."),
@@ -433,7 +434,7 @@ def package_new_command(
         root = create_package_template(
             directory, name=name, namespace=namespace, version=version
         )
-        typer.echo(f"Created Kirin community package: {root}")
+        typer.echo(f"Created Kirin Tor community package: {root}")
 
     _execute(action)
 
@@ -443,7 +444,7 @@ def package_check_command(
     directory: Path = typer.Argument(Path(".")),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Validate a package manifest, dependencies, namespace, and all Kirin mathematics."""
+    """Validate a package manifest, dependencies, namespace, and all Kirin Tor mathematics."""
     def action():
         resolution, validation = check_package(directory)
         subject = next(
@@ -600,6 +601,59 @@ def eval_command(
             f"{result.get('formatted', result['approximate'])} [{result['unit']}]"
             f"\nexact: {result['exact']}",
         )
+
+    _execute(action, json_output)
+
+
+@app.command("cycle")
+def cycle_command(
+    target: str,
+    preset: Optional[str] = typer.Option(None, "--preset"),
+    set_values: List[str] = typer.Option([], "--set", help="Override NAME=VALUE; repeatable."),
+    timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
+    save_run_id: Optional[str] = typer.Option(None, "--save-run"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Analyze a deterministic fixed cycle for waits and sustainability."""
+
+    def action():
+        workspace = Workspace.discover()
+        overrides = _parse_sets(set_values)
+        request = {
+            "target": target,
+            "preset": preset,
+            "overrides": overrides,
+            "timeout_seconds": timeout,
+        }
+        result = _recorded_compute(
+            workspace,
+            save_run_id,
+            "cycle",
+            request,
+            lambda: analyze_cycle(
+                Engine(workspace), target, preset, overrides, timeout
+            ),
+            [preset] if preset else [],
+        )
+        if result["cycle_status"] == "continuous":
+            summary = "可持续：无需资源等待"
+        elif result["cycle_status"] == "waiting":
+            first = result.get("first_wait") or {}
+            limiting = ", ".join(first.get("limiting_resources") or [])
+            summary = (
+                f"需要等待：首次在第 {first.get('step')} 步 {first.get('action')}；"
+                + (f"受限资源 {limiting}；" if limiting else "")
+                + f"每分钟等待 {result.get('wait_per_minute')} 秒"
+            )
+        else:
+            blocked = result.get("blocked_at") or {}
+            resource_id = blocked.get("resource_id")
+            summary = (
+                f"无法继续：第 {blocked.get('step')} 步 {blocked.get('action')} "
+                + (f"资源 {resource_id} " if resource_id else "")
+                + f"({blocked.get('reason')})"
+            )
+        _emit(result, json_output, summary)
 
     _execute(action, json_output)
 

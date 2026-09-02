@@ -1,0 +1,86 @@
+@kirin 2
+@entry rotation "循环可行性（虚构）"
+@status "example_only"
+
+----
+完全虚构的多资源固定循环，用于演示联合等待、技能产出资源与长期可持续性分析。
+----
+
+dimension mana "法力"
+dimension focus "专注"
+dimension charge "层数"
+
+unit mana = mana
+unit focus = focus
+unit charge = charge
+unit mana_per_time = mana / time
+unit focus_per_time = focus / time
+unit charge_per_time = charge / time
+
+type skill:
+  mana_cost: mana = 0
+  focus_cost: focus = 0
+  charge_cost: charge = 0
+  charge_gain: charge = 0
+  occupies: time
+  cycle_step:
+    occupies = occupies
+    spends:
+      mana = mana_cost
+      focus = focus_cost
+      charge = charge_cost
+    gains:
+      charge = charge_gain
+
+type profile:
+  mana_initial: mana
+  mana_maximum: mana
+  mana_regeneration: mana_per_time
+  focus_initial: focus
+  focus_maximum: focus
+  focus_regeneration: focus_per_time
+  charge_initial: charge
+  charge_maximum: charge
+  charge_regeneration: charge_per_time
+  cycle_profile:
+    resources:
+      mana:
+        initial = mana_initial
+        maximum = mana_maximum
+        regeneration = mana_regeneration
+      focus:
+        initial = focus_initial
+        maximum = focus_maximum
+        regeneration = focus_regeneration
+      charge:
+        initial = charge_initial
+        maximum = charge_maximum
+        regeneration = charge_regeneration
+
+skill arcane_blast "奥术冲击":
+  mana_cost = 30
+  focus_cost = 20
+  charge_gain = 1
+  occupies = 1 second
+
+skill arcane_barrage "奥术弹幕":
+  charge_cost = 2
+  occupies = 1 second
+
+profile character "角色状态":
+  mana_initial = 100
+  mana_maximum = 100
+  mana_regeneration = 10
+  focus_initial = 40
+  focus_maximum = 100
+  focus_regeneration = 5
+  charge_initial = 0
+  charge_maximum = 4
+  charge_regeneration = 0
+
+cycle main_rotation "多资源奥术循环":
+  using = character
+  sequence:
+    - arcane_blast
+    - arcane_blast
+    - arcane_barrage

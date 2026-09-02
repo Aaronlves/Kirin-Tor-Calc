@@ -1,22 +1,21 @@
-@kirin 1
-@entry example_semantics
-@status example_only
+@kirin 2
+@entry example_semantics "验收示例基础数学语义"
+@status "example_only"
 
-// 验收示例基础数学语义
-
----
+----
 完全虚构的普通条目，用于证明量纲和通用值域不是内核特权。
----
+----
 
-dimensions:
-  damage "伤害"
-  time "时间"
+dimension damage "伤害"
 
-units:
-  damage = damage
-  time = time
-  damage_per_time = damage / time
+dimension time "时间"
 
-domains:
-  probability: number[dimensionless] in 0..1
-  positive_integer: number[dimensionless] in 1..* integer
+unit damage = damage
+
+unit time = time
+
+unit damage_per_time = damage * time ** (-1)
+
+domain probability: dimensionless in 0..1
+
+domain positive_integer: dimensionless in 1..* integer

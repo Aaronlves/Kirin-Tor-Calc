@@ -38,7 +38,7 @@ function header(eyebrow, title, description) {
 function renderTree() {
   const documentProjection = context.document;
   if (!documentProjection) {
-    header("Sandboxed renderer", "等待有效文档", "Kirin 尚未发送 document.read 投影。");
+    header("Sandboxed renderer", "等待有效文档", "Kirin Tor 尚未发送 document.read 投影。");
     return;
   }
   header(
@@ -132,7 +132,7 @@ function renderWorkspace(kind) {
 function render() {
   clear();
   if (!contribution) {
-    header("Kirin Plugin", "正在等待激活", "宿主尚未发送受限上下文。");
+    header("Kirin Tor Plugin", "正在等待激活", "宿主尚未发送受限上下文。");
   } else if (contribution.kind === "renderer") {
     renderTree();
   } else {

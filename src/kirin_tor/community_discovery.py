@@ -1,4 +1,4 @@
-"""Read-only discovery of self-declared Kirin community repositories."""
+"""Read-only discovery of self-declared Kirin Tor community repositories."""
 
 from __future__ import annotations
 

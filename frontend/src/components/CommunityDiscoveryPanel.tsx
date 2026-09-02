@@ -16,7 +16,7 @@ function compatibilityFacts(item: CommunityDiscoveryCandidate): string[] {
   if (item.kind === "plugin") {
     return [item.id ?? "", `Plugin API ${item.api ?? "?"}`].filter(Boolean);
   }
-  return [item.namespace ? `namespace ${item.namespace}` : "", item.requires_kirin ? `Kirin ${item.requires_kirin}` : ""].filter(Boolean);
+  return [item.namespace ? `namespace ${item.namespace}` : "", item.requires_kirin ? `Kirin Tor ${item.requires_kirin}` : ""].filter(Boolean);
 }
 
 function CandidateCard({ item }: { item: CommunityDiscoveryCandidate }) {

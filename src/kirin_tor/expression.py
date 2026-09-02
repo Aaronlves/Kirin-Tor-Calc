@@ -220,7 +220,12 @@ class RestrictedCompiler:
             raise ExpressionError(
                 f"expression exceeds {MAX_EXPRESSION_LENGTH} characters", self.location
             )
-        self.source = " ".join(line.strip() for line in source.splitlines() if line.strip())
+        from .kirin_v2 import normalize_expression
+
+        self.source = normalize_expression(
+            " ".join(line.strip() for line in source.splitlines() if line.strip()),
+            self.engine.workspace.units.units,
+        )
         try:
             tree = ast.parse(self.source, mode="eval")
         except SyntaxError as exc:
@@ -259,14 +264,31 @@ class RestrictedCompiler:
         attribute_bases = {
             id(node.value)
             for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+            if isinstance(node, ast.Attribute)
         }
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-                result.add(f"{node.value.id}.{node.attr}")
+            if isinstance(node, ast.Attribute) and id(node) not in attribute_bases:
+                result.add(".".join(self._attribute_segments(node)))
             elif isinstance(node, ast.Name) and id(node) not in attribute_bases:
                 result.add(node.id)
         return result
+
+    def _attribute_segments(self, node: ast.AST) -> tuple[str, ...]:
+        segments = []
+        candidate = node
+        while isinstance(candidate, ast.Attribute):
+            if candidate.attr.startswith("__"):
+                raise ExpressionError("private attribute access is not allowed", self.location)
+            segments.append(candidate.attr)
+            candidate = candidate.value
+        if not isinstance(candidate, ast.Name):
+            raise ExpressionError(
+                "member paths must begin with a declared name", self.location
+            )
+        if candidate.id.startswith("__"):
+            raise ExpressionError("private names are not allowed", self.location)
+        segments.append(candidate.id)
+        return tuple(reversed(segments))
 
     def _constant(self, node: ast.Constant) -> MathValue:
         if isinstance(node.value, bool):
@@ -351,8 +373,9 @@ class RestrictedCompiler:
                     self.location,
                 )
             if name in self.entry.aliases:
-                entry_id, member = self.entry.aliases[name].split(".", 1)
-                return self.engine.resolve_member(entry_id, member)
+                return self.engine.resolve_path(
+                    tuple(self.entry.aliases[name].split(".")), self.entry
+                )
         spec = self.engine.global_input(name)
         if spec is not None:
             symbol = self.engine.input_symbol(name, spec)
@@ -371,11 +394,7 @@ class RestrictedCompiler:
         raise ExpressionError(f"undeclared variable {name!r}", self.location)
 
     def _attribute(self, node: ast.Attribute) -> MathValue:
-        if not isinstance(node.value, ast.Name):
-            raise ExpressionError("nested attribute access is not allowed", self.location)
-        if node.value.id.startswith("__") or node.attr.startswith("__"):
-            raise ExpressionError("private attribute access is not allowed", self.location)
-        return self.engine.resolve_member(node.value.id, node.attr)
+        return self.engine.resolve_path(self._attribute_segments(node), self.entry)
 
     def _binary(self, node: ast.BinOp) -> MathValue:
         left = self._build(node.left)

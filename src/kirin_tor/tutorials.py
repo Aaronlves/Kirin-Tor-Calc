@@ -1,4 +1,4 @@
-"""Bundled, game-neutral Kirin tutorials presented as read-only source."""
+"""Bundled, game-neutral Kirin Tor tutorials presented as read-only source."""
 
 from __future__ import annotations
 

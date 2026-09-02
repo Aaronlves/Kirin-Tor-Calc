@@ -485,7 +485,7 @@ def create_web_server(
 ) -> WorkbenchHTTPServer:
     """Create a loopback workbench server without starting its request loop."""
     if host not in {"127.0.0.1", "localhost", "::1"}:
-        raise ParameterError("the Kirin web workbench may only listen on a loopback address")
+        raise ParameterError("the Kirin Tor web workbench may only listen on a loopback address")
     if port < 0 or port > 65535:
         raise ParameterError("port must be between 0 and 65535")
     return WorkbenchHTTPServer(

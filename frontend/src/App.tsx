@@ -19,7 +19,7 @@ const ChangeReview = lazy(() => import("./components/ChangeReview").then((module
 const builtinToolTitles: Record<string, string> = {
   runs: "运行记录",
   packages: "Package 管理",
-  syntax: "Kirin 语法参考",
+  syntax: "Kirin Tor 语法参考",
   search: "工作区搜索与替换",
   changes: "保存前变更审查",
   plugins: "Workbench Plugins",
@@ -51,7 +51,7 @@ export function App() {
   const pluginContributions = controller.pluginSummary.contributions;
   const defaultProfile = useMemo<WorkbenchProfile>(() => ({
     id: "default",
-    title: "Kirin 默认",
+    title: "Kirin Tor 默认",
     description: "显示官方工作台以及所有已启用插件贡献。",
     views: ["documents", "graph", ...pluginContributions.views.map((item) => item.id)],
     tools: [...builtinTools, ...pluginContributions.tools.map((item) => item.id)],

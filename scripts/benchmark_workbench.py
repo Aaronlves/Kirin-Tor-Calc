@@ -1,4 +1,4 @@
-"""Small, reproducible validation budget for a synthetic Kirin workspace."""
+"""Small, reproducible validation budget for a synthetic Kirin Tor workspace."""
 
 from __future__ import annotations
 
@@ -24,11 +24,10 @@ def main() -> None:
         for index in range(args.documents):
             document_id = f"benchmark_{index:04d}"
             (root / "entries" / f"{document_id}.kirin").write_text(
-                f"""@kirin 1
+                f"""@kirin 2
 @entry {document_id}
 
-outputs:
-  value "基准值": dimensionless = {index}
+output value "基准值": dimensionless = {index}
 """,
                 encoding="utf-8",
             )

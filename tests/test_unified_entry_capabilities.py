@@ -35,19 +35,18 @@ def _build_capability_workspace(root: Path) -> Path:
     entries = root / "entries"
 
     (entries / "fixture_game_semantics.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry fixture_game_semantics
 
-// Test-owned fictional game semantics; not supplied by the Kirin core.
+dimension damage
 
-dimensions:
-  damage
-  attack_power
+dimension attack_power
 
-units:
-  damage = damage
-  attack_power = attack_power
-  damage_per_attack_power = damage / attack_power
+unit damage = damage
+
+unit attack_power = attack_power
+
+unit damage_per_attack_power = attack_power ** (-1) * damage
 """,
         encoding="utf-8",
     )
@@ -237,15 +236,14 @@ units:
     target_curve = target_curve_path.read_text(encoding="utf-8").rstrip()
     target_curve += """
 
-x: target_curve.targets
-range: 1..10
-points: 10
-
-y:
-  target_curve.total
-
-export-svg: "results/target-scaling.svg"
-export-csv: "results/target-scaling.csv"
+chart preview:
+  x = target_curve.targets
+  range = 1..10
+  points = 10
+  y:
+    - target_curve.total
+  export_svg = "results/target-scaling.svg"
+  export_csv = "results/target-scaling.csv"
 """
     target_curve_path.write_text(target_curve, encoding="utf-8")
     return root

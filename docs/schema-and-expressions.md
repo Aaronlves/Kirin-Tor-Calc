@@ -1,374 +1,135 @@
 # 结构模型、表达式与安全边界
 
-本页说明 Kirin source 解析后形成的结构模型、数学语义和安全边界。表面语法的完整写法见 [Kirin source syntax v1](kirin-syntax.md)。
+本页说明 Kirin Tor source v2 解析后的结构、求值规则和硬限制。表面写法见
+[Kirin Tor source syntax v2](kirin-syntax.md)。
 
-## 1. 工作区
+## 1. 权威与加载
 
-工作区根目录包含：
+工作区的可编辑权威只有 `entries/**/*.kirin`。本地文档与锁定 Package 文档都经同一个
+`@kirin 2` 解析器进入内部 schema；关系图、索引、预览、运行记录和导出不能反向修改数学定义。
 
-```text
-kirin.workspace
-kirin.packages.toml    # 可选，用户声明的直接 Package 依赖
-kirin.lock             # 可选，生成的精确依赖锁
-.kirin/packages/       # 可删除、可恢复的内容寻址缓存
-entries/
-runs/
-results/
-```
+每个文件只声明一个 `entry`。正式 ID、成员、类型、对象和属性名使用
+`[A-Za-z_][A-Za-z0-9_]*`，且不能以 `__` 开头。文件路径、注释和显示标签都不构成引用身份。
 
-标记文件格式为：
+解析器拒绝 v1、未知声明、重复成员、未知对象属性、缺少的必填属性、Tab 缩进和不一致的
+嵌套。说明围栏中的内容是例外：它作为不透明 UTF-8 文本保存。
 
-```text
-@kirin-workspace 1
-```
+## 2. 精确数值、类型和单位
 
-新工作区没有游戏选择。旧工作区中的 `initial-package` 仍可作为惰性迁移元数据读取，但不再具有运行时权限。`entries/` 递归发现本地 `.kirin` 文件；锁定 Package 的同类源文件通过同一解析器合并加载。文件名、子目录和 `//` 标题注释都不构成引用身份。
+整数、分数、十进制、科学计数法和百分比在进入 SymPy 前都保留为精确值；源 schema
+拒绝二进制浮点数。`25%` 是 `1/4`，`3/2 second` 是带单位的精确数量。
 
-文档 id、字段、输入、函数、局部参数、量纲、单位和值域名称遵守 `[A-Za-z_][A-Za-z0-9_]*`，且不得以 `__` 开头。参数方案和绘图轴可以使用 `entry_id.input_name`。
+核心只内置游戏中立的 `dimensionless`、`time`、`second`、`millisecond`、
+`probability`、`count`、`nonnegative_integer` 和 `positive_integer`。其他量纲、单位和值域由普通
+entry 声明。相同语义声明必须结构一致；冲突会同时保留来源位置。
 
-## 2. 单一文档模型
+输入、函数参数、字段、输出、类型属性、查表、求解目标和扫描范围都经过量纲检查。精确零可以
+适配声明量纲，非零表达式不能靠名称或上下文猜测单位。
 
-数学内容只有一种文档：
+## 3. 输入与参数优先级
 
-```text
-@entry ID
-```
+条目 `model` 的输入 `haste` 具有稳定身份 `model.haste`。当前条目内可写短名；CLI、参数方案、
+运行记录和跨文档引用使用限定名。短名仅在候选集合中唯一时才被外部操作接受。
 
-角色、技能、天赋、开关、组合模型、语义声明以及可选图表配置都是普通 entry；文件本身直接表达其结构与计算语义。
-
-解析器严格拒绝未知指令、章节、重复成员和不一致缩进。`//` 行完全不进入结构模型；`---` 围栏内容只进入文档说明。
-
-## 3. 数学核心与用户声明的语义
-
-核心内置游戏中立的 `dimensionless`、`time`、`second`、`millisecond`、`probability`、`count`、`nonnegative_integer` 和 `positive_integer`。这些名称只表达数学或物理结构，不表达任何具体游戏机制。
-
-### 3.1 量纲与单位
+参数优先级是：
 
 ```text
-dimensions:
-  damage "伤害"
-  time "时间"
-
-units:
-  damage = damage
-  second = time
-  millisecond = 1/1000 * time
-  damage_per_time = damage / time
+input default < preset < temporary override
 ```
 
-量纲是独立数学轴。单位右侧会被解析成精确比例与“基础量纲 → 精确有理指数”的结构映射；只允许正的精确比例、名称、乘法、除法和精确幂。
+输入范围、整数条件、允许值、命名值域和 `require` 条件会同时进入求值条件。符号保留变量、求导/
+求解变量和扫描轴不会被默认值提前代入。
 
-同名且结构相同的声明可以重复；同名但结构不同会失败并报告两个来源位置。内核不会根据名字猜测或自动创建单位。
+## 4. 表达式模型
 
-输入、常量、查表点、范围、目标值和结果都会按声明比例精确换算。表达式中也可直接写 `500 * millisecond`。
-
-### 3.2 可复用值域
+表达式 AST 只允许数值/布尔字面量、声明名称、静态成员路径、算术、比较、布尔运算和白名单函数。
+属性访问会被拆成完整路径后静态解析：
 
 ```text
-domains:
-  probability: number[dimensionless] in 0..1
-  three_levels: number[dimensionless] integer one-of [0, 1, 2]
+entry.output
+entry.object.field
+entry.object.nested.leaf
 ```
 
-值域支持：
+不存在运行时反射、动态键、下标访问、赋值、导入、任意函数调用、文件访问或网络访问。任何
+`__private` 路径段都会被拒绝。
 
-- 数值或布尔类型；
-- 单位；
-- 单侧或双侧界限；
-- 整数限制；
-- 有限允许值。
+跨文档依赖、Package 权限、版本约束、循环依赖、输入集合和运行快照都沿同一解析后的依赖闭包
+传播。类型化对象中的属性表达式也不例外。
 
-输入可以收窄命名值域，但不能放宽它。
+## 5. 封闭结构类型
 
-### 3.3 社区 Package
+`type` 解析为 `StructureTypeSpec`：稳定类型 ID、字段表、可选/默认信息和语义接口映射。具名对象
+解析为 `StructuredObjectSpec`：类型引用和一棵精确值/表达式树。
 
-核心不包含任何游戏初始化包。社区 Package 通过 `kirin.package.toml` 声明精确版本、namespace 和依赖，经 GitHub commit 与内容摘要锁定后，从 `.kirin/packages/` 只读加载。Package 中的文档、量纲、单位和值域必须使用其 namespace 前缀；不同 Package 不能隐式覆盖，也不能引用未声明的依赖或工作区本地定义。完整格式和权威边界见 [Package protocol v1](package-system-v1.md)。
+校验按声明类型递归执行：
 
-## 4. 输入与稳定参数身份
+- 每层只接受类型中声明的字段；
+- 必填字段必须有值或默认值；
+- 嵌套值必须对应另一个声明类型；
+- 标量叶节点必须符合布尔、单位或值域；
+- 最大嵌套深度为 16；
+- 每个 entry 最多 256 个类型、2,000 个对象；每个类型最多 256 个字段。
+
+类型引用可以是本地 `TYPE` 或限定 `ENTRY.TYPE`。未限定类型在工作区中有多个候选时会要求作者
+写限定名，不会任选一个。
+
+## 6. 固定循环的状态转移
+
+循环不是普通表达式，而是引用一个 `cycle_profile` 对象和一列 `cycle_step` 对象。接口名称固定，
+但具体字段名称由作者在类型中映射。
+
+对每个具名资源 `i`，设动作前资源为 `rᵢ`，最大值为 `Mᵢ`，回复率为 `gᵢ`，当前步骤消耗
+`cᵢ`、结束时产出 `aᵢ`、占用时间 `d`：
 
 ```text
-inputs:
-  crit "暴击率": probability = 0.25
-  targets: number[dimensionless] = 1 in 1..20 integer
-  enabled: boolean = true
+可施放条件: 对每个 i，rᵢ >= cᵢ
+步骤后资源: min(Mᵢ, rᵢ - cᵢ + gᵢ*d + aᵢ)
 ```
 
-条目 `combo` 中输入 `crit` 的稳定身份是 `combo.crit`：
+无等待分析逐步应用该状态向量上的单调转移。在一个完整 sequence 边界，如果每个新资源都不低于该轮起点，并且该轮
+所有步骤均可施放，则同一序列可永久重复而无需等待。
 
-- 当前条目内部写 `crit`；
-- 其他条目写 `combo.crit`；
-- 参数方案、CLI 覆盖、求导、求解和扫描推荐使用限定名；
-- 短名只有在当前候选集合中唯一时才能省略前缀。
-
-参数优先级为：
+若无等待失败，自动等待分析在每个资源不足的步骤前插入：
 
 ```text
-entry default < preset < --set
+wait = max((cᵢ - rᵢ) / gᵢ)，仅取不足的资源
 ```
 
-符号保留变量、求导/求解变量和扫描轴不会被默认值或参数方案提前代入。
+所有资源在同一等待时段同步回复。状态由“sequence 位置 + 完整精确资源向量”组成；再次出现同一状态时，
+得到精确最终周期，并据此计算每循环等待、每分钟等待和包含等待的循环时长。
 
-### 4.1 中文局部别名与显示标签
+若任一 `cᵢ > Mᵢ`，或对应资源不足且 `gᵢ = 0`，结果为 `blocked` 并报告资源 ID、全局步骤、轮次和序列位置。技能可以在结束时产出被后续技能消耗的零回复资源。否则结果为
+`continuous` 或 `waiting`。循环最多包含 1,000 个步骤；两阶段分析各最多检查 100,000 个事件，
+超出时明确失败。
 
-正式 ID 保持 ASCII；条目可以为限定成员声明只在当前文件生效的 Unicode 别名：
+该模型最多包含 64 个资源，每步最多 256 个消耗/产出映射。消耗发生在步骤开始，所有资源的回复覆盖
+`occupies` 时间和必要等待，产出发生在步骤结束，各自受最大值封顶。优先级、条件、冷却计时器、离散充能队列、触发、延迟和动态目标仍不属于这一阶段的状态模型。
 
-```text
-aliases:
-  技能甲 = skill_a.expected
-  技能乙 = skill_b.expected
+## 7. 其他有界结构
 
-outputs:
-  total "组合期望伤害": damage = 技能甲(crit) + 2 * 技能乙(crit)
-```
+- 查表要求严格递增、唯一的精确键；`lookup` 精确匹配，`interpolate` 只做范围内线性插值。
+- 有限分布要求结果量纲一致，概率在 `0..1` 且精确归一；独立性只能由作者通过组合函数显式声明。
+- 递推步数必须是常量或静态有限整数输入，最多展开 1,000 步。
+- 状态模型最多 16 个状态、256 条转移和 64 个奖励；稳态或到达方程不唯一/奇异时失败。
+- 扫描最多 10,000 个点；联立求解最多八个方程和变量。
 
-别名可以指向输入、字段、函数、有限分布、有限递推、有限状态模型或输出，但不能遮蔽当前条目的正式成员或表达式内置函数。其他文件、参数方案、CLI 参数和运行结果仍使用正式限定身份。数学成员可以增加双引号显示标签；标签只影响 `explain`、浏览器工作台和图表呈现，不参与引用。图表曲线显式的 `as "标签"` 优先于成员默认标签。
+所有操作都受表达式深度、节点数、展开大小、依赖数、数值长度、精度和进程级超时限制。限制值以
+`src/kirin_tor/limits.py` 为准；触发限制不会返回伪造的近似结果。
 
-## 5. 约束、字段、函数与输出
+## 8. 运行记录与重放
 
-### 5.1 组合约束
+保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/
+依赖版本和产物摘要。`cycle` 与 `eval`、扫描、求解等操作走同一记录路径。
 
-```text
-constraints:
-  targets >= 1 and targets <= 20
-  not enabled or coefficient > 0
-```
+重放先校验嵌入 source 与结构内容一致，再在隔离的快照工作区执行相同操作。软件环境变化会被报告，
+不会被解释成源码变化。
 
-约束必须产生布尔值，可以引用当前条目的输入、数学字段和普通跨条目成员。`kt check` 会验证可确定的默认值及参数方案组合。
+## 9. Package 与安全
 
-### 5.2 字段
+社区 Package 只包含数据。manifest、精确依赖版本、Git commit、namespace 和内容摘要经锁文件固定，
+然后从内容寻址缓存只读加载。Package 不能运行 Python、安装脚本、Git hook 或其他代码，也不能引用
+未声明依赖或工作区本地权威。
 
-```text
-fields:
-  base "基础伤害": damage = 1000
-  enabled_by_default: boolean = true
-  scaled: damage = base * multiplier
-```
-
-字段统一使用 `=`。右侧为数值或布尔字面量时是固定值，其余内容按表达式计算。说明文字放在注释、描述块或 `sources:` 中。
-
-### 5.3 函数与输出
-
-```text
-functions:
-  expected "期望伤害函数"(c: probability) -> damage = base * (1 + c)
-
-outputs:
-  total "组合期望伤害": damage = skill_a.expected(crit) + 2 * skill_b.expected(crit)
-```
-
-函数参数是显式局部变量，不能声明默认值。函数和输出声明的单位必须与表达式推导的量纲一致。
-
-## 6. 分组、参数方案、查表与显示
-
-```text
-groups:
-  damage "伤害收益":
-    total
-
-presets:
-  baseline "当前配装":
-    combo.crit = 0.25
-    selection.enabled = true
-
-tables:
-  rating "等级换算": dimensionless -> dimensionless:
-    1 = 10
-    3 = 30
-
-display:
-  total: integer
-```
-
-分组完全由作者命名，只影响浏览器工作台中的顺序和搜索；内核不预设游戏类别。参数方案只能提供已声明的输入，稳定引用为 `entry.preset`。十进制直接作为精确文本处理，不经过二进制浮点数。`lookup` 要求精确键，`interpolate` 只在表范围内做线性插值。
-
-### 6.1 有限离散概率分布
-
-```text
-distributions:
-  proc_result "触发结果": damage:
-    0 @ 1 - proc_chance
-    proc_damage @ proc_chance
-
-outputs:
-  expected_damage: damage = expectation(proc_result)
-  damage_variance: damage_squared = variance(proc_result)
-  proc_probability: dimensionless = probability(proc_result, proc_damage)
-```
-
-分布是 entry 中可复用、但不能直接充当标量的数学成员。结果和值均使用普通受限表达式，因此可以引用输入、字段、函数与其他 entry；跨 entry 分布引用写作 `entry.distribution`，并进入既有依赖、Package 权限、版本检查、运行快照与重放路径。
-
-每个结果必须是数值并符合分布声明量纲；概率必须无量纲、处于 `0..1`，且有效参数代入后总和精确等于 `1`。校验器不会静默归一化。`expectation` 返回原量纲，`variance` 返回原量纲的平方，`probability` 返回指定结果的总概率。
-
-`map(distribution, value, expression)` 映射结果；`independent_sum(left, right)` 由作者明确声明两个分布独立并执行卷积；`repeat_sum(distribution, count)` 明确声明有限次独立重复，次数可以是常量或一个具有有限整数值域的直接输入；`condition(distribution, value, predicate)` 生成条件分布，条件事件概率为零时失败。等价结果会合并，但核心绝不从名称或依赖关系推断独立性，也不进行随机采样。
-
-### 6.2 有限递推
-
-```text
-recurrences:
-  protected_chance: dimensionless:
-    initial = base_chance
-    steps = failures
-    next(current, index) = min(current + increase, cap)
-```
-
-递推是普通数值成员。初始值与每一步结果必须符合声明量纲；步数必须是非负整数常量，或直接来自一个可静态证明为有限整数值域的输入。内核将纯函数更新展开为标量表达式或有限 `Piecewise`，最多 1,000 步；不存在可变状态、无限递归或事件时钟。
-
-### 6.3 有限状态解析模型
-
-```text
-state_models:
-  proc_cycle:
-    states:
-      ready
-      cooldown
-    transitions:
-      ready -> ready @ 1 - proc_chance
-      ready -> cooldown @ proc_chance
-      cooldown -> ready @ 1
-    rewards:
-      damage_reward: damage:
-        ready = hit
-        cooldown = 0
-```
-
-每个状态必须有出边，每一行转移概率必须精确归一化。`steady_probability` 与 `steady_reward` 解析求解唯一稳态；`hitting_probability` 与 `expected_steps` 求给定起点到目标状态的到达概率和期望步数。线性系统不唯一、目标系统奇异或参数落在奇异边界时明确失败，不选择任意解。
-
-状态模型只是有限转移矩阵及奖励函数的声明式语法：没有动作、角色、APL、事件队列、战斗时间线或随机采样。
-
-## 7. 可选图表配置
-
-```text
-x: combo.crit
-range: 0..0.6
-points: 61
-
-y:
-  combo.total as "组合 A"
-  alternative.total as "组合 B"
-
-preset: builds.baseline
-title: "对比"
-x-label: "暴击率"
-y-label: "数值"
-export-svg: "results/damage.svg"
-export-csv: "results/damage.csv"
-```
-
-这些字段直接附加在定义相关公式的 entry 中；缺少 `x/y` 时不产生图表。所有曲线共享一个稳定横轴输入。不同量纲的纵轴可以同时绘制；工具保留每条曲线单位并产生警告。相同量纲的不同单位会按声明比例精确换算。
-
-浏览器工作台使用同一份 scan 数据生成 SVG 预览、热力图和数据表。SVG、PNG 和 CSV 导出仍通过同一数学求值结果产生。
-
-## 8. 受限表达式
-
-允许：
-
-- 精确数值与布尔字面量；
-- 已声明局部名和 `entry.member`；
-- `+ - * / **` 和括号；
-- `== != < <= > >=`；
-- `and or not`；
-- 白名单函数和已声明条目函数。
-
-白名单函数：
-
-```text
-abs(x)
-min(x, ...)
-max(x, ...)
-sqrt(x)
-floor(x)
-ceil(x)
-if_else(condition, when_true, when_false)
-piecewise(condition1, value1, ..., default_value)
-sum(expression, index, inclusive_lower_integer, inclusive_upper_integer)
-product(expression, index, inclusive_lower_integer, inclusive_upper_integer)
-lookup(table, key)
-interpolate(table, key)
-expectation(distribution)
-variance(distribution)
-probability(distribution, value)
-map(distribution, variable, expression)
-independent_sum(left_distribution, right_distribution)
-repeat_sum(distribution, bounded_count)
-condition(distribution, variable, predicate)
-steady_probability(model, state)
-steady_reward(model, reward)
-hitting_probability(model, start_state, target_state)
-expected_steps(model, start_state, target_state)
-```
-
-不允许：
-
-- 赋值、列表、字典和下标；
-- lambda、推导式和隐式乘法；
-- 多层对象属性；
-- 导入、文件、网络或任意代码执行；
-- 未声明变量或函数；
-- 用 `^` 表示乘方。
-
-用户表达式先经过受限 Python AST 白名单，再直接构造 SymPy 对象；代码不调用 Python `eval`/`exec`、SymPy `parse_expr` 或字符串 `sympify`。
-
-## 9. 精确数值与定义域
-
-整数、有理数、十进制和科学计数法首先转换为精确有理数。近似计算精度与显示位数分别控制。
-
-内核传播除数非零、偶次根非负、函数参数值域、输入界限、有限允许值和显式 constraints。不能满足的条件返回结构化定义域错误，不会产生伪造数值。
-
-## 10. 求解、扫描与绘图
-
-单变量实数求解区分：
-
-- 精确解；
-- 数值近似解；
-- 已证明无解；
-- 条件集合或未完成集合。
-
-未完成集合不会被截断成几个样本冒充完整答案。
-
-`solve-system` 可对最多八个输入联立最多八个等式；只接受满足每个输入值域和全部定义域条件的有限符号解，参数化结果会明确标为 `incomplete`。
-
-一维扫描和双属性网格都使用精确等距轴。无效采样点保留错误原因并形成曲线断点或热力图空格。二维网格总点数与一维扫描共享 10,000 点上限。所有解析、引用展开、SymPy 操作、求解、扫描与绘图均受进程级超时约束。
-
-## 11. 运行记录与重放
-
-运行记录格式 v2 保存：
-
-- 原始请求和实际生效参数；
-- 依赖条目及语义声明条目的完整 Kirin source；
-- 源哈希与规范结构哈希；
-- 定义域条件、单位、精度和实现环境；
-- 成功结果或失败状态；
-- 导出文件的哈希与大小。
-
-重放只从嵌入的结构快照构建隔离工作区，不读取当前 `entries/`。
-
-## 12. 固定限制
-
-| 项目 | 上限 |
-| --- | ---: |
-| 工作区文档 | 5,000 |
-| 工作区源文本总量 | 50,000,000 bytes |
-| 单个 Kirin source | 1,000,000 bytes |
-| 单个运行记录 | 200,000,000 bytes |
-| 单表达式字符 | 2,000 |
-| 表达式 AST | 200 nodes，30 层 |
-| 单 entry 输入 | 100 |
-| 单值域允许值 | 1,000 |
-| 单次扫描点 | 10,000 |
-| 有限求和或连乘项 | 10,000 |
-| 单个有限分布结果 | 1,000 |
-| 单次分布组合结果对 | 10,000 |
-| 独立重复次数 | 1,000 |
-| 有限递推步数 | 1,000 |
-| 单个状态模型状态 | 16 |
-| 单个状态模型转移 | 256 |
-| 单个状态模型奖励 | 64 |
-| 联立方程或变量 | 8 |
-| 默认操作超时 | 10 秒 |
-| 最大可请求超时 | 300 秒 |
-
-## 13. 错误与机器输出
-
-错误具有稳定 code，并尽量包含源文件、行、列、条目和字段位置。`--json` 只向 stdout 写 JSON，诊断写 stderr；失败返回非零状态。`kt check` 会汇总彼此独立的加载和数学错误。
-
-浏览器可以在稳定机器错误之上提供中文解释、导航和快速修复，但不能改变错误 code、CLI JSON 或运行记录契约。编辑器索引、恢复缓存和改名预览也不是独立数学权威。具体呈现和编辑状态见[浏览器工作台规范](web-workbench.md)。
+浏览器工作台只监听本机回环地址，并使用随机会话令牌、Host/Origin 检查和隔离的长操作进程。前端
+高亮、补全和预览不会扩大语言或数学引擎的权限。

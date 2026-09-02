@@ -10,9 +10,13 @@ import sympy as sp
 
 from .engine import Engine, TARGET_RE, precision_value, render_conditions
 from .errors import DomainError, ParameterError, UnitError, UnsupportedError
-from .expression import parse_exact_number
-from .limits import DEFAULT_TIMEOUT_SECONDS, MAX_SCAN_POINTS
+from .expression import MathValue, merge_inputs, parse_exact_number
+from .limits import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_SCAN_POINTS,
+)
 from .timeout import run_with_timeout
+from .timeline import ResourcePool, TimelineAction, analyze_fixed_timeline
 from .workspace import Workspace
 
 
@@ -64,9 +68,11 @@ def display_options(
 ) -> tuple[str, int]:
     display = "number"
     digits = min(default_digits, 6)
-    match = TARGET_RE.fullmatch(target.strip())
-    if match and match.group(1) in workspace.entries:
-        output = workspace.entries[match.group(1)].outputs.get(match.group(2), {})
+    normalized = target.strip()
+    match = TARGET_RE.fullmatch(normalized)
+    parts = normalized.split(".") if match else []
+    if len(parts) == 2 and parts[0] in workspace.entries:
+        output = workspace.entries[parts[0]].outputs.get(parts[1], {})
         display = output.get("display", display)
         digits = output.get("digits", digits)
     return display, digits
@@ -146,6 +152,299 @@ def evaluate(
     return run_with_timeout(
         _evaluate_core,
         (engine.workspace, target, preset, overrides, precision, display_digits),
+        timeout_seconds,
+    )
+
+
+def _cycle_analysis_core(
+    workspace: Workspace,
+    target: str,
+    preset: Optional[str],
+    overrides: Optional[Mapping[str, str]],
+) -> dict:
+    engine = Engine(workspace)
+    parts = target.split(".")
+    if len(parts) != 2 or parts[0] not in workspace.entries:
+        raise ParameterError("cycle target must use ENTRY.CYCLE")
+    entry = workspace.get_entry(parts[0])
+    cycle = entry.cycles.get(parts[1])
+    if cycle is None:
+        raise ParameterError(f"entry {entry.id!r} has no cycle {parts[1]!r}")
+    engine._validate_cycle_contract(entry, cycle.id)
+    selected_preset = workspace.get_preset(preset)
+
+    profile_owner, profile_object, profile_mappings = engine.cycle_profile_contract(
+        entry, cycle.profile
+    )
+    profile_values = {}
+    resource_units = {}
+    for resource_id, mappings in profile_mappings.items():
+        values = {
+            role: engine.resolve_object_member(
+                profile_owner, profile_object, tuple(member_path.split("."))
+            )
+            for role, member_path in mappings.items()
+        }
+        profile_values[resource_id] = values
+        resource_units[resource_id] = engine._object_member_unit(
+            profile_owner,
+            profile_object,
+            tuple(mappings["initial"].split(".")),
+        )
+
+    step_values = []
+    for reference in cycle.sequence:
+        step_owner, step_object, duration_path, spend_paths, gain_paths = (
+            engine.cycle_step_contract(entry, reference)
+        )
+        duration_value = engine.resolve_object_member(
+            step_owner, step_object, tuple(duration_path.split("."))
+        )
+        spend_values = {
+            resource_id: engine.resolve_object_member(
+                step_owner, step_object, tuple(member_path.split("."))
+            )
+            for resource_id, member_path in spend_paths.items()
+        }
+        gain_values = {
+            resource_id: engine.resolve_object_member(
+                step_owner, step_object, tuple(member_path.split("."))
+            )
+            for resource_id, member_path in gain_paths.items()
+        }
+        step_values.append(
+            (reference, duration_value, spend_values, gain_values)
+        )
+
+    all_values = [
+        value
+        for values in profile_values.values()
+        for value in values.values()
+    ]
+    all_values.extend(
+        value
+        for _reference, duration_value, spend_values, gain_values in step_values
+        for value in (duration_value, *spend_values.values(), *gain_values.values())
+    )
+    combined_value = MathValue(
+        sp.Integer(0),
+        inputs=merge_inputs(*(value.inputs for value in all_values)),
+    )
+    parameters = engine._parse_parameters(
+        combined_value, selected_preset, overrides, set()
+    )
+    parameter_values: dict[str, str] = {}
+    for name, number in parameters.items():
+        spec = combined_value.inputs[name]
+        displayed = (
+            number
+            if spec.value_type == "boolean"
+            else sp.simplify(number / engine.unit_scale_expr(spec.unit_name))
+        )
+        parameter_values[name] = exact_text(displayed)
+
+    def concrete(value: MathValue, context: str) -> sp.Expr:
+        substitutions = {
+            engine.input_symbol(name, value.inputs[name]): parameters[name]
+            for name in value.inputs
+            if name in parameters
+        }
+        expr = sp.simplify(value.expr.subs(substitutions))
+        conditions = [condition.subs(substitutions) for condition in value.conditions]
+        engine.check_conditions(conditions)
+        if expr.free_symbols:
+            raise ParameterError(
+                f"{context} still has free variables: "
+                + ", ".join(sorted(map(str, expr.free_symbols)))
+            )
+        if expr.is_real is not True or expr.is_finite is not True:
+            raise DomainError(f"{context} must resolve to a finite real value")
+        return expr
+    time_dimension = workspace.units.parse_unit("time")
+
+    def established(relation: sp.Expr, message: str) -> None:
+        verdict = sp.simplify(relation)
+        if verdict not in (sp.true, True):
+            if verdict in (sp.false, False):
+                raise DomainError(message)
+            raise DomainError(f"could not establish cycle condition: {message}")
+
+    resource_pools = {}
+    resource_dimensions = {}
+    dependency_ids = {entry.id}
+    for resource_id, values in profile_values.items():
+        initial_value = values["initial"]
+        maximum_value = values["maximum"]
+        regeneration_value = values["regeneration"]
+        resource_dimension = initial_value.dimension
+        if maximum_value.dimension != resource_dimension:
+            raise UnitError(
+                f"cycle resource {resource_id!r} initial and maximum must use the same dimension"
+            )
+        if regeneration_value.dimension != resource_dimension.divide(time_dimension):
+            raise UnitError(
+                f"cycle resource {resource_id!r} regeneration must use resource divided by time"
+            )
+        initial = concrete(initial_value, f"cycle resource {resource_id} initial")
+        maximum = concrete(maximum_value, f"cycle resource {resource_id} maximum")
+        regeneration = concrete(
+            regeneration_value, f"cycle resource {resource_id} regeneration"
+        )
+        established(
+            sp.Ge(initial, 0),
+            f"cycle resource {resource_id!r} initial must be non-negative",
+        )
+        established(
+            sp.Ge(maximum, initial),
+            f"cycle resource {resource_id!r} maximum must be at least its initial value",
+        )
+        established(
+            sp.Ge(regeneration, 0),
+            f"cycle resource {resource_id!r} regeneration must be non-negative",
+        )
+        resource_dimensions[resource_id] = resource_dimension
+        resource_pools[resource_id] = ResourcePool(
+            resource_id, initial, maximum, regeneration
+        )
+        dependency_ids.update(initial_value.dependencies)
+        dependency_ids.update(maximum_value.dependencies)
+        dependency_ids.update(regeneration_value.dependencies)
+
+    actions = []
+    for reference, duration_value, spend_values, gain_values in step_values:
+        if duration_value.dimension != time_dimension:
+            raise UnitError(f"cycle step {reference!r} occupies must use time")
+        duration = concrete(duration_value, f"cycle step {reference} occupies")
+        established(sp.Gt(duration, 0), f"cycle step {reference!r} occupies must be positive")
+        dependency_ids.update(duration_value.dependencies)
+        spends = {}
+        gains = {}
+        for effect_name, effect_values, target_values in (
+            ("spend", spend_values, spends),
+            ("gain", gain_values, gains),
+        ):
+            for resource_id, value in effect_values.items():
+                if value.dimension != resource_dimensions[resource_id]:
+                    raise UnitError(
+                        f"cycle step {reference!r} {effect_name} for resource "
+                        f"{resource_id!r} uses an incompatible unit"
+                    )
+                amount = concrete(
+                    value, f"cycle step {reference} {effect_name} {resource_id}"
+                )
+                established(
+                    sp.Ge(amount, 0),
+                    f"cycle step {reference!r} {effect_name} for resource "
+                    f"{resource_id!r} must be non-negative",
+                )
+                target_values[resource_id] = amount
+                dependency_ids.update(value.dependencies)
+        actions.append(TimelineAction(reference, duration, spends, gains))
+
+    timeline = analyze_fixed_timeline(resource_pools, actions)
+    second_scale = engine.unit_scale_expr("second")
+
+    def format_failure(failure: Mapping[str, object]) -> dict:
+        resource_id = str(failure["resource"])
+        scale = engine.unit_scale_expr(resource_units[resource_id])
+        rendered = {
+            "resource": resource_id,
+            "available": exact_text(sp.simplify(failure["available"] / scale)),
+            "required": exact_text(sp.simplify(failure["required"] / scale)),
+            "unit": resource_units[resource_id],
+        }
+        if failure.get("reason"):
+            rendered["reason"] = str(failure["reason"])
+        return rendered
+
+    def format_event(event: Optional[Mapping[str, object]], *, wait: bool = False):
+        if event is None:
+            return None
+        rendered = {
+            key: event[key]
+            for key in ("step", "cycle", "position", "action")
+        }
+        failures = [format_failure(item) for item in event.get("failures", [])]
+        rendered["resource_failures"] = failures
+        if wait:
+            rendered["duration"] = exact_text(
+                sp.simplify(event["duration"] / second_scale)
+            )
+            rendered["limiting_resources"] = list(
+                event.get("limiting_resources", [])
+            )
+        if failures:
+            first = failures[0]
+            rendered["resource_id"] = first["resource"]
+            rendered["resource"] = first["available"]
+            rendered["required"] = first["required"]
+            if first.get("reason"):
+                rendered["reason"] = first["reason"]
+        return rendered
+
+    first_no_wait_failure = format_event(timeline.get("first_no_wait_failure"))
+    first_wait = format_event(timeline.get("first_wait"), wait=True)
+    blocked_at = format_event(timeline.get("blocked_at"))
+    base = {
+        "status": "ok",
+        "operation": "cycle",
+        "target": target,
+        "cycle_status": timeline["cycle_status"],
+        "sustainable_without_wait": timeline["cycle_status"] == "continuous",
+        "requires_wait": timeline["cycle_status"] == "waiting",
+        "first_wait": first_wait,
+        "first_no_wait_failure": first_no_wait_failure,
+        "blocked_at": blocked_at,
+        "time_unit": "second",
+        "resource_units": dict(sorted(resource_units.items())),
+        "resource_count": len(resource_units),
+        "parameters": dict(sorted(parameter_values.items())),
+        "dependency_ids": sorted(dependency_ids),
+    }
+    if len(resource_units) == 1:
+        base["resource_unit"] = next(iter(resource_units.values()))
+    if timeline["cycle_status"] == "continuous":
+        base.update(
+            {
+                "wait_per_cycle": "0",
+                "wait_per_minute": "0",
+                "cycle_duration": exact_text(
+                    sp.simplify(timeline["occupied_per_cycle"] / second_scale)
+                ),
+            }
+        )
+    elif timeline["cycle_status"] == "waiting":
+        period_cycles = sp.Rational(timeline["period_steps"], len(actions))
+        wait_per_cycle = sp.simplify(timeline["period_wait"] / period_cycles)
+        wait_per_minute = sp.simplify(
+            60
+            * second_scale
+            * timeline["period_wait"]
+            / timeline["period_elapsed"]
+        )
+        cycle_duration = sp.simplify(timeline["period_elapsed"] / period_cycles)
+        base.update(
+            {
+                "wait_per_cycle": exact_text(wait_per_cycle / second_scale),
+                "wait_per_minute": exact_text(wait_per_minute / second_scale),
+                "cycle_duration": exact_text(cycle_duration / second_scale),
+            }
+        )
+    return base
+
+
+def analyze_cycle(
+    engine: Engine,
+    target: str,
+    preset: Optional[str] = None,
+    overrides: Optional[Mapping[str, str]] = None,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Analyze one deterministic fixed-order resource-state cycle exactly."""
+
+    return run_with_timeout(
+        _cycle_analysis_core,
+        (engine.workspace, target, preset, overrides),
         timeout_seconds,
     )
 

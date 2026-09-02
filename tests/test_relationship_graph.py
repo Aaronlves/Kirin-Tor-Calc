@@ -37,40 +37,37 @@ def test_relationship_graph_includes_bounded_model_members_and_dependencies(
 ) -> None:
     root = initialize(tmp_path / "relationship-models")
     (root / "entries" / "bounded_models.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry bounded_models
 
-inputs:
-  proc_chance: probability = 1/4
-  failures: nonnegative_integer = 2 in 0..5
+input proc_chance: probability = 1/4
 
-distributions:
-  proc_result "触发结果": dimensionless:
-    0 @ 1 - proc_chance
-    1 @ proc_chance
+input failures: nonnegative_integer = 2 in 0..5
 
-recurrences:
-  protected_chance "失败保护": dimensionless:
-    initial = proc_chance
-    steps = failures
-    next(current, index) = min(current + proc_chance, 1)
+output combined: dimensionless = expectation(proc_result) + protected_chance + steady_reward(proc_cycle, active)
 
-state_models:
-  proc_cycle "触发循环":
-    states:
-      ready
-      cooldown
-    transitions:
-      ready -> ready @ 1 - proc_chance
-      ready -> cooldown @ proc_chance
-      cooldown -> ready @ 1
-    rewards:
-      active "激活收益": dimensionless:
-        ready = proc_chance
-        cooldown = 0
+distribution proc_result "触发结果": dimensionless:
+  outcomes:
+    - 0 @ 1 - proc_chance
+    - 1 @ proc_chance
 
-outputs:
-  combined: dimensionless = expectation(proc_result) + protected_chance + steady_reward(proc_cycle, active)
+recurrence protected_chance "失败保护": dimensionless:
+  initial = proc_chance
+  steps = failures
+  next(current, index) = min(current + proc_chance, 1)
+
+state_model proc_cycle "触发循环":
+  states:
+    - ready
+    - cooldown
+  transitions:
+    - ready -> ready @ 1 - proc_chance
+    - ready -> cooldown @ proc_chance
+    - cooldown -> ready @ 1
+  rewards:
+    reward active "激活收益": dimensionless:
+      ready = proc_chance
+      cooldown = 0
 """,
         encoding="utf-8",
     )

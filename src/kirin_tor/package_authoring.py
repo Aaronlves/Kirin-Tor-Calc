@@ -263,38 +263,35 @@ def create_package_template(
     template_entries.mkdir(parents=True)
     entry_id = f"{namespace}_example"
     (entries / "example.kirin").write_text(
-        f'''@kirin 1
-@entry {entry_id}
-@status draft
+        f'''@kirin 2
+@entry {entry_id} "Package 示例"
+@status "draft"
 
 // Replace this game-neutral example with sourced community data.
 
-sources:
-  {{"kind":"documentation","citation":"Replace with an authoritative source"}}
+source documentation:
+  citation = "Replace with an authoritative source"
 
-inputs:
-  x "输入": number[dimensionless] = 1
+input x "输入": number[dimensionless] = 1
 
-outputs:
-  result "结果": dimensionless = x
+output result "结果": dimensionless = x
 ''',
         encoding="utf-8",
     )
     (template_entries / "consumer.kirin").write_text(
-        f'''@kirin 1
-@entry package_consumer
+        f'''@kirin 2
+@entry package_consumer "{name} consumer"
 
 // {name} consumer
 
-outputs:
-  result: dimensionless = {entry_id}.result
+output result: dimensionless = {entry_id}.result
 ''',
         encoding="utf-8",
     )
     (root / "README.md").write_text(
         f'''# {name}
 
-Community-maintained Kirin package using namespace `{namespace}`.
+Community-maintained Kirin Tor package using namespace `{namespace}`.
 
 ```bash
 python -m pip install "kirin-tor-cli>={current_feature_line()},<{_next_feature_line()}"

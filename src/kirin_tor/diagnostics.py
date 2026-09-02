@@ -37,7 +37,21 @@ FULL_WIDTH_PUNCTUATION = {
 
 
 def extract_author_title(source: str, fallback: str) -> str:
-    """Use the first non-empty // comment as a presentation-only document title."""
+    """Use the v2 entry label, then the first author comment, as presentation text."""
+    header = re.search(
+        r'^@entry\s+[A-Za-z_][A-Za-z0-9_]*\s+"((?:[^"\\]|\\.)*)"\s*$',
+        source,
+        re.MULTILINE,
+    )
+    if header:
+        try:
+            import json
+
+            title = json.loads('"' + header.group(1) + '"')
+        except (ValueError, TypeError):
+            title = ""
+        if isinstance(title, str) and title.strip():
+            return title.strip()[:120]
     for raw_line in source.splitlines():
         line = raw_line.lstrip()
         if line.startswith("//"):
@@ -49,13 +63,13 @@ def extract_author_title(source: str, fallback: str) -> str:
 
 def _translated_message(message: str, code: str) -> str:
     exact_prefixes = (
-        ("first declaration must be", "文件第一条声明必须是 `@kirin 1`。"),
+        ("first declaration must be", "文件第一条声明必须是 `@kirin 2`。"),
         ("second declaration must be", "第二条声明必须指定 `@entry` 及其正式 ID。"),
         ("input must use", "输入声明格式不正确。应写为 `ID [\"标签\"]: 类型 [= 默认值] [in 下限..上限]`。"),
         ("field must use", "字段声明格式不正确。字段应使用 `名称: 类型 = 值或公式`。"),
-        ("function must use", "函数声明格式不正确。应写为 `ID [\"标签\"](参数) -> 单位 = 公式`。"),
+        ("function must use", "函数声明格式不正确。应写为 `function ID [\"标签\"](参数): 单位 = 公式`。"),
         ("output must use", "输出声明格式不正确。应写为 `ID [\"标签\"]: 单位 = 公式`。"),
-        ("alias must use", "别名声明格式不正确。应写为 `中文别名 = entry.member`。"),
+        ("alias must use", "别名声明格式不正确。应写为 `alias 中文别名 = entry.member`。"),
         ("tabs are not allowed", "结构化语法中不能使用 Tab，请改用空格缩进。"),
         ("content outside a section may not be indented", "章节之外的内容不能缩进。"),
         ("expected a directive", "这里需要指令、说明块、章节或 `键: 值`。"),
@@ -85,7 +99,7 @@ def _translated_message(message: str, code: str) -> str:
     fallbacks = {
         "workspace_error": "工作区无法加载或不符合约定。",
         "package_error": "社区 Package 的声明、版本、依赖、缓存或内容校验失败。",
-        "schema_error": "源文件不符合 Kirin 语法或结构约定。",
+        "schema_error": "源文件不符合 Kirin Tor 语法或结构约定。",
         "expression_error": "公式无法解析，或使用了不允许的结构。",
         "reference_error": "引用无法解析到正式条目或成员。",
         "dependency_cycle": "定义之间形成了循环依赖。",

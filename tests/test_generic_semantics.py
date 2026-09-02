@@ -15,32 +15,33 @@ from kirin_tor.workspace import Workspace, initialize
 def test_scaled_units_convert_exactly_across_eval_scan_and_solve(tmp_path: Path) -> None:
     root = initialize(tmp_path / "scaled-units")
     (root / "entries" / "time_math.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry time_math
 
-dimensions:
-  time
+dimension time
 
-units:
-  second = time
-  millisecond = 1/1000 * time
+unit second = time
 
-inputs:
-  latency: number[millisecond] = 500 in 0..1000 integer
+unit millisecond = 1/1000 * time
 
-fields:
-  base: second = 1
+input latency: number[millisecond] = 500 in 0..1000 integer
 
-tables:
-  latency_bonus "延迟换算": millisecond -> millisecond:
+field base: second = 1
+
+output total_seconds: second = base + latency
+
+output total_milliseconds: millisecond = base + latency
+
+output literal_conversion: second = 500 * millisecond
+
+output interpolated_milliseconds: millisecond = interpolate(latency_bonus, latency)
+
+table latency_bonus "延迟换算":
+  input = millisecond
+  output = millisecond
+  points:
     0 = 0
     1000 = 500
-
-outputs:
-  total_seconds: second = base + latency
-  total_milliseconds: millisecond = base + latency
-  literal_conversion: second = 500 * millisecond
-  interpolated_milliseconds: millisecond = interpolate(latency_bonus, latency)
 """,
         encoding="utf-8",
     )
@@ -195,7 +196,7 @@ def test_conflicting_semantics_report_both_sources(tmp_path: Path) -> None:
 def test_check_rejects_unknown_keys_and_evaluates_default_constraints(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     (root / "entries" / "typo.kirin").write_text(
-        "@kirin 1\n@entry typo\n\ninputs:\n  x: number[dimensionless] defualt 1\n",
+        "@kirin 2\n@entry typo\n\ninput x: number[dimensionless] defualt 1\n",
         encoding="utf-8",
     )
     with pytest.raises(ValidationErrors) as caught:
@@ -275,17 +276,18 @@ def test_exact_zero_is_unit_polymorphic_but_nonzero_is_not(tmp_path: Path) -> No
 def test_game_neutral_mathematical_vocabulary_is_built_in(tmp_path: Path) -> None:
     root = initialize(tmp_path / "builtin-math")
     (root / "entries" / "neutral.kirin").write_text(
-        """@kirin 1
+        """@kirin 2
 @entry neutral
 
-inputs:
-  chance: probability = 25/100
-  repetitions: count = 2
-  duration: number[millisecond] = 500
+input chance: probability = 25/100
 
-outputs:
-  elapsed: time = repetitions * duration
-  weighted: dimensionless = chance * repetitions
+input repetitions: count = 2
+
+input duration: number[millisecond] = 500
+
+output elapsed: time = repetitions * duration
+
+output weighted: dimensionless = chance * repetitions
 """,
         encoding="utf-8",
     )

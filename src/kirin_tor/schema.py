@@ -20,6 +20,13 @@ from .limits import (
     MAX_STATE_MODEL_REWARDS,
     MAX_STATE_MODEL_STATES,
     MAX_STATE_MODEL_TRANSITIONS,
+    MAX_STRUCTURE_FIELDS,
+    MAX_STRUCTURE_INTERFACE_MAPPINGS,
+    MAX_STRUCTURE_DEPTH,
+    MAX_STRUCTURE_TYPES,
+    MAX_STRUCTURED_OBJECTS,
+    MAX_CYCLES,
+    MAX_CYCLE_STEPS,
 )
 from .units import Dimension, DomainSpec, UnitRegistry
 
@@ -27,6 +34,12 @@ from .units import Dimension, DomainSpec, UnitRegistry
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 PARAMETER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$")
 QUALIFIED_MEMBER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
+MEMBER_PATH_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$"
+)
+REFERENCE_PATH_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
 NUMBER_TEXT_RE = re.compile(r"^[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|\d+/\d+)$")
 DOCUMENT_TYPES = {"entry"}
 DISPLAY_FORMATS = {"number", "integer", "percent", "coefficient_percent"}
@@ -69,6 +82,27 @@ def require_qualified_member(value: Any, label: str, location: Optional[SourceLo
         raise SchemaError(f"{label} must be ENTRY_ID.MEMBER", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} components may not start with '__'", location)
+    return value
+
+
+def require_member_path(value: Any, label: str, location: Optional[SourceLocation]) -> str:
+    if not isinstance(value, str) or not MEMBER_PATH_RE.fullmatch(value):
+        raise SchemaError(f"{label} must be a dotted member path", location)
+    if any(part.startswith("__") for part in value.split(".")):
+        raise SchemaError(f"{label} may not contain private path segments", location)
+    return value
+
+
+def require_reference_path(value: Any, label: str, location: Optional[SourceLocation]) -> str:
+    if not isinstance(value, str) or not REFERENCE_PATH_RE.fullmatch(value):
+        raise SchemaError(f"{label} must be an identifier path", location)
+    if any(part.startswith("__") for part in value.split(".")):
+        raise SchemaError(f"{label} may not contain private path segments", location)
+    if len(value.split(".")) > MAX_STRUCTURE_DEPTH + 2:
+        raise SchemaError(
+            f"{label} exceeds the maximum path depth {MAX_STRUCTURE_DEPTH + 2}",
+            location,
+        )
     return value
 
 
@@ -215,6 +249,9 @@ class Entry(Document):
     outputs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     groups: Dict[str, "OutputGroup"] = field(default_factory=dict)
     presets: Dict[str, "Preset"] = field(default_factory=dict)
+    structure_types: Dict[str, "StructureTypeSpec"] = field(default_factory=dict)
+    objects: Dict[str, "StructuredObjectSpec"] = field(default_factory=dict)
+    cycles: Dict[str, "CycleSpec"] = field(default_factory=dict)
     x: Optional[str] = None
     range_start: Optional[str] = None
     range_end: Optional[str] = None
@@ -343,6 +380,58 @@ class StateModelSpec:
     states: Tuple[str, ...]
     transitions: Tuple[StateTransitionSpec, ...]
     rewards: Dict[str, StateRewardSpec]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class StructureFieldSpec:
+    id: str
+    type_name: str
+    optional: bool = False
+    default: Optional[Any] = None
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class StructureTypeSpec:
+    id: str
+    owner_id: str
+    label: str
+    fields: Dict[str, StructureFieldSpec]
+    interfaces: Dict[str, Dict[str, str]]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class StructuredObjectSpec:
+    id: str
+    owner_id: str
+    type_name: str
+    label: str
+    values: Dict[str, Any]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class CycleSpec:
+    id: str
+    owner_id: str
+    label: str
+    profile: str
+    sequence: Tuple[str, ...]
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
@@ -606,11 +695,11 @@ def _parse_input(
 
 
 TOP_KEYS = {
-    "schema_version", "id", "name", "type", "description", "sources", "game_version",
+    "schema_version", "source_version", "id", "name", "type", "description", "sources", "game_version",
     "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables",
     "distributions", "recurrences", "state_models", "outputs",
     "groups", "presets", "x", "range", "points", "y", "preset", "out", "data_out",
-    "title", "x_label", "y_label", "curve_labels",
+    "title", "x_label", "y_label", "curve_labels", "types", "objects", "cycles",
 }
 
 
@@ -724,7 +813,187 @@ def parse_document(
         for alias, target in aliases_raw.items():
             alias_location = _location(path, doc_id, positions, f"aliases.{alias}")
             require_alias_identifier(alias, alias_location)
-            aliases[alias] = require_qualified_member(target, "alias target", alias_location)
+            aliases[alias] = require_member_path(target, "alias target", alias_location)
+
+        types_raw = require_mapping(
+            raw.get("types", {}), "types", _location(path, doc_id, positions, "types")
+        )
+        structure_types: Dict[str, StructureTypeSpec] = {}
+        if len(types_raw) > MAX_STRUCTURE_TYPES:
+            raise SchemaError(
+                f"an entry may define at most {MAX_STRUCTURE_TYPES} structure types",
+                _location(path, doc_id, positions, "types"),
+            )
+        for type_id, type_raw in types_raw.items():
+            type_location = _location(path, doc_id, positions, f"types.{type_id}")
+            require_identifier(type_id, "type id", type_location)
+            type_raw = require_mapping(type_raw, f"types.{type_id}", type_location)
+            _reject_unknown(type_raw, {"label", "fields", "interfaces"}, "type", type_location)
+            fields_raw = require_mapping(
+                type_raw.get("fields", {}), f"types.{type_id}.fields", type_location
+            )
+            if not fields_raw:
+                raise SchemaError("type must declare at least one field", type_location)
+            if len(fields_raw) > MAX_STRUCTURE_FIELDS:
+                raise SchemaError(
+                    f"type exceeds {MAX_STRUCTURE_FIELDS} fields", type_location
+                )
+            type_fields: Dict[str, StructureFieldSpec] = {}
+            for field_id, field_raw in fields_raw.items():
+                field_location = _location(
+                    path, doc_id, positions, f"types.{type_id}.fields.{field_id}"
+                )
+                require_identifier(field_id, "type field id", field_location)
+                field_raw = require_mapping(
+                    field_raw, f"types.{type_id}.fields.{field_id}", field_location
+                )
+                _reject_unknown(
+                    field_raw,
+                    {"type", "optional", "default", "label"},
+                    "type field",
+                    field_location,
+                )
+                field_type = require_reference_path(
+                    field_raw.get("type"), "type field type", field_location
+                )
+                optional = field_raw.get("optional", False)
+                if not isinstance(optional, bool):
+                    raise SchemaError("type field optional must be boolean", field_location)
+                label = field_raw.get("label")
+                if label is not None:
+                    label = require_display_label(label, "type field label", field_location)
+                type_fields[field_id] = StructureFieldSpec(
+                    field_id,
+                    field_type,
+                    optional,
+                    field_raw.get("default"),
+                    label,
+                    field_location,
+                )
+            interfaces_raw = require_mapping(
+                type_raw.get("interfaces", {}),
+                f"types.{type_id}.interfaces",
+                type_location,
+            )
+            interfaces: Dict[str, Dict[str, str]] = {}
+            for interface_id, mappings_raw in interfaces_raw.items():
+                require_identifier(interface_id, "interface id", type_location)
+                mappings_raw = require_mapping(
+                    mappings_raw,
+                    f"types.{type_id}.interfaces.{interface_id}",
+                    type_location,
+                )
+                if len(mappings_raw) > MAX_STRUCTURE_INTERFACE_MAPPINGS:
+                    raise SchemaError(
+                        f"interface exceeds {MAX_STRUCTURE_INTERFACE_MAPPINGS} role mappings",
+                        type_location,
+                    )
+                mappings: Dict[str, str] = {}
+                for role, member_path in mappings_raw.items():
+                    require_reference_path(role, "interface role", type_location)
+                    mappings[role] = require_reference_path(
+                        member_path, "interface member path", type_location
+                    )
+                roles = sorted(mappings)
+                for index, role in enumerate(roles):
+                    for other in roles[index + 1 :]:
+                        if other.startswith(role + "."):
+                            raise SchemaError(
+                                f"interface role {role!r} conflicts with nested role {other!r}",
+                                type_location,
+                            )
+                interfaces[interface_id] = mappings
+            structure_types[type_id] = StructureTypeSpec(
+                type_id,
+                doc_id,
+                require_display_label(type_raw.get("label", type_id), "type label", type_location),
+                type_fields,
+                interfaces,
+                type_location,
+            )
+
+        objects_raw = require_mapping(
+            raw.get("objects", {}), "objects", _location(path, doc_id, positions, "objects")
+        )
+        objects: Dict[str, StructuredObjectSpec] = {}
+        if len(objects_raw) > MAX_STRUCTURED_OBJECTS:
+            raise SchemaError(
+                f"an entry may define at most {MAX_STRUCTURED_OBJECTS} structured objects",
+                _location(path, doc_id, positions, "objects"),
+            )
+        for object_id, object_raw in objects_raw.items():
+            object_location = _location(path, doc_id, positions, f"objects.{object_id}")
+            require_identifier(object_id, "object id", object_location)
+            object_raw = require_mapping(object_raw, f"objects.{object_id}", object_location)
+            _reject_unknown(object_raw, {"type", "label", "values"}, "object", object_location)
+            values = dict(
+                require_mapping(
+                    object_raw.get("values", {}),
+                    f"objects.{object_id}.values",
+                    object_location,
+                )
+            )
+
+            def validate_object_values(candidate: Mapping[str, Any], prefix: str) -> None:
+                for member, value in candidate.items():
+                    require_identifier(member, "object field id", object_location)
+                    if isinstance(value, Mapping):
+                        validate_object_values(value, f"{prefix}.{member}")
+                    elif not isinstance(value, (str, bool, int)) or isinstance(value, float):
+                        raise SchemaError(
+                            "object values must be exact expressions, booleans, or nested objects",
+                            _location(path, doc_id, positions, f"{prefix}.{member}"),
+                        )
+
+            validate_object_values(values, f"objects.{object_id}.values")
+            objects[object_id] = StructuredObjectSpec(
+                object_id,
+                doc_id,
+                require_reference_path(object_raw.get("type"), "object type", object_location),
+                require_display_label(
+                    object_raw.get("label", object_id), "object label", object_location
+                ),
+                values,
+                object_location,
+            )
+
+        cycles_raw = require_mapping(
+            raw.get("cycles", {}), "cycles", _location(path, doc_id, positions, "cycles")
+        )
+        cycles: Dict[str, CycleSpec] = {}
+        if len(cycles_raw) > MAX_CYCLES:
+            raise SchemaError(
+                f"an entry may define at most {MAX_CYCLES} cycles",
+                _location(path, doc_id, positions, "cycles"),
+            )
+        for cycle_id, cycle_raw in cycles_raw.items():
+            cycle_location = _location(path, doc_id, positions, f"cycles.{cycle_id}")
+            require_identifier(cycle_id, "cycle id", cycle_location)
+            cycle_raw = require_mapping(cycle_raw, f"cycles.{cycle_id}", cycle_location)
+            _reject_unknown(cycle_raw, {"label", "profile", "sequence"}, "cycle", cycle_location)
+            sequence_raw = cycle_raw.get("sequence", [])
+            if not isinstance(sequence_raw, list) or not sequence_raw:
+                raise SchemaError("cycle sequence must be a non-empty list", cycle_location)
+            if len(sequence_raw) > MAX_CYCLE_STEPS:
+                raise SchemaError(
+                    f"cycle sequence exceeds {MAX_CYCLE_STEPS} steps", cycle_location
+                )
+            sequence = tuple(
+                require_reference_path(item, "cycle step reference", cycle_location)
+                for item in sequence_raw
+            )
+            cycles[cycle_id] = CycleSpec(
+                cycle_id,
+                doc_id,
+                require_display_label(
+                    cycle_raw.get("label", cycle_id), "cycle label", cycle_location
+                ),
+                require_reference_path(
+                    cycle_raw.get("profile"), "cycle profile reference", cycle_location
+                ),
+                sequence,
+                cycle_location,
+            )
         fields = dict(require_mapping(raw.get("fields", {}), "fields", root_location))
         constraints_raw = raw.get("constraints", [])
         if not isinstance(constraints_raw, list) or not all(isinstance(item, str) for item in constraints_raw):
@@ -791,6 +1060,20 @@ def parse_document(
             )
         outputs = dict(require_mapping(raw.get("outputs", {}), "outputs", root_location))
         occupied = set(inputs)
+        for object_id in objects:
+            if object_id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {object_id!r}",
+                    _location(path, doc_id, positions, f"objects.{object_id}"),
+                )
+            occupied.add(object_id)
+        for cycle_id in cycles:
+            if cycle_id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {cycle_id!r}",
+                    _location(path, doc_id, positions, f"cycles.{cycle_id}"),
+                )
+            occupied.add(cycle_id)
         for table_id in tables:
             if table_id in occupied:
                 raise SchemaError(
@@ -1424,6 +1707,9 @@ def parse_document(
             outputs=outputs,
             groups=groups,
             presets=presets,
+            structure_types=structure_types,
+            objects=objects,
+            cycles=cycles,
             **chart,
         )
 

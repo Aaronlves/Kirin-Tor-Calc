@@ -124,7 +124,7 @@ def test_saved_run_replays_embedded_old_definitions(example_workspace: Path) -> 
     assert current["exact"] == "2875"
 
     # Replay discovers only the marker and record; even an invalid current source file is ignored.
-    skill_path.write_text("this is no longer valid Kirin source", encoding="utf-8")
+    skill_path.write_text("this is no longer valid Kirin Tor source", encoding="utf-8")
     replayed = replay(example_workspace, "before_change")
     assert replayed["used_embedded_definitions"] is True
     assert replayed["matches_recorded_result"] is True

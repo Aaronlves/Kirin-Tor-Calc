@@ -1,9 +1,9 @@
-# Kirin Workbench Extension Plugin protocol v1
+# Kirin Tor Workbench Extension Plugin protocol v1
 
 ## Purpose
 
 Workbench Extension Plugins add presentation and workflow surfaces to the local browser
-workbench without changing Kirin mathematical semantics. A plugin can contribute document
+workbench without changing Kirin Tor mathematical semantics. A plugin can contribute document
 renderers, top-level views, workspace tools, declarative commands, and layout profiles. The
 official workbench remains the host for source editing, validation, saving, Package resolution,
 artifact boundaries, and recovery.
@@ -24,7 +24,7 @@ workbench's explicit **Discover community plugins** action searches that topic a
 topic names to lower case.
 
 Topic membership is a community self-declaration, not an official listing, security audit, or
-compatibility promise. Before display, Kirin strictly checks the current manifest schema, Plugin
+compatibility promise. Before display, Kirin Tor strictly checks the current manifest schema, Plugin
 API version, identifiers, contribution declarations, permissions, targets, profiles, and the
 structural safety of entry paths. It does not download or validate the referenced static assets
 during discovery. Repositories with missing, invalid, or incompatible manifests are counted but

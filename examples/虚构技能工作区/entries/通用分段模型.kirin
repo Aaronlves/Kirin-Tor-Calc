@@ -1,39 +1,23 @@
-@kirin 1
-@entry aoe_pattern
-@status expression_capability_example
+@kirin 2
+@entry aoe_pattern "通用分段与布尔表达式示例（虚构）"
+@status "expression_capability_example"
 
-// 通用分段与布尔表达式示例（虚构）
-
----
+----
 从附件中的通用公式形状抽象出的能力测试，不代表任何实际技能公式。
----
+----
 
-inputs:
-  targets: positive_integer = 6 in 1..20
-  talent_enabled: boolean = true
-  bonus: probability = 0.30
+input targets: positive_integer = 6 in 1..20
 
-constraints:
-  targets >= 1 and targets <= 20
+input talent_enabled: boolean = true
 
-fields:
-  base_damage: damage = 100
-  talent_multiplier: dimensionless =
-    if_else(
-    talent_enabled and targets >= 3,
-    1 + bonus,
-    1
-    )
+input bonus: probability = 0.30
 
-functions:
-  scaled(n: positive_integer in 1..20) -> damage =
-    if_else(
-    n > 5,
-    sqrt(n * 5) * base_damage,
-    n * base_damage
-    )
+require targets >= 1 and targets <= 20
 
-outputs:
-  total: damage =
-    scaled(targets) *
-    talent_multiplier
+field base_damage: damage = 100
+
+field talent_multiplier: dimensionless = if_else( talent_enabled and targets >= 3, 1 + bonus, 1 )
+
+function scaled(n: positive_integer in 1..20): damage = if_else( n > 5, sqrt(n * 5) * base_damage, n * base_damage )
+
+output total: damage = scaled(targets) * talent_multiplier
