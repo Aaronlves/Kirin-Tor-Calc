@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-`kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. It is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
+`kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. An explicit path takes precedence, followed by the workspace containing the current directory and then the last remembered workspace. If none exists, the command asks for a folder and requires confirmation before initializing an ordinary directory; `kt web --choose` forces that selection again. The remembered path is user-local launch preference, not workspace or model authority. The workbench is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
 
 Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 

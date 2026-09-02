@@ -8,7 +8,7 @@ from pathlib import Path
 
 from kirin_tor import __version__
 from kirin_tor.cli import app
-from kirin_tor.workspace import Workspace
+from kirin_tor.workspace import Workspace, initialize
 
 from conftest import load_kirin, make_cli_runner, minimal_entry, write_kirin
 
@@ -68,9 +68,11 @@ def test_cli_help_new_check_and_chinese_paths(tmp_path: Path, monkeypatch) -> No
 
 
 def test_web_command_accepts_workspace_directory_without_chdir(
-    example_workspace: Path, monkeypatch
+    example_workspace: Path, tmp_path: Path, monkeypatch
 ) -> None:
     captured = {}
+    preferences_home = tmp_path / "workbench-user"
+    monkeypatch.setenv("KIRIN_WORKBENCH_HOME", str(preferences_home))
 
     def fake_run_web(
         root: Path,
@@ -96,6 +98,13 @@ def test_web_command_accepts_workspace_directory_without_chdir(
         "initial_document": None,
         "safe_mode": False,
     }
+    preferences = json.loads(
+        (preferences_home / "workbench-preferences.json").read_text(encoding="utf-8")
+    )
+    assert preferences == {
+        "schema": 1,
+        "default_workspace": str(example_workspace.resolve()),
+    }
 
     source = example_workspace / "entries" / "组合模型.kirin"
     launched = runner.invoke(app, ["web", str(source), "--no-open"])
@@ -109,6 +118,76 @@ def test_web_command_accepts_workspace_directory_without_chdir(
     missing = runner.invoke(app, ["web", str(example_workspace / "missing.kirin"), "--no-open"])
     assert missing.exit_code == 1
     assert "existing .kirin file" in missing.stderr
+
+
+def test_web_command_resolves_current_saved_and_chosen_workspaces(
+    example_workspace: Path, tmp_path: Path, monkeypatch
+) -> None:
+    captured = {}
+    preferences_home = tmp_path / "workbench-user"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    other_workspace = tmp_path / "另一个工作区"
+    selected_workspace = tmp_path / "首次选择"
+    initialize(other_workspace)
+    monkeypatch.setenv("KIRIN_WORKBENCH_HOME", str(preferences_home))
+
+    def fake_run_web(
+        root: Path,
+        *,
+        port: int,
+        open_browser: bool,
+        initial_document,
+        safe_mode: bool,
+    ) -> None:
+        captured["root"] = root
+
+    monkeypatch.setattr("kirin_tor.web.run_web", fake_run_web)
+
+    launched = runner.invoke(app, ["web", str(example_workspace), "--no-open"])
+    assert launched.exit_code == 0, launched.output
+    monkeypatch.chdir(outside)
+    launched = runner.invoke(app, ["web", "--no-open"])
+    assert launched.exit_code == 0, launched.output
+    assert captured["root"] == example_workspace.resolve()
+
+    monkeypatch.chdir(other_workspace)
+    launched = runner.invoke(app, ["web", "--no-open"])
+    assert launched.exit_code == 0, launched.output
+    assert captured["root"] == other_workspace.resolve()
+
+    monkeypatch.chdir(outside)
+    launched = runner.invoke(
+        app,
+        ["web", "--choose", "--no-open"],
+        input=f"{selected_workspace}\ny\n",
+    )
+    assert launched.exit_code == 0, launched.output
+    assert captured["root"] == selected_workspace.resolve()
+    assert (selected_workspace / "kirin.workspace").is_file()
+    preferences = json.loads(
+        (preferences_home / "workbench-preferences.json").read_text(encoding="utf-8")
+    )
+    assert preferences["default_workspace"] == str(selected_workspace.resolve())
+
+    first_run_home = tmp_path / "first-run-user"
+    first_run_workspace = tmp_path / "首次启动"
+    monkeypatch.setenv("KIRIN_WORKBENCH_HOME", str(first_run_home))
+    launched = runner.invoke(
+        app,
+        ["web", "--no-open"],
+        input=f"{first_run_workspace}\ny\n",
+    )
+    assert launched.exit_code == 0, launched.output
+    assert captured["root"] == first_run_workspace.resolve()
+    assert (first_run_workspace / "kirin.workspace").is_file()
+
+    conflict = runner.invoke(
+        app,
+        ["web", str(example_workspace), "--choose", "--no-open"],
+    )
+    assert conflict.exit_code == 1
+    assert "cannot be used together" in conflict.stderr
 
 
 def test_local_workbench_plugin_cli_workflow(

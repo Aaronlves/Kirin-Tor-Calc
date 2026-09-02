@@ -65,9 +65,12 @@ pytest
 
 ```bash
 kt init my-math
-cd my-math
-kt web
+kt web my-math
 ```
+
+`kt web` 会优先打开命令中指定的路径，其次使用当前目录所属的工作区，再使用上次打开并记住的
+工作区。首次在工作区之外运行时，它会提示选择目录；普通目录只有在明确确认后才会初始化。
+以后可以直接运行 `kt web`，需要切换默认工作区时使用 `kt web --choose`。
 
 浏览器工作台会显示三份只读教程：基础公式、参数方案与比较、扫描与图表。教程不是工作区文档；只有主动复制后，才会以普通未保存草稿进入校验和保存流程。
 
@@ -228,7 +231,7 @@ kt web --safe-mode
 
 ```text
 kt init DIRECTORY
-kt web [WORKSPACE|SOURCE.kirin] [--safe-mode]
+kt web [WORKSPACE|SOURCE.kirin] [--choose] [--safe-mode]
 kt new entry ID [--template blank|data|model|semantics]
 kt list
 kt show ID

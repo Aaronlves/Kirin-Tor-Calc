@@ -46,6 +46,7 @@ from .process_chart import render_process_chart_svg, write_process_chart_csv
 from .plugin_store import PluginManager
 from .records import replay as replay_run
 from .timeout import run_with_timeout
+from .workbench_preferences import load_default_workspace, save_default_workspace
 from .workspace import (
     Workspace,
     create_entry_template,
@@ -96,6 +97,55 @@ def _validate_workspace(workspace: Workspace) -> dict:
     return Engine(workspace).validate_all()
 
 
+def _remember_web_workspace(root: Path) -> None:
+    try:
+        save_default_workspace(root)
+    except WorkspaceError as exc:
+        typer.echo(f"Warning: {exc}", err=True)
+
+
+def _saved_web_workspace() -> Optional[Path]:
+    try:
+        root = load_default_workspace()
+    except WorkspaceError as exc:
+        typer.echo(f"Warning: {exc}", err=True)
+        return None
+    if root is None:
+        return None
+    if root.is_dir() and (root / "kirin.workspace").is_file():
+        return root
+    typer.echo(f"Warning: saved Kirin Tor workspace is unavailable: {root}", err=True)
+    return None
+
+
+def _choose_web_workspace() -> Optional[Path]:
+    try:
+        selected = typer.prompt("Kirin Tor workspace folder", default=str(Path.cwd()))
+    except typer.Abort:
+        typer.echo("Workspace selection cancelled.")
+        return None
+    candidate = Path(selected).expanduser().resolve()
+    if candidate.exists() and not candidate.is_dir():
+        raise WorkspaceError(f"web workspace must be a directory: {candidate}")
+    try:
+        return Workspace.find_root(candidate)
+    except WorkspaceError:
+        pass
+    try:
+        should_initialize = typer.confirm(
+            f"No Kirin Tor workspace found. Initialize one at {candidate}?",
+            default=False,
+        )
+    except typer.Abort:
+        should_initialize = False
+    if not should_initialize:
+        typer.echo("Workspace selection cancelled.")
+        return None
+    root = initialize(candidate)
+    typer.echo(f"Initialized game-neutral Kirin Tor workspace: {root}")
+    return root
+
+
 @app.command("version")
 def version_command() -> None:
     """Print the installed Kirin Tor CLI version."""
@@ -106,10 +156,18 @@ def version_command() -> None:
 def web_command(
     source: Optional[Path] = typer.Argument(
         None,
-        help="Workspace directory or Kirin Tor source path; defaults to the current workspace.",
+        help=(
+            "Workspace directory or Kirin Tor source path; otherwise uses the current "
+            "or saved workspace."
+        ),
     ),
     port: int = typer.Option(0, "--port", help="Loopback port; 0 selects an available port."),
     no_open: bool = typer.Option(False, "--no-open", help="Do not open the default browser."),
+    choose: bool = typer.Option(
+        False,
+        "--choose",
+        help="Choose and remember a workspace, ignoring the current and saved workspace.",
+    ),
     safe_mode: bool = typer.Option(
         False,
         "--safe-mode",
@@ -118,10 +176,16 @@ def web_command(
 ) -> None:
     """Start the local browser workbench and open it in the default browser."""
     def action():
+        if source is not None and choose:
+            raise WorkspaceError("web SOURCE and --choose cannot be used together")
         requested = source.expanduser().resolve() if source is not None else None
         initial_document = None
         if requested is not None and requested.is_dir():
-            root = requested if (requested / "kirin.workspace").is_file() else Workspace.find_root(requested)
+            root = (
+                requested
+                if (requested / "kirin.workspace").is_file()
+                else Workspace.find_root(requested)
+            )
         elif requested is not None:
             if not requested.is_file() or requested.suffix.lower() != ".kirin":
                 raise WorkspaceError(f"web source must be an existing .kirin file: {requested}")
@@ -133,8 +197,20 @@ def web_command(
             if not relative.parts or relative.parts[0] != "entries":
                 raise WorkspaceError("web source must be inside entries/")
             initial_document = requested
+        elif choose:
+            root = _choose_web_workspace()
+            if root is None:
+                return
         else:
-            root = Workspace.find_root()
+            try:
+                root = Workspace.find_root()
+            except WorkspaceError:
+                root = _saved_web_workspace()
+                if root is None:
+                    root = _choose_web_workspace()
+                    if root is None:
+                        return
+        _remember_web_workspace(root)
         from .web import run_web
         run_web(
             root,
