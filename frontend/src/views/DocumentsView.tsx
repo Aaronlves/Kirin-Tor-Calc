@@ -12,6 +12,7 @@ import {
   Modal,
   Popover,
   ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Tabs,
@@ -27,6 +28,8 @@ import {
   BookTemplate,
   Box as PackageIcon,
   Braces,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   CircleCheck,
   Copy,
@@ -44,7 +47,7 @@ import {
   PackageOpen,
   PanelRightClose,
   PanelRightOpen,
-  Save,
+  RotateCcw,
   Search,
   Trash2,
   WandSparkles,
@@ -52,6 +55,7 @@ import {
 
 import { errorMessage, request } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
+import { primaryShortcut } from "../platform";
 import { documentOutline, referencesFor, symbolFor, type AuthoringTarget } from "../authoring";
 import type { AuthoringLocation, DiagnosticItem, DocumentFocusMode, DocumentItem, DocumentPayload, OperationResult, TemplateItem, TutorialItem } from "../types";
 import { CodeEditor, type CodeEditorHandle, type EditorCursorContext } from "../components/CodeEditor";
@@ -82,6 +86,44 @@ function templateOrigin(item: TemplateItem): string {
 function documentIcon(item: DocumentItem) {
   if (item.package) return <PackageIcon size={15} strokeWidth={1.55} />;
   return <FileText size={15} strokeWidth={1.55} />;
+}
+
+interface DocumentDirectoryGroup {
+  id: string;
+  label: string;
+  documents: DocumentItem[];
+}
+
+function groupWorkspaceDocuments(documents: DocumentItem[]): DocumentDirectoryGroup[] {
+  const groups = new Map<string, DocumentItem[]>();
+  for (const document of documents) {
+    const normalized = document.path.replace(/\\/g, "/");
+    const slash = normalized.lastIndexOf("/");
+    const directory = slash >= 0 ? normalized.slice(0, slash) : "工作区";
+    groups.set(directory, [...(groups.get(directory) ?? []), document]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, "zh-Hans-CN"))
+    .map(([directory, items]) => ({
+      id: `workspace:${directory}`,
+      label: directory,
+      documents: [...items].sort((left, right) => left.title.localeCompare(right.title, "zh-Hans-CN")),
+    }));
+}
+
+function groupPackageDocuments(documents: DocumentItem[]): DocumentDirectoryGroup[] {
+  const groups = new Map<string, DocumentItem[]>();
+  for (const document of documents) {
+    const label = document.package ? `${document.package.name}@${document.package.version}` : "Package";
+    groups.set(label, [...(groups.get(label) ?? []), document]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([label, items]) => ({
+      id: `package:${label}`,
+      label,
+      documents: [...items].sort((left, right) => left.title.localeCompare(right.title, "zh-Hans-CN")),
+    }));
 }
 
 function sourceEntryId(source: string): string | null {
@@ -126,6 +168,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [documentLifecycleDocument, setDocumentLifecycleDocument] = useState<DocumentItem | null>(null);
   const [documentLifecycleValue, setDocumentLifecycleValue] = useState("");
   const [documentLifecycleRunning, setDocumentLifecycleRunning] = useState(false);
+  const [discardDocument, setDiscardDocument] = useState<DocumentItem | null>(null);
+  const [discardingDocument, setDiscardingDocument] = useState(false);
+  const [collapsedDocumentGroups, setCollapsedDocumentGroups] = useState<Record<string, boolean>>({});
+  const [diagnosticScope, setDiagnosticScope] = useState<"current" | "workspace">("current");
   const [inspectorOverrides, setInspectorOverrides] = useState<Record<string, boolean>>({});
   const [cursorContext, setCursorContext] = useState<EditorCursorContext>({
     symbolId: null,
@@ -265,8 +311,8 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   }, [controller.documents, filter]);
 
   const groupedDocuments = useMemo(() => ({
-    workspace: filteredDocuments.filter((item) => !item.package),
-    packages: filteredDocuments.filter((item) => item.package),
+    workspace: groupWorkspaceDocuments(filteredDocuments.filter((item) => !item.package)),
+    packages: groupPackageDocuments(filteredDocuments.filter((item) => item.package)),
   }), [filteredDocuments]);
 
   useEffect(() => {
@@ -287,6 +333,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       return path === current.path || path.endsWith(current.path);
     });
   }, [controller.bootstrapData?.workspace, controller.validationItems, current]);
+  const visibleDiagnostics = diagnosticScope === "current" ? currentDiagnostics : controller.validationItems;
   const currentHasPreviewProjection = Boolean(currentEntryId && (
     currentExplainTargets.length
     || controller.workspaceIndex.charts.some((item) => item.value === currentEntryId)
@@ -301,7 +348,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     })
   ));
   const inspectorCollapsed = Boolean(current && (
-    inspectorOverrides[current.key] ?? (!currentHasPreviewProjection && currentDiagnostics.length === 0)
+    inspectorOverrides[current.key] ?? (!currentHasPreviewProjection && controller.validationItems.length === 0)
   ));
   const effectiveInspectorCollapsed = focusMode === "split" && inspectorCollapsed;
 
@@ -309,6 +356,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     if (!current || currentDiagnostics.length === 0) return;
     setInspectorOverrides((overrides) => ({ ...overrides, [current.key]: false }));
     setInspectorTab("diagnostics");
+    setDiagnosticScope("current");
   }, [current, currentDiagnostics.length]);
 
   const navigateToSource = (key: string, line?: number | null, column?: number | null) => {
@@ -448,6 +496,18 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     }
   };
 
+  const handleDiscardDocument = async () => {
+    if (!discardDocument || discardingDocument) return;
+    const key = discardDocument.key;
+    setDiscardingDocument(true);
+    try {
+      await controller.discardDraft(key);
+      setDiscardDocument(null);
+    } finally {
+      setDiscardingDocument(false);
+    }
+  };
+
   const handleSaveTemplate = async () => {
     if (!current || !templateId.trim()) return;
     if (currentDirty) {
@@ -511,46 +571,95 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
             {groupedDocuments.workspace.length > 0 && (
               <Box className="document-group">
                 <Text className="document-group-label">本地源码</Text>
-                {groupedDocuments.workspace.map((item) => (
-                  <button
-                    className={`document-list-row${item.key === controller.currentKey ? " is-active" : ""}`}
-                    key={item.key}
-                    type="button"
-                    onClick={() => { void controller.openDocument(item.key); }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "F2") return;
-                      event.preventDefault();
-                      openDocumentLifecycle("move", item);
-                    }}
-                    title="F2：重命名或移动真实文件"
-                  >
-                    <span className="document-kind-icon">{documentIcon(item)}</span>
-                    <span className="document-list-copy">
-                      <strong>{item.title}</strong>
-                      <small>{item.path}</small>
-                    </span>
-                    {controller.dirtyOverlays[item.key] !== undefined && <span className="dirty-dot" title="未保存" />}
-                  </button>
-                ))}
+                {groupedDocuments.workspace.map((group) => {
+                  const collapsed = Boolean(collapsedDocumentGroups[group.id]);
+                  return <div className="document-directory-group" key={group.id}>
+                    <button
+                      className="document-directory-row"
+                      type="button"
+                      aria-expanded={!collapsed}
+                      onClick={() => setCollapsedDocumentGroups((current) => ({ ...current, [group.id]: !collapsed }))}
+                    >
+                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      <span>{group.label}</span>
+                      <small>{group.documents.length}</small>
+                    </button>
+                    {!collapsed && group.documents.map((item) => (
+                      <div className="document-list-row-wrap" key={item.key}>
+                        <button
+                          className={`document-list-row${item.key === controller.currentKey ? " is-active" : ""}`}
+                          type="button"
+                          aria-label={`${item.title} ${item.path}`}
+                          onClick={() => { void controller.openDocument(item.key); }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "F2") return;
+                            event.preventDefault();
+                            openDocumentLifecycle("move", item);
+                          }}
+                          title="F2：重命名或移动真实文件"
+                        >
+                          <span className="document-kind-icon">{documentIcon(item)}</span>
+                          <span className="document-list-copy">
+                            <strong>{item.title}</strong>
+                            <small>{item.path.split(/[\\/]/).at(-1)}</small>
+                          </span>
+                          {controller.dirtyOverlays[item.key] !== undefined && <span className="dirty-dot" title="未保存" />}
+                        </button>
+                        <Menu position="bottom-end" withinPortal>
+                          <Menu.Target>
+                            <ActionIcon className="document-row-actions" variant="subtle" color="gray" aria-label={`文档操作：${item.title}`}>
+                              <MoreHorizontal size={15} />
+                            </ActionIcon>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            {controller.dirtyOverlays[item.key] !== undefined && <>
+                              <Menu.Item color="red" leftSection={<RotateCcw size={14} />} onClick={() => setDiscardDocument(item)}>放弃未保存草稿</Menu.Item>
+                              <Menu.Divider />
+                            </>}
+                            <Menu.Item leftSection={<FolderInput size={14} />} disabled={controller.dirtyCount > 0} onClick={() => openDocumentLifecycle("move", item)}>重命名 / 移动真实文件</Menu.Item>
+                            <Menu.Item leftSection={<Copy size={14} />} disabled={controller.dirtyCount > 0} onClick={() => openDocumentLifecycle("duplicate", item)}>复制为新文档草稿</Menu.Item>
+                            <Menu.Item color="red" leftSection={<Trash2 size={14} />} disabled={controller.dirtyCount > 0} onClick={() => openDocumentLifecycle("remove", item)}>移到恢复区</Menu.Item>
+                            {controller.dirtyCount > 0 && <Menu.Label>先保存或放弃全部草稿，才能改变文件结构</Menu.Label>}
+                          </Menu.Dropdown>
+                        </Menu>
+                      </div>
+                    ))}
+                  </div>;
+                })}
               </Box>
             )}
             {groupedDocuments.packages.length > 0 && (
               <Box className="document-group">
                 <Text className="document-group-label">Package 源码</Text>
-                {groupedDocuments.packages.map((item) => (
-                  <button
-                    className={`document-list-row${item.key === controller.currentKey ? " is-active" : ""}`}
-                    key={item.key}
-                    type="button"
-                    onClick={() => { void controller.openDocument(item.key); }}
-                  >
-                    <span className="document-kind-icon">{documentIcon(item)}</span>
-                    <span className="document-list-copy">
-                      <strong>{item.title}</strong>
-                      <small>{item.package?.name}@{item.package?.version}</small>
-                    </span>
-                  </button>
-                ))}
+                {groupedDocuments.packages.map((group) => {
+                  const collapsed = Boolean(collapsedDocumentGroups[group.id]);
+                  return <div className="document-directory-group" key={group.id}>
+                    <button
+                      className="document-directory-row"
+                      type="button"
+                      aria-expanded={!collapsed}
+                      onClick={() => setCollapsedDocumentGroups((current) => ({ ...current, [group.id]: !collapsed }))}
+                    >
+                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      <span>{group.label}</span>
+                      <small>{group.documents.length}</small>
+                    </button>
+                    {!collapsed && group.documents.map((item) => (
+                      <button
+                        className={`document-list-row${item.key === controller.currentKey ? " is-active" : ""}`}
+                        key={item.key}
+                        type="button"
+                        onClick={() => { void controller.openDocument(item.key); }}
+                      >
+                        <span className="document-kind-icon">{documentIcon(item)}</span>
+                        <span className="document-list-copy">
+                          <strong>{item.title}</strong>
+                          <small>{item.path}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>;
+                })}
               </Box>
             )}
             {!filteredDocuments.length && (
@@ -628,7 +737,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   <Group gap={4} wrap="nowrap">
                     <Popover opened={outlineOpened} onChange={setOutlineOpened} position="bottom-end" width={330} withinPortal>
                       <Popover.Target>
-                        <Tooltip label="文档符号大纲 · Ctrl/⌘ Shift+O">
+                        <Tooltip label={`文档符号大纲 · ${primaryShortcut("O", true)}`}>
                           <ActionIcon variant="subtle" color="gray" aria-label="文档符号大纲" onClick={() => setOutlineOpened((opened) => !opened)}>
                             <ListTree size={15} />
                           </ActionIcon>
@@ -668,17 +777,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         </ActionIcon>
                       </Tooltip>
                     )}
-                    <Tooltip label={`保存全部${controller.dirtyCount ? `（${controller.dirtyCount} 个草稿）` : ""} · Ctrl/⌘ S`}>
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        aria-label="保存全部"
-                        onClick={() => { void controller.saveAll(); }}
-                        disabled={!controller.dirtyCount}
-                      >
-                        <Save size={15} />
-                      </ActionIcon>
-                    </Tooltip>
                     <Tooltip label="重命名或移动真实文件 · 文档列表 F2">
                       <ActionIcon
                         variant="subtle"
@@ -710,7 +808,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                           disabled={current.read_only}
                           onClick={() => { void controller.formatDocument(current.key).catch((error) => notifications.show({ color: "red", title: "无法格式化", message: errorMessage(error), autoClose: false })); }}
                         >
-                          格式化文档 <span className="menu-shortcut">Ctrl/⌘ Shift+F</span>
+                          格式化文档 <span className="menu-shortcut">{primaryShortcut("F", true)}</span>
                         </Menu.Item>
                         <Menu.Item
                           leftSection={<BookTemplate size={14} />}
@@ -718,6 +816,14 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                           onClick={() => setSaveTemplateOpened(true)}
                         >
                           保存为创建模板
+                        </Menu.Item>
+                        <Menu.Item
+                          color="red"
+                          leftSection={<RotateCcw size={14} />}
+                          disabled={!currentDirty}
+                          onClick={() => setDiscardDocument(current)}
+                        >
+                          放弃当前草稿
                         </Menu.Item>
                         <Menu.Divider />
                         <Menu.Label>文件管理</Menu.Label>
@@ -782,7 +888,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                     : `行 ${cursorContext.line}，列 ${cursorContext.column}`}
                 </span>
                 <span>UTF-8</span>
-                {!current.read_only && <span>补全 Ctrl+Space · 定义 F12 · 引用 Shift+F12 · 成员改名 F2</span>}
+                {!current.read_only && <span>保存 {primaryShortcut("S")} · 补全 Ctrl+Space · 定义 F12 · 引用 Shift+F12 · 成员改名 F2</span>}
               </div>
             </>
           ) : (
@@ -819,7 +925,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 <Tabs.Tab value="preview" leftSection={<Eye size={13} />}>预览</Tabs.Tab>
                 <Tabs.Tab value="relationships" leftSection={<Network size={13} />}>关系</Tabs.Tab>
                 <Tabs.Tab value="diagnostics" leftSection={controller.validationItems.length ? <CircleAlert size={13} /> : <CircleCheck size={13} />}>
-                  诊断{controller.validationItems.length ? ` ${controller.validationItems.length}` : ""}
+                  诊断{currentDiagnostics.length ? ` ${currentDiagnostics.length}` : ""}
                 </Tabs.Tab>
                 <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
               </Tabs.List>
@@ -844,10 +950,24 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               {current ? <DocumentRelationshipPreview controller={controller} documentKey={current.key} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="这里会显示当前文档的局部依赖投影。" />}
             </Tabs.Panel>
             <Tabs.Panel value="diagnostics" className="inspector-content">
+              <div className="diagnostic-panel-layout">
+                <div className="diagnostic-scope-toolbar">
+                  <SegmentedControl
+                    fullWidth
+                    size="xs"
+                    aria-label="诊断范围"
+                    value={diagnosticScope}
+                    onChange={(value) => setDiagnosticScope(value as "current" | "workspace")}
+                    data={[
+                      { value: "current", label: `当前文档 ${currentDiagnostics.length}` },
+                      { value: "workspace", label: `整个工作区 ${controller.validationItems.length}` },
+                    ]}
+                  />
+                </div>
               <ScrollArea h="100%" type="auto">
-                {controller.validationItems.length ? (
+                {visibleDiagnostics.length ? (
                   <Stack gap={0}>
-                    {controller.validationItems.map((item, index) => {
+                    {visibleDiagnostics.map((item, index) => {
                       const path = diagnosticPath(item, controller.bootstrapData?.workspace);
                       const diagnosticKey = controller.documents.find((document) => document.path === path || path.endsWith(document.path))?.key ?? "";
                       const diagnosticLine = (controller.buffers[diagnosticKey] ?? "").split("\n")[(item.location?.line ?? 1) - 1] ?? "";
@@ -871,11 +991,14 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 ) : (
                   <EmptyState
                     icon={<CircleCheck size={23} strokeWidth={1.5} />}
-                    title="没有发现问题"
-                    description={`${controller.validation?.documents ?? controller.documents.filter((item) => !item.package).length} 个本地文档可以参与计算。`}
+                    title={diagnosticScope === "current" ? "当前文档没有问题" : "整个工作区没有问题"}
+                    description={diagnosticScope === "current" && controller.validationItems.length
+                      ? `其他文档仍有 ${controller.validationItems.length} 个问题；切换到“整个工作区”查看。`
+                      : `${controller.validation?.documents ?? controller.documents.filter((item) => !item.package).length} 个本地文档可以参与计算。`}
                   />
                 )}
               </ScrollArea>
+              </div>
             </Tabs.Panel>
             <Tabs.Panel value="formula" className="inspector-content">
               <ScrollArea h="100%" type="auto">
@@ -1007,6 +1130,26 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
             </Button>
           </Group>
         </Stack>}
+      </Modal>
+
+      <Modal
+        opened={discardDocument !== null}
+        onClose={() => setDiscardDocument(null)}
+        title={discardDocument?.source_sha256 === null ? "放弃新文档草稿" : "恢复磁盘基线"}
+        centered
+      >
+        <Stack gap="md">
+          <Text fz="sm">
+            {discardDocument?.source_sha256 === null
+              ? `${discardDocument?.path ?? "这个新文档"} 尚未写入磁盘；放弃后会从工作台移除。`
+              : `${discardDocument?.path ?? "这个文档"} 的未保存修改将被打开时的磁盘内容替换。`}
+          </Text>
+          <Text c="dimmed" fz="xs">此操作不会写入或删除磁盘文件，但会清除对应浏览器草稿和恢复缓存。</Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setDiscardDocument(null)}>取消</Button>
+            <Button className="danger-button" loading={discardingDocument} onClick={() => { void handleDiscardDocument(); }}>确认放弃</Button>
+          </Group>
+        </Stack>
       </Modal>
 
       <Modal

@@ -65,6 +65,7 @@ def decoded(data: bytes) -> dict:
 
 def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspace: Path) -> None:
     with RunningServer(example_workspace) as running:
+        assert running.server.request_queue_size >= 32
         with urllib.request.urlopen(running.base + "/", timeout=5) as response:
             html = response.read().decode("utf-8")
         assert "Kirin Tor 图形工作台" in html

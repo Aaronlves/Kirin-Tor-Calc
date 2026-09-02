@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Drawer } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 
 import { LoadingState } from "./components/ui";
 import { PluginSurface } from "./components/PluginSurface";
@@ -15,6 +16,7 @@ const PluginsView = lazy(() => import("./views/PluginsView").then((module) => ({
 const SyntaxReference = lazy(() => import("./components/SyntaxReference").then((module) => ({ default: module.SyntaxReference })));
 const WorkspaceSearch = lazy(() => import("./components/WorkspaceSearch").then((module) => ({ default: module.WorkspaceSearch })));
 const ChangeReview = lazy(() => import("./components/ChangeReview").then((module) => ({ default: module.ChangeReview })));
+const WorkspaceSettings = lazy(() => import("./components/WorkspaceSettings").then((module) => ({ default: module.WorkspaceSettings })));
 
 const builtinToolTitles: Record<string, string> = {
   runs: "运行记录",
@@ -23,9 +25,11 @@ const builtinToolTitles: Record<string, string> = {
   search: "工作区搜索与替换",
   changes: "保存前变更审查",
   plugins: "Workbench Plugins",
+  settings: "工作台设置",
 };
 
-const builtinTools = ["runs", "packages", "plugins", "syntax", "search", "changes"];
+const builtinTools = ["runs", "packages", "plugins", "syntax", "search", "changes", "settings"];
+const notificationDurations = new Set([3000, 4000, 6000, 8000]);
 
 interface WorkbenchProfile {
   id: string;
@@ -43,6 +47,14 @@ export function App() {
   const [activeView, setActiveView] = useState<ViewId>(() => localStorage.getItem("kirin:active-view") || "documents");
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
   const [syntaxTopic, setSyntaxTopic] = useState<string | null>(null);
+  const [compactNavigation, setCompactNavigation] = useState(() => {
+    const stored = localStorage.getItem("kirin:compact-navigation");
+    return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
+  });
+  const [notificationDuration, setNotificationDuration] = useState(() => {
+    const stored = Number(localStorage.getItem("kirin:notification-duration"));
+    return notificationDurations.has(stored) ? stored : 4000;
+  });
   const [documentFocusMode, setDocumentFocusMode] = useState<DocumentFocusMode>(() => {
     const stored = localStorage.getItem("kirin:document-focus-mode");
     return stored === "editor" || stored === "preview" ? stored : "split";
@@ -73,6 +85,14 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("kirin:document-focus-mode", documentFocusMode);
   }, [documentFocusMode]);
+
+  useEffect(() => {
+    localStorage.setItem("kirin:compact-navigation", String(compactNavigation));
+  }, [compactNavigation]);
+
+  useEffect(() => {
+    localStorage.setItem("kirin:notification-duration", String(notificationDuration));
+  }, [notificationDuration]);
 
   useEffect(() => {
     localStorage.setItem("kirin:active-view", activeView);
@@ -120,13 +140,13 @@ export function App() {
     })), 50);
   };
 
-  const activateProfile = (profileId: string) => {
+  const activateProfile = (profileId: string, keepToolOpen = false) => {
     const profile = profiles.find((item) => item.id === profileId) ?? defaultProfile;
     setActiveProfileId(profile.id);
     localStorage.setItem("kirin:workbench-profile", profile.id);
     setDocumentFocusMode(profile.document_focus_mode);
     setActiveView(profile.default_view);
-    setWorkspaceTool(null);
+    if (!keepToolOpen) setWorkspaceTool(null);
   };
 
   const changeView = (viewId: string) => {
@@ -156,19 +176,20 @@ export function App() {
 
   return (
     <>
+      <Notifications position="top-right" autoClose={notificationDuration} limit={3} />
       <WorkspaceShell
         activeView={activeView}
         activeTool={workspaceTool}
+        compactNavigation={compactNavigation}
+        onCompactNavigationChange={setCompactNavigation}
         documentFocusMode={documentFocusMode}
         onDocumentFocusModeChange={setDocumentFocusMode}
         onViewChange={changeView}
         onOpenTool={(tool) => { if (tool === "syntax") setSyntaxTopic(null); setWorkspaceTool(tool); }}
         onNavigateToSource={(key, line, column) => { void navigateToSource(key, line, column); }}
         activeProfile={activeProfile}
-        profiles={profiles}
         pluginViews={pluginContributions.views}
         pluginCommands={pluginContributions.commands}
-        onProfileChange={activateProfile}
         onPluginCommand={runPluginCommand}
         controller={controller}
       >
@@ -186,7 +207,7 @@ export function App() {
         opened={workspaceTool !== null}
         onClose={() => setWorkspaceTool(null)}
         position="right"
-        size={workspaceTool === "syntax" ? 820 : "92%"}
+        size={workspaceTool === "settings" ? 760 : workspaceTool === "syntax" ? 820 : "92%"}
         title={<span style={{ color: "#eeeae1", fontWeight: 650 }}>{toolTitle}</span>}
         closeButtonProps={{ "aria-label": "关闭工作区工具" }}
         className="workspace-tool-drawer"
@@ -198,6 +219,19 @@ export function App() {
           {workspaceTool === "syntax" && <SyntaxReference initialTopic={syntaxTopic} />}
           {workspaceTool === "search" && <WorkspaceSearch controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} onReviewChanges={() => setWorkspaceTool("changes")} />}
           {workspaceTool === "changes" && <ChangeReview controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
+          {workspaceTool === "settings" && <WorkspaceSettings
+            controller={controller}
+            compactNavigation={compactNavigation}
+            onCompactNavigationChange={setCompactNavigation}
+            documentFocusMode={documentFocusMode}
+            onDocumentFocusModeChange={setDocumentFocusMode}
+            notificationDuration={notificationDuration}
+            onNotificationDurationChange={setNotificationDuration}
+            activeProfileId={activeProfile.id}
+            profiles={profiles}
+            onProfileChange={(profileId) => activateProfile(profileId, true)}
+            onOpenTool={setWorkspaceTool}
+          />}
           {pluginTool && <PluginSurface
             controller={controller}
             contribution={pluginTool}

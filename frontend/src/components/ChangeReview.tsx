@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Box, Button, Code, Group, ScrollArea, Select, Stack, Tabs, Text } from "@mantine/core";
-import { GitCommitHorizontal, Save } from "lucide-react";
+import { Badge, Box, Button, Code, Group, Modal, ScrollArea, Select, Stack, Tabs, Text } from "@mantine/core";
+import { GitCommitHorizontal, RotateCcw, Save, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
@@ -16,6 +16,8 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(dirtyKeys[0] ?? null);
   const [git, setGit] = useState<GitSummary | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
+  const [discardTarget, setDiscardTarget] = useState<string | "all" | null>(null);
+  const [discarding, setDiscarding] = useState(false);
 
   useEffect(() => {
     if (!selectedKey || !dirtyKeys.includes(selectedKey)) setSelectedKey(dirtyKeys[0] ?? null);
@@ -30,6 +32,23 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   }, [controller.gitHistory]);
 
   const selectedDocument = controller.documents.find((item) => item.key === selectedKey);
+  const targetDocument = discardTarget && discardTarget !== "all"
+    ? controller.documents.find((item) => item.key === discardTarget)
+    : null;
+  const targetIsNew = Boolean(targetDocument?.source_sha256 === null);
+
+  const confirmDiscard = async () => {
+    if (!discardTarget || discarding) return;
+    setDiscarding(true);
+    try {
+      if (discardTarget === "all") await controller.discardAllDrafts();
+      else await controller.discardDraft(discardTarget);
+      setDiscardTarget(null);
+    } finally {
+      setDiscarding(false);
+    }
+  };
+
   return (
     <div className="change-review-tool">
       <Group justify="space-between" align="flex-start">
@@ -37,12 +56,21 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
           <Text fw={680}>保存前审查</Text>
           <Text c="dimmed" fz="xs" mt={3}>左侧是打开或创建时的基线，右侧是当前草稿。这里只审查，不会改写内容。</Text>
         </Box>
-        <Button
-          leftSection={<Save size={14} />}
-          disabled={!dirtyKeys.length}
-          loading={controller.asyncState === "saving"}
-          onClick={() => { void controller.saveAll(); }}
-        >保存全部草稿</Button>
+        <Group gap="xs">
+          <Button
+            className="danger-outline-button"
+            variant="default"
+            leftSection={<Trash2 size={14} />}
+            disabled={!dirtyKeys.length || controller.asyncState !== "idle"}
+            onClick={() => setDiscardTarget("all")}
+          >放弃全部草稿</Button>
+          <Button
+            leftSection={<Save size={14} />}
+            disabled={!dirtyKeys.length || controller.asyncState !== "idle"}
+            loading={controller.asyncState === "saving"}
+            onClick={() => { void controller.saveAll(); }}
+          >保存全部草稿</Button>
+        </Group>
       </Group>
       <Tabs defaultValue="drafts" keepMounted={false} mt="md">
         <Tabs.List>
@@ -59,7 +87,15 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
                 data={dirtyKeys.map((key) => ({ value: key, label: controller.documents.find((item) => item.key === key)?.path ?? key }))}
                 style={{ flex: 1 }}
               />
-              {selectedDocument && <Button variant="default" onClick={() => onNavigate(selectedDocument.key, 1, 1)}>回到源码</Button>}
+              {selectedDocument && <>
+                <Button variant="default" onClick={() => onNavigate(selectedDocument.key, 1, 1)}>回到源码</Button>
+                <Button
+                  className="danger-outline-button"
+                  variant="default"
+                  leftSection={<RotateCcw size={14} />}
+                  onClick={() => setDiscardTarget(selectedDocument.key)}
+                >放弃此草稿</Button>
+              </>}
             </Group>
             {selectedKey && <div className="change-comparison" aria-label="保存前草稿比较">
               <section>
@@ -90,6 +126,27 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
           </Stack>}
         </Tabs.Panel>
       </Tabs>
+      <Modal
+        opened={discardTarget !== null}
+        onClose={() => setDiscardTarget(null)}
+        title={discardTarget === "all" ? "放弃全部未保存草稿" : targetIsNew ? "放弃新文档草稿" : "恢复磁盘基线"}
+        centered
+      >
+        <Stack gap="md">
+          <Text fz="sm">
+            {discardTarget === "all"
+              ? `将放弃 ${dirtyKeys.length} 个未保存草稿。已有文档恢复到打开时的磁盘基线，新文档草稿从工作台移除。`
+              : targetIsNew
+                ? `${targetDocument?.path ?? "这个新文档"} 尚未写入磁盘；放弃后会从工作台移除。`
+                : `${targetDocument?.path ?? "这个文档"} 将恢复到打开时的磁盘内容。`}
+          </Text>
+          <Text c="dimmed" fz="xs">此操作不会修改磁盘上的 `.kirin` 文件，但会清除对应浏览器草稿和恢复缓存。</Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setDiscardTarget(null)}>取消</Button>
+            <Button className="danger-button" loading={discarding} onClick={() => { void confirmDiscard(); }}>确认放弃</Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
   );
 }

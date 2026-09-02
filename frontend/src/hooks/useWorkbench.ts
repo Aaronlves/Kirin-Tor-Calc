@@ -38,6 +38,28 @@ function rememberedDocumentKey(workspace: string): string {
   return `kirin:current-document:${workspace}`;
 }
 
+function recoveryPayload(
+  overlays: Record<string, string>,
+  documents: DocumentItem[],
+  hashes: Record<string, string | null>,
+): Record<string, RecoveryDraft> {
+  return Object.fromEntries(Object.entries(overlays).map(([key, text]) => {
+    const document = documents.find((item) => item.key === key);
+    return [key, {
+      text,
+      base_sha256: hashes[key] ?? null,
+      document: document ?? {
+        key,
+        path: key,
+        title: key.split("/").at(-1)?.replace(/\.kirin$/i, "") || key,
+        kind: "entry",
+        read_only: false,
+        source_sha256: null,
+      },
+    }];
+  }));
+}
+
 export function useWorkbench() {
   const [bootstrapData, setBootstrapData] = useState<BootstrapPayload | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -56,8 +78,26 @@ export function useWorkbench() {
   const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
   const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
+  const recoveryWriteChain = useRef<Promise<void>>(Promise.resolve());
   const workspaceRevision = useRef<string | null>(null);
   const externalSyncRunning = useRef(false);
+  const asyncStateRef = useRef(asyncState);
+  asyncStateRef.current = asyncState;
+  const workspaceData = useMemo(
+    () => ({ buffers, originals, hashes, documents, currentKey }),
+    [buffers, currentKey, documents, hashes, originals],
+  );
+  const workspaceDataRef = useRef(workspaceData);
+  workspaceDataRef.current = workspaceData;
+
+  const persistRecovery = useCallback((drafts: Record<string, RecoveryDraft>): Promise<void> => {
+    const pending = recoveryWriteChain.current
+      .catch(() => undefined)
+      .then(() => request("/api/recovery", { drafts }))
+      .then(() => undefined);
+    recoveryWriteChain.current = pending;
+    return pending;
+  }, []);
 
   const currentDocument = useMemo(
     () => documents.find((document) => document.key === currentKey) ?? null,
@@ -94,7 +134,9 @@ export function useWorkbench() {
     }
     try {
       const result = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(key)}`);
-      setBuffers((current) => ({ ...current, [key]: recovered?.text ?? result.text }));
+      setBuffers((current) => Object.prototype.hasOwnProperty.call(current, key)
+        ? current
+        : { ...current, [key]: recovered?.text ?? result.text });
       setOriginals((current) => ({ ...current, [key]: result.text }));
       const recoveredConflict = recovered && recovered.base_sha256 !== result.source_sha256;
       setHashes((current) => ({
@@ -163,7 +205,7 @@ export function useWorkbench() {
           color: conflict ? "orange" : "green",
           title: `已恢复 ${recoveredEntries.length} 个草稿`,
           message: conflict ? "其中一个文档的磁盘版本已变化，请先比较。" : "草稿仍未写入权威源码；保存全部后才会落盘。",
-          autoClose: conflict ? false : 5000,
+          ...(conflict ? { autoClose: false } : {}),
         });
       }
       setRecoveryReady(true);
@@ -237,15 +279,16 @@ export function useWorkbench() {
   const syncExternalDocuments = useCallback(async () => {
     if (externalSyncRunning.current || asyncState !== "idle" || document.visibilityState === "hidden") return;
     externalSyncRunning.current = true;
+    const snapshot = workspaceDataRef.current;
     try {
       const state = await request<WorkspaceStatePayload>("/api/workspace/state");
       if (workspaceRevision.current === state.revision) return;
 
       const diskDocuments = new Map(state.documents.map((item) => [item.key, item]));
-      const nextBuffers = { ...buffers };
-      const nextOriginals = { ...originals };
-      const nextHashes = { ...hashes };
-      const retainedDocuments: DocumentItem[] = documents.filter((item) => item.read_only);
+      const nextBuffers = { ...snapshot.buffers };
+      const nextOriginals = { ...snapshot.originals };
+      const nextHashes = { ...snapshot.hashes };
+      const retainedDocuments: DocumentItem[] = snapshot.documents.filter((item) => item.read_only);
       let conflict: ExternalChangeConflict | null = null;
       let removedDrafts = 0;
 
@@ -269,7 +312,7 @@ export function useWorkbench() {
         }
       }
 
-      for (const item of documents) {
+      for (const item of snapshot.documents) {
         if (item.read_only || diskDocuments.has(item.key)) continue;
         if (!Object.prototype.hasOwnProperty.call(nextBuffers, item.key)) continue;
         if (nextBuffers[item.key] !== (nextOriginals[item.key] ?? "")) {
@@ -287,7 +330,7 @@ export function useWorkbench() {
       const mergedDocuments = [...new Map(
         [...state.documents, ...retainedDocuments].map((item) => [item.key, item]),
       ).values()];
-      let nextCurrentKey = currentKey;
+      let nextCurrentKey = snapshot.currentKey;
       if (nextCurrentKey && !mergedDocuments.some((item) => item.key === nextCurrentKey)) {
         nextCurrentKey = mergedDocuments[0]?.key ?? null;
         if (nextCurrentKey && !Object.prototype.hasOwnProperty.call(nextBuffers, nextCurrentKey)) {
@@ -298,12 +341,18 @@ export function useWorkbench() {
         }
       }
 
+      // A document may have been opened, edited, created, or discarded while
+      // the network requests above were in flight. Never replace that newer
+      // local state with this stale snapshot; the next polling cycle will
+      // reconcile the same disk revision against the latest local state.
+      if (workspaceDataRef.current !== snapshot) return;
+
       setDocuments(mergedDocuments);
       setBootstrapData((current) => current ? { ...current, documents: mergedDocuments } : current);
       setBuffers(nextBuffers);
       setOriginals(nextOriginals);
       setHashes(nextHashes);
-      if (nextCurrentKey !== currentKey) setCurrentKey(nextCurrentKey);
+      if (nextCurrentKey !== snapshot.currentKey) setCurrentKey(nextCurrentKey);
       if (conflict) setExternalConflict(conflict);
       if (removedDrafts) {
         notifications.show({
@@ -321,7 +370,7 @@ export function useWorkbench() {
     } finally {
       externalSyncRunning.current = false;
     }
-  }, [asyncState, buffers, currentKey, documents, hashes, originals, validate]);
+  }, [asyncState, validate]);
 
   useEffect(() => {
     if (!bootstrapReady) return;
@@ -334,7 +383,9 @@ export function useWorkbench() {
   const dirtySignature = useMemo(() => JSON.stringify(dirtyOverlays), [dirtyOverlays]);
   useEffect(() => {
     if (!bootstrapReady) return;
-    const timer = window.setTimeout(() => { void validate(false); }, 450);
+    const timer = window.setTimeout(() => {
+      if (asyncStateRef.current === "idle") void validate(false);
+    }, 450);
     return () => window.clearTimeout(timer);
   }, [bootstrapReady, dirtySignature, validate]);
 
@@ -360,6 +411,14 @@ export function useWorkbench() {
       notifications.show({ color: "gray", message: "没有需要保存的草稿。" });
       return false;
     }
+    if (asyncState !== "idle") {
+      notifications.show({
+        color: "orange",
+        title: "当前暂不能保存",
+        message: asyncState === "running" ? "请等待当前计算结束或先取消计算。" : "请等待当前工作区操作结束。",
+      });
+      return false;
+    }
     setAsyncState("saving");
     try {
       const expected = Object.fromEntries(Object.keys(dirtyOverlays).map((path) => [path, hashes[path] ?? null]));
@@ -375,9 +434,22 @@ export function useWorkbench() {
       }
       setOriginals(nextOriginals);
       setHashes(nextHashes);
-      await request("/api/recovery", { drafts: {} });
-      recoveryDrafts.current = {};
-      notifications.show({ color: "green", title: "已保存", message: `${result.saved.length} 个文档已写入工作区。` });
+      let recoveryCleared = true;
+      try {
+        await persistRecovery({});
+        recoveryDrafts.current = {};
+      } catch (error) {
+        recoveryCleared = false;
+        notifications.show({
+          color: "red",
+          title: "文档已保存，但恢复缓存未清除",
+          message: errorMessage(error),
+          autoClose: false,
+        });
+      }
+      if (recoveryCleared) {
+        notifications.show({ color: "green", title: "已保存", message: `${result.saved.length} 个文档已写入工作区。` });
+      }
       await refresh(true);
       return true;
     } catch (error) {
@@ -403,7 +475,104 @@ export function useWorkbench() {
     } finally {
       setAsyncState("idle");
     }
-  }, [buffers, dirtyOverlays, hashes, inspectExternalConflict, originals, refresh]);
+  }, [asyncState, buffers, dirtyOverlays, hashes, inspectExternalConflict, originals, persistRecovery, refresh]);
+
+  const discardDraft = useCallback(async (key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(dirtyOverlays, key)) return false;
+    const document = documents.find((item) => item.key === key);
+    const isUnsavedDocument = document?.source_sha256 === null && hashes[key] === null;
+    const remainingOverlays = { ...dirtyOverlays };
+    delete remainingOverlays[key];
+    delete recoveryDrafts.current[key];
+    setExternalConflict((conflict) => conflict?.key === key ? null : conflict);
+
+    if (isUnsavedDocument) {
+      const remaining = documents.filter((item) => item.key !== key);
+      setDocuments(remaining);
+      setBuffers((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setOriginals((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setHashes((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      if (currentKey === key) {
+        const nextDocument = remaining.find((item) => Object.prototype.hasOwnProperty.call(buffers, item.key)) ?? remaining[0];
+        if (nextDocument) await openDocument(nextDocument.key);
+        else setCurrentKey(null);
+      }
+      try {
+        await persistRecovery(recoveryPayload(remainingOverlays, remaining, hashes));
+      } catch (error) {
+        notifications.show({ color: "red", title: "草稿已放弃，但恢复缓存未清除", message: errorMessage(error), autoClose: false });
+        return true;
+      }
+      notifications.show({ color: "green", title: "已放弃新文档草稿", message: `${document?.path ?? key} 从工作台中移除，磁盘没有发生变化。` });
+      return true;
+    }
+
+    setBuffers((current) => ({ ...current, [key]: originals[key] ?? "" }));
+    try {
+      await persistRecovery(recoveryPayload(remainingOverlays, documents, hashes));
+    } catch (error) {
+      notifications.show({ color: "red", title: "草稿已放弃，但恢复缓存未清除", message: errorMessage(error), autoClose: false });
+      return true;
+    }
+    notifications.show({ color: "green", title: "已恢复磁盘基线", message: `${document?.path ?? key} 的未保存修改已放弃。` });
+    return true;
+  }, [buffers, currentKey, dirtyOverlays, documents, hashes, openDocument, originals, persistRecovery]);
+
+  const discardAllDrafts = useCallback(async () => {
+    const keys = Object.keys(dirtyOverlays);
+    if (!keys.length) return false;
+    const dirtyKeys = new Set(keys);
+    const newKeys = new Set(documents
+      .filter((item) => dirtyKeys.has(item.key) && item.source_sha256 === null && hashes[item.key] === null)
+      .map((item) => item.key));
+    const remaining = documents.filter((item) => !newKeys.has(item.key));
+    for (const key of keys) delete recoveryDrafts.current[key];
+    setDocuments(remaining);
+    setBuffers((current) => {
+      const next = { ...current };
+      for (const key of keys) {
+        if (newKeys.has(key)) delete next[key];
+        else next[key] = originals[key] ?? "";
+      }
+      return next;
+    });
+    setOriginals((current) => {
+      const next = { ...current };
+      for (const key of newKeys) delete next[key];
+      return next;
+    });
+    setHashes((current) => {
+      const next = { ...current };
+      for (const key of newKeys) delete next[key];
+      return next;
+    });
+    setExternalConflict(null);
+    if (currentKey && newKeys.has(currentKey)) {
+      const nextDocument = remaining.find((item) => Object.prototype.hasOwnProperty.call(buffers, item.key)) ?? remaining[0];
+      if (nextDocument) await openDocument(nextDocument.key);
+      else setCurrentKey(null);
+    }
+    try {
+      await persistRecovery({});
+    } catch (error) {
+      notifications.show({ color: "red", title: "草稿已放弃，但恢复缓存未清除", message: errorMessage(error), autoClose: false });
+      return true;
+    }
+    notifications.show({ color: "green", title: "已放弃全部草稿", message: `${keys.length} 个未保存草稿已恢复到磁盘基线；新文档草稿已移除。` });
+    return true;
+  }, [buffers, currentKey, dirtyOverlays, documents, hashes, openDocument, originals, persistRecovery]);
 
   const reloadExternalConflict = useCallback(async () => {
     if (!externalConflict) return false;
@@ -461,7 +630,7 @@ export function useWorkbench() {
         message: result.clean
           ? "磁盘变更与当前草稿已合并，结果仍是未保存草稿。"
           : `检测到 ${result.conflicts} 处冲突；编辑器中已加入冲突标记。`,
-        autoClose: result.clean ? 4000 : false,
+        ...(result.clean ? {} : { autoClose: false }),
       });
       return true;
     } catch (error) {
@@ -727,19 +896,12 @@ export function useWorkbench() {
 
   useEffect(() => {
     if (!bootstrapReady || !recoveryReady) return;
-    const drafts = Object.fromEntries(Object.entries(dirtyOverlays).map(([key, text]) => {
-      const document = documents.find((item) => item.key === key);
-      return [key, {
-        text,
-        base_sha256: hashes[key] ?? null,
-        document: document ?? { key, path: key, title: key.split("/").at(-1)?.replace(/\.kirin$/i, "") || key, kind: "entry", read_only: false, source_sha256: null },
-      }];
-    }));
+    const drafts = recoveryPayload(dirtyOverlays, documents, hashes);
     const timer = window.setTimeout(() => {
-      void request("/api/recovery", { drafts }).catch(() => undefined);
+      void persistRecovery(drafts).catch(() => undefined);
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [bootstrapReady, dirtySignature, recoveryReady]);
+  }, [bootstrapReady, dirtySignature, documents, hashes, persistRecovery, recoveryReady]);
 
   useEffect(() => {
     if (!bootstrapData?.workspace || !currentKey) return;
@@ -771,6 +933,8 @@ export function useWorkbench() {
     currentKey,
     dirtyCount,
     dirtyOverlays,
+    discardAllDrafts,
+    discardDraft,
     externalConflict,
     formatDocument,
     documents,

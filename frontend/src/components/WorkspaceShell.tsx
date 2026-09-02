@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import {
   ActionIcon,
   Badge,
@@ -42,6 +42,7 @@ import {
 
 import type { DocumentFocusMode, PluginCommandContribution, PluginSurfaceContribution, ViewId, WorkspaceTool } from "../types";
 import type { WorkbenchController } from "../hooks/useWorkbench";
+import { primaryShortcut } from "../platform";
 import { openSyntaxReference } from "../syntaxHelp";
 
 const builtinViewMetadata: Record<string, { title: string; eyebrow: string; description: string }> = {
@@ -72,16 +73,16 @@ interface WorkspaceShellProps {
   activeView: ViewId;
   activeTool: WorkspaceTool | null;
   controller: WorkbenchController;
+  compactNavigation: boolean;
+  onCompactNavigationChange(compact: boolean): void;
   documentFocusMode: DocumentFocusMode;
   onDocumentFocusModeChange(mode: DocumentFocusMode): void;
   onViewChange(view: ViewId): void;
   onOpenTool(tool: WorkspaceTool): void;
   onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
   activeProfile: WorkbenchProfileInfo;
-  profiles: WorkbenchProfileInfo[];
   pluginViews: PluginSurfaceContribution[];
   pluginCommands: PluginCommandContribution[];
-  onProfileChange(profileId: string): void;
   onPluginCommand(command: PluginCommandContribution): void;
   children: ReactNode;
 }
@@ -92,11 +93,7 @@ function workspaceName(path?: string): string {
   return parts.at(-1) || path;
 }
 
-export function WorkspaceShell({ activeView, activeTool, controller, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, activeProfile, profiles, pluginViews, pluginCommands, onProfileChange, onPluginCommand, children }: WorkspaceShellProps) {
-  const [compactNavigation, setCompactNavigation] = useState(() => {
-    const stored = localStorage.getItem("kirin:compact-navigation");
-    return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
-  });
+export function WorkspaceShell({ activeView, activeTool, controller, compactNavigation, onCompactNavigationChange, documentFocusMode, onDocumentFocusModeChange, onViewChange, onOpenTool, onNavigateToSource, activeProfile, pluginViews, pluginCommands, onPluginCommand, children }: WorkspaceShellProps) {
   const selectedPluginView = pluginViews.find((item) => item.id === activeView);
   const metadata = builtinViewMetadata[activeView] ?? {
     title: selectedPluginView?.title ?? "插件页面",
@@ -119,6 +116,15 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
   }, [activeProfile.views, pluginViews]);
   const hasErrors = controller.validationItems.length > 0;
   const isBusy = controller.asyncState !== "idle";
+  const workspacePath = controller.bootstrapData?.workspace;
+  const currentWorkspaceName = workspaceName(workspacePath);
+  const saveBlockedReason = !controller.dirtyCount
+    ? "当前没有未保存草稿"
+    : controller.asyncState === "running"
+      ? "请等待当前计算结束或先取消计算"
+      : isBusy
+        ? "请等待当前工作区操作结束"
+        : `保存 ${controller.dirtyCount} 个草稿 · ${primaryShortcut("S")}`;
   const workspaceStatus = controller.asyncState === "connecting"
     ? "连接中"
     : controller.asyncState === "validating"
@@ -130,10 +136,6 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
         : controller.dirtyCount
           ? `${controller.dirtyCount} 个草稿`
           : "工作区有效";
-
-  useEffect(() => {
-    localStorage.setItem("kirin:compact-navigation", String(compactNavigation));
-  }, [compactNavigation]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -245,6 +247,14 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
       onClick: () => onOpenTool("plugins"),
       keywords: ["plugin", "extension", "插件", "扩展", "安全模式"],
     },
+    {
+      id: "open-settings",
+      label: "打开工作台设置",
+      description: "查看当前工作区并调整界面、通知、Profile 与快捷键",
+      leftSection: <Settings size={17} strokeWidth={1.7} />,
+      onClick: () => onOpenTool("settings"),
+      keywords: ["settings", "preferences", "设置", "通知", "快捷键", "工作区"],
+    },
     ...pluginCommands.map((command) => ({
       id: `plugin-command-${command.id}`,
       label: command.title,
@@ -310,7 +320,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   variant="subtle"
                   color="gray"
                   aria-label={compactNavigation ? "展开导航" : "收起导航"}
-                  onClick={() => setCompactNavigation((value) => !value)}
+                  onClick={() => onCompactNavigationChange(!compactNavigation)}
                 >
                   {compactNavigation
                     ? <PanelLeftOpen size={17} strokeWidth={1.65} />
@@ -318,7 +328,12 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                 </ActionIcon>
               </Tooltip>
               <Box>
-                <Text className="page-eyebrow">{metadata.eyebrow} / {metadata.title}</Text>
+                <Text className="page-eyebrow">
+                  <Tooltip label={workspacePath ?? "正在连接工作区"} position="bottom-start">
+                    <span className="workspace-context" aria-label={`当前工作区：${workspacePath ?? "正在连接"}`}>{currentWorkspaceName}</span>
+                  </Tooltip>
+                  <span aria-hidden="true"> / </span>{metadata.eyebrow} / {metadata.title}
+                </Text>
                 <Text className="page-description">{metadata.description}</Text>
               </Box>
             </Group>
@@ -339,7 +354,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                 variant="default"
                 size="xs"
                 leftSection={<Command size={14} strokeWidth={1.7} />}
-                rightSection={<Kbd>Ctrl/⌘K</Kbd>}
+                rightSection={<Kbd>{primaryShortcut("K")}</Kbd>}
                 onClick={() => spotlight.open()}
               >
                 命令
@@ -369,32 +384,14 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   </>}
                 </Menu.Dropdown>
               </Menu>
-              <Menu position="bottom-end" withinPortal>
-                <Menu.Target>
-                  <Button
-                    variant="default"
-                    size="xs"
-                    leftSection={<Settings size={14} strokeWidth={1.7} />}
-                    rightSection={<ChevronDown size={12} strokeWidth={1.7} />}
-                  >
-                    设置
-                  </Button>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Label>依赖与扩展</Menu.Label>
-                  <Menu.Item leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Menu.Item>
-                  <Menu.Item leftSection={<Plug size={14} />} onClick={() => onOpenTool("plugins")}>Workbench Plugins</Menu.Item>
-                  <Menu.Divider />
-                  <Menu.Label>界面 Profile</Menu.Label>
-                  {profiles.map((profile) => (
-                    <Menu.Item
-                      key={profile.id}
-                      leftSection={profile.id === activeProfile.id ? <Check size={14} /> : <Puzzle size={14} />}
-                      onClick={() => onProfileChange(profile.id)}
-                    >{profile.title}</Menu.Item>
-                  ))}
-                </Menu.Dropdown>
-              </Menu>
+              <Button
+                variant="default"
+                size="xs"
+                leftSection={<Settings size={14} strokeWidth={1.7} />}
+                onClick={() => onOpenTool("settings")}
+              >
+                设置
+              </Button>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
                 <Badge
                   className={`workspace-status-badge${hasErrors ? " is-error" : controller.dirtyCount ? " is-dirty" : ""}`}
@@ -417,15 +414,19 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   取消 {controller.operationJobs.length} 项操作
                 </Button>
               </Tooltip>}
-              <Button
-                size="xs"
-                leftSection={<Save size={14} strokeWidth={1.8} />}
-                onClick={() => { void controller.saveAll(); }}
-                loading={controller.asyncState === "saving"}
-                disabled={!controller.dirtyCount || isBusy && controller.asyncState !== "saving"}
-              >
-                保存全部
-              </Button>
+              <Tooltip label={saveBlockedReason}>
+                <span className="disabled-control-wrapper">
+                  <Button
+                    size="xs"
+                    leftSection={<Save size={14} strokeWidth={1.8} />}
+                    onClick={() => { void controller.saveAll(); }}
+                    loading={controller.asyncState === "saving"}
+                    disabled={!controller.dirtyCount || isBusy}
+                  >
+                    保存全部
+                  </Button>
+                </span>
+              </Tooltip>
             </Group>
           </Group>
         </header>
@@ -483,15 +484,22 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                 </Stack>}
               </Stack>
             </ScrollArea>
-            <Box className="workspace-meta">
-              <span className={`connection-dot${hasErrors ? " is-error" : ""}`} />
-              {!compactNavigation && (
-                <Box className="workspace-meta-copy">
-                  <Text fz="xs" fw={600} truncate>{workspaceName(controller.bootstrapData?.workspace)}</Text>
-                  <Text fz="10px" c="dimmed" truncate>Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
-                </Box>
-              )}
-            </Box>
+            <Tooltip label={workspacePath ?? "正在连接工作区"} position="right">
+              <button
+                className="workspace-meta"
+                type="button"
+                onClick={() => onOpenTool("settings")}
+                aria-label={`当前工作区：${workspacePath ?? "正在连接"}；打开设置`}
+              >
+                <span className={`connection-dot${hasErrors ? " is-error" : ""}`} />
+                {!compactNavigation && (
+                  <Box className="workspace-meta-copy">
+                    <Text fz="xs" fw={600} truncate>{currentWorkspaceName}</Text>
+                    <Text fz="10px" c="dimmed" truncate>Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
+                  </Box>
+                )}
+              </button>
+            </Tooltip>
           </Stack>
         </nav>
 

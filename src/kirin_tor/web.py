@@ -193,6 +193,10 @@ class OperationJobManager:
 class WorkbenchHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # The production frontend loads multiple code-split modules in parallel.
+    # Python's default backlog of five can reset otherwise valid loopback
+    # connections during startup or rapid reloads.
+    request_queue_size = 128
 
     def __init__(self, address, workbench: Workbench, token: str):
         self.workbench = workbench

@@ -58,8 +58,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "Build 大厅", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.getByText("Kirin Tor 默认", { exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "工作台设置" });
+    await settings.getByRole("combobox", { name: "界面 Profile" }).click();
+    await page.getByRole("option", { name: "Kirin Tor 默认" }).click();
     await expect(page.getByRole("button", { name: "关系图" })).toBeVisible();
+    await settings.getByRole("button", { name: "关闭工作区工具" }).click();
 
     await page.getByRole("button", { name: /命令/ }).click();
     await page.getByPlaceholder("搜索页面或命令…").fill("检查虚构天赋插件");
@@ -244,6 +247,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.waitForTimeout(350);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(results.violations).toEqual([]);
+
+    await createDialog.getByRole("button", { name: "关闭对话框" }).click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "工作台设置" })).toBeVisible();
+    await page.waitForTimeout(350);
+    results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(results.violations).toEqual([]);
   });
 
   test("刷新后恢复当前页面与工作区文档", async ({ page }) => {
@@ -259,7 +269,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   });
 
   test("通知自动收起，Windows 快捷键与真实文件改名入口可用", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "platform", { configurable: true, get: () => "Win32" });
+    });
     await openWorkbench(page);
+    await expect(page.getByLabel(/^当前工作区：.*\.e2e-workspace$/).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "保存全部" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "命令 Ctrl+K" })).toBeVisible();
 
     await page.keyboard.press("Control+k");
     await expect(page.getByPlaceholder("搜索页面或命令…")).toBeVisible();
@@ -272,30 +288,48 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const pathInput = moveDialog.getByRole("textbox", { name: "新的真实文件路径" });
     await expect(pathInput).toHaveValue("entries/组合模型.kirin");
     await expect(moveDialog.getByRole("button", { name: "应用文件路径" })).toBeDisabled();
-    await pathInput.fill("entries/renamed-combo.kirin");
+    await pathInput.fill("entries/archive/renamed-combo.kirin");
     await moveDialog.getByRole("button", { name: "应用文件路径" }).click();
-    await expect(access(resolve(".e2e-workspace", "entries", "renamed-combo.kirin"))).resolves.toBeUndefined();
+    await expect(page.getByRole("button", { name: "entries/archive 1", exact: true })).toBeVisible();
+    await expect(access(resolve(".e2e-workspace", "entries", "archive", "renamed-combo.kirin"))).resolves.toBeUndefined();
 
-    const renamedButton = page.getByRole("button", { name: /^双技能组合（虚构） entries\/renamed-combo\.kirin/ });
-    await renamedButton.focus();
-    await page.keyboard.press("F2");
+    const renamedButton = page.getByRole("button", { name: /^双技能组合（虚构） entries\/archive\/renamed-combo\.kirin/ });
+    await page.getByRole("button", { name: "文档操作：双技能组合（虚构）" }).click();
+    await page.getByRole("menuitem", { name: "重命名 / 移动真实文件" }).click();
     await moveDialog.getByRole("textbox", { name: "新的真实文件路径" }).fill("entries/组合模型.kirin");
     await moveDialog.getByRole("button", { name: "应用文件路径" }).click();
     await expect(documentButton).toBeVisible();
+    await expect(renamedButton).toHaveCount(0);
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
-    await expect(page.getByText("Package 管理", { exact: true })).toBeVisible();
-    await expect(page.getByText("Workbench Plugins", { exact: true })).toBeVisible();
+    const settingsDrawer = page.getByRole("dialog", { name: "工作台设置" });
+    await expect(settingsDrawer.getByText("当前工作区", { exact: true })).toBeVisible();
+    await expect(settingsDrawer.getByText("反馈与通知", { exact: true })).toBeVisible();
+    await expect(settingsDrawer.getByText("快捷键", { exact: true })).toBeVisible();
+    await expect(settingsDrawer.getByText("Ctrl+S", { exact: true })).toBeVisible();
+    await expect(settingsDrawer.getByRole("button", { name: "Package 管理" })).toBeVisible();
+    await expect(settingsDrawer.getByRole("button", { name: "Workbench Plugins" })).toBeVisible();
+    await settingsDrawer.getByRole("combobox", { name: "普通通知停留时间" }).click();
+    await page.getByRole("option", { name: "3 秒" }).click();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "工作区工具", exact: true }).click();
     await expect(page.getByText("全文搜索与替换", { exact: true })).toBeVisible();
     await expect(page.getByText("保存前变更审查", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    await page.mouse.move(180, 700);
+    await documentButton.click();
+    const sourcePath = resolve(".e2e-workspace", "entries", "组合模型.kirin");
+    const diskSource = await readFile(sourcePath, "utf8");
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
+    await page.locator(".cm-line").last().click();
+    await editor.press("End");
+    await editor.type("\n// windows shortcut save");
     await page.keyboard.press("Control+s");
-    await expect(page.getByText("没有需要保存的草稿。", { exact: true })).toBeVisible();
-    await expect(page.getByText("没有需要保存的草稿。", { exact: true })).toBeHidden({ timeout: 6000 });
+    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+    await expect.poll(async () => readFile(sourcePath, "utf8")).toContain("// windows shortcut save");
+    await expect(page.getByText("已保存", { exact: true })).toBeHidden({ timeout: 5000 });
+    await writeFile(sourcePath, diskSource, "utf8");
+    await expect(editor).not.toContainText("// windows shortcut save", { timeout: 8000 });
   });
 
   test("核心工作台布局保持视觉基线", async ({ page, browserName }) => {
@@ -339,7 +373,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   test("文档复制明确生成未保存源码草稿", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
-    await page.getByRole("button", { name: "文档操作" }).click();
+    await page.getByRole("button", { name: "文档操作", exact: true }).click();
     await page.getByText("复制为新文档草稿", { exact: true }).click();
     const duplicate = page.getByRole("dialog", { name: "复制为新文档" });
     await duplicate.getByRole("textbox", { name: "新文档 ID" }).fill("combo_copy");
@@ -347,6 +381,48 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：combo_copy" })).toContainText("@entry combo_copy");
     await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：combo_copy" })).toContainText("combo_copy.total");
     await expect(page.getByText("已修改", { exact: true })).toBeVisible();
+  });
+
+  test("可以放弃全部已有草稿，也可以移除未落盘的新文档草稿", async ({ page, request }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    let editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
+    await editor.press(`${modKey}+End`);
+    await editor.type("\n// discard combo draft");
+
+    await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
+    editor = page.getByRole("textbox", { name: "Kirin Tor 源码：技能 A（虚构）" });
+    await editor.press(`${modKey}+End`);
+    await editor.type("\n// discard skill draft");
+    await expect(page.locator('[aria-label="工作区状态：2 个草稿"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "工作区工具" }).click();
+    await page.getByRole("menuitem", { name: "保存前变更审查" }).click();
+    const review = page.getByRole("dialog", { name: "保存前变更审查" });
+    await review.getByRole("button", { name: "放弃全部草稿" }).click();
+    const discardAll = page.getByRole("dialog", { name: "放弃全部未保存草稿" });
+    await expect(discardAll).toContainText("2 个未保存草稿");
+    await discardAll.getByRole("button", { name: "确认放弃" }).click();
+    await expect(review.getByText("当前没有未保存草稿。", { exact: true })).toBeVisible();
+    let bootstrap = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
+    expect((await bootstrap.json()).recovery.drafts).toEqual({});
+    await review.getByRole("button", { name: "关闭工作区工具" }).click();
+    await expect(page.locator('[aria-label="工作区状态：工作区有效"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "新建文档" }).click();
+    const createDialog = page.getByRole("dialog", { name: "新建文档" });
+    await createDialog.getByRole("textbox", { name: "文档 ID" }).fill("discard_me");
+    await createDialog.getByRole("button", { name: "创建草稿" }).click();
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：discard_me" })).toBeVisible();
+    await page.getByRole("button", { name: "文档操作", exact: true }).click();
+    await page.getByRole("menuitem", { name: "放弃当前草稿" }).click();
+    const discardNew = page.getByRole("dialog", { name: "放弃新文档草稿" });
+    await expect(discardNew).toContainText("尚未写入磁盘");
+    await discardNew.getByRole("button", { name: "确认放弃" }).click();
+    await expect(page.getByRole("button", { name: /^discard_me entries\/discard_me\.kirin/ })).toHaveCount(0);
+    await expect(page.locator('[aria-label="工作区状态：工作区有效"]')).toBeVisible();
+    bootstrap = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
+    expect((await bootstrap.json()).recovery.drafts).toEqual({});
   });
 
   test("文档切换与新建文档 Enter 使用同一校验", async ({ page }) => {
@@ -500,7 +576,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByRole("button", { name: "文档符号大纲" }).click();
     await page.locator(".outline-list button").filter({ hasText: "组合期望伤害" }).click();
     await expect(page.locator(".cm-activeLine")).toContainText('total "组合期望伤害"');
-    await page.getByRole("button", { name: "文档操作" }).click();
+    await page.getByRole("button", { name: "文档操作", exact: true }).click();
     await page.getByText("重命名光标处成员", { exact: false }).click();
     const rename = page.getByRole("dialog", { name: "安全重命名符号" });
     await rename.getByRole("textbox", { name: "新的正式名称" }).fill("combined_total");
@@ -672,7 +748,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press("End");
     await editor.type("unknown：");
     await expect(page.getByRole("tab", { name: /诊断 1/ })).toBeVisible();
-    await page.getByRole("tab", { name: /诊断 1/ }).click();
+    await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
+    await page.getByRole("tab", { name: "诊断", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "当前文档 0" })).toBeChecked();
+    await expect(page.getByText("其他文档仍有 1 个问题", { exact: false })).toBeVisible();
+    await page.locator(".diagnostic-scope-toolbar .mantine-SegmentedControl-label").filter({ hasText: "整个工作区 1" }).click();
     await page.getByRole("button", { name: "修复全角符号" }).click();
     await expect(page.locator(".cm-activeLine")).toContainText("unknown:");
   });
