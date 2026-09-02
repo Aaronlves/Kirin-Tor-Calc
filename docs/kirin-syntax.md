@@ -358,6 +358,13 @@ top-level outline identities, contextual syntax help, variant/objective result t
 interactive multi-chart selection, and explicit export-all. These authoring projections do not
 extend the grammar or make invalid source executable.
 
+Highlighting follows the current v2 declaration and nested Process/Scenario/Analysis vocabulary;
+removed cycle/state-model resource words are not retained as current-language keywords. Prose fence
+contents remain opaque author text. Completion and diagnostic help choose a topic from the concrete
+inserted or failing construct before falling back to its broad symbol kind. References to removed
+`recurrence` or `state_model` lines route only to Process migration guidance, not to completion or
+executable syntax.
+
 A local Agent or another text editor may write the same `entries/**/*.kirin` files without an
 Agent-specific extension to Kirin Tor syntax or the Kirin Tor CLI. While the workbench page is
 visible, it discovers new local documents and reloads externally changed clean buffers; a dirty

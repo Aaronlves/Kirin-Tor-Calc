@@ -15,6 +15,14 @@ const sectionTopics: Record<string, string> = {
   process: "process",
   scenario: "process",
   analysis: "process",
+  phases: "process",
+  objectives: "process",
+  variants: "process",
+  search: "process",
+  series: "process",
+  markers: "process",
+  bounds: "process",
+  sequence: "process",
   dimensions: "semantics",
   units: "semantics",
   domains: "semantics",
@@ -55,11 +63,15 @@ export function syntaxTopicForLine(line: string): string | null {
   if (sectionTopics[section ?? ""]) return sectionTopics[section ?? ""];
   if (/^@(kirin|entry|game-version|status)\b/.test(trimmed)) return "document";
   if (/^type\b/.test(trimmed)) return "structures";
-  if (/^(process|scenario|analysis|recurrence|state_model)\b/.test(trimmed) || /\b(measure|objective|observe|decide|event|action|policy|variant|maximum_events|maximum_decisions|maximum_branches)\b/.test(trimmed)) return "process";
+  if (/^(process|scenario|analysis|state|key|phase|event|action|flow|on|observe|let|next|emit|schedule|replace|cancel|when|branch|probability|use|variant|connect|at|every|send|policy|choose|otherwise|decide|measure|objective|maximize|minimize|then|stop|target|operation)\b/.test(trimmed)) return "process";
+  if (/^(horizon|maximum_events|maximum_decisions|maximum_branches|maximum_entities|method|time_tolerance|maximum_evaluations)\b/.test(trimmed)) return "process";
+  // Removed dynamic declarations still route to the Process topic so their
+  // migration diagnostics lead to the current replacement language.
+  if (/^(recurrence|state_model)\b/.test(trimmed)) return "process";
   for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }
-  if (/\b(one-of|boolean|integer|probability|dimensionless|nonnegative_integer|positive_integer)\b/.test(line)) return "semantics";
+  if (/\b(true|false|one-of|boolean|integer|probability|dimensionless|nonnegative_integer|positive_integer)\b/.test(line)) return "semantics";
   return null;
 }
 

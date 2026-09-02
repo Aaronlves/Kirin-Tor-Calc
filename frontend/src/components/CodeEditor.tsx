@@ -53,6 +53,7 @@ import { openSyntaxReference, syntaxTopicForDiagnostic, syntaxTopicForKind, synt
 
 interface KirinParserState {
   section: string | null;
+  inProse: boolean;
 }
 
 const editorSessions = new Map<string, unknown>();
@@ -85,7 +86,33 @@ const declarationKeywords = new Set([
   "event", "action", "observe", "flow", "decide", "branch", "emit", "schedule",
 ]);
 
-const nestedSections = new Set(["phases", "objectives", "variants", "search", "series", "markers", "bounds", "sequence"]);
+const nestedSections = new Set([
+  "bounds", "markers", "objectives", "outcomes", "phases", "points", "search",
+  "sequence", "series", "variants", "y",
+]);
+
+const syntaxKeywords = new Set([
+  "action", "adaptive_dyadic", "after", "analysis", "and", "as", "at",
+  "bounds", "branch", "cancel", "chart", "choose", "compare", "connect",
+  "continuously", "cycle", "decide", "decision", "decision_surface", "digits",
+  "emit", "else", "event", "every", "flow", "from", "horizon", "if", "in",
+  "independent", "input", "internal", "joint", "key", "kind", "let", "markers",
+  "maximize", "maximum_branches", "maximum_decisions", "maximum_entities",
+  "maximum_evaluations", "maximum_events", "measure", "method", "minimize", "next",
+  "not", "objective", "objectives", "observe", "on", "operation", "optimize", "or",
+  "otherwise", "output", "pareto", "phase", "phases", "policies", "policy",
+  "reach", "reduce", "replace", "require", "run", "schedule", "search",
+  "send", "sequence", "series", "state", "steady", "stop", "target", "then",
+  "time_tolerance", "times", "to", "trajectory", "until", "up", "use", "using",
+  "value", "variant", "variant_comparison", "variants", "wait", "when", "x",
+  "x_direction", "x_label", "y", "y_direction", "y_label", "export_csv", "export_svg",
+  "outcomes", "points", "range", "title",
+]);
+
+const typeKeywords = new Set([
+  "boolean", "count", "dimensionless", "event_id", "integer", "list", "map", "millisecond",
+  "nonnegative_integer", "number", "positive_integer", "probability", "second", "time",
+]);
 
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);
@@ -182,8 +209,16 @@ function quickFixes(view: EditorView, lineNumber: number) {
 }
 
 const kirinLanguage = StreamLanguage.define<KirinParserState>({
-  startState: () => ({ section: null }),
+  startState: () => ({ section: null, inProse: false }),
   token(stream, state) {
+    if (stream.sol() && stream.match(/^-{3,}$/)) {
+      state.inProse = !state.inProse;
+      return "meta";
+    }
+    if (state.inProse) {
+      stream.skipToEnd();
+      return "comment";
+    }
     if (stream.eatSpace()) return null;
     if (stream.match("//")) {
       stream.skipToEnd();
@@ -212,11 +247,29 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
       return "heading";
     }
-    if (stream.match(/^(using|sequence|outcomes|states|transitions|rewards|resources|spends|gains|charges|initial|maximum|regeneration|recharge|cooldown|cost|occupies|points|x|range|y|title|x_label|y_label|export_svg|export_csv|next)\b/)) return "keyword";
     if (stream.match(/^(true|false)\b/)) return "bool";
     if (stream.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?/)) return "number";
-    if (stream.match(/^(number|probability|boolean|integer|dimensionless|nonnegative_integer|positive_integer|count|time|second|millisecond)\b/)) return "typeName";
-    if (stream.match(/^(in|if|else|and|or|not|one-of|as|digits)\b/)) return "keyword";
+    const word = stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/, false);
+    if (
+      word && typeof word !== "boolean" && word[1] === "probability"
+      && state.section === "process" && stream.string.trimStart().startsWith("probability ")
+    ) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
+      return "keyword";
+    }
+    const collectionType = word && typeof word !== "boolean" && ["list", "map"].includes(word[1]);
+    const followedByTypeArguments = word && typeof word !== "boolean"
+      ? stream.string.slice(stream.pos + word[1].length).trimStart().startsWith("[")
+      : false;
+    if (word && typeof word !== "boolean" && typeKeywords.has(word[1]) && (!collectionType || followedByTypeArguments)) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
+      return "typeName";
+    }
+    if (word && typeof word !== "boolean" && syntaxKeywords.has(word[1])) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
+      return "keyword";
+    }
+    if (stream.match(/^one-of\b/)) return "keyword";
     if (stream.match(/^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u)) {
       return state.section === "output" || state.section === "field" ? "variableName" : "propertyName";
     }
@@ -237,6 +290,7 @@ const kirinHighlight = HighlightStyle.define([
   { tag: tags.propertyName, color: "#c9c4b9" },
   { tag: tags.operator, color: "#8f8b82" },
   { tag: tags.comment, color: "#8b9188", fontStyle: "italic" },
+  { tag: tags.meta, color: "#8b9188", fontWeight: "600" },
 ]);
 
 const editorTheme = EditorView.theme({
@@ -369,7 +423,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         filter: false,
         options: items.map((item): Completion => {
           const insertion = prepareCompletionInsertion(item.insert_text, indent);
-          const topic = syntaxTopicForKind(item.kind) ?? syntaxTopicForLine(item.insert_text);
+          const topic = syntaxTopicForLine(item.insert_text) ?? syntaxTopicForKind(item.kind);
           return {
             label: item.label,
             detail: item.detail,

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 
 const sessionUrl = "/?token=kirin-e2e-token";
 const comboButtonName = /^双技能组合（虚构） entries\/组合模型\.kirin/;
+const rotationButtonName = /^过程周期证明（虚构） entries\/循环分析\.kirin/;
 const modKey = process.platform === "darwin" ? "Meta" : "Control";
 
 async function openWorkbench(page: Page) {
@@ -312,6 +313,39 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await sqrtCompletion.click();
     await editor.type("1");
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
+
+    await editor.press("Enter");
+    await editor.type("真");
+    await editor.press("Control+Space");
+    const trueCompletion = page.getByRole("option", { name: "布尔真关键字 · true", exact: true });
+    await expect(trueCompletion).toBeVisible();
+    await trueCompletion.hover();
+    const completionInfo = page.locator(".kirin-completion-info");
+    await completionInfo.getByRole("button", { name: "查看相关语法" }).click();
+    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" }).getByRole("heading", { name: "量纲、单位与值域" })).toBeVisible();
+  });
+
+  test("当前 Process 词汇、高亮与上下文帮助保持一致", async ({ page }) => {
+    await openWorkbench(page);
+    await page.getByRole("button", { name: rotationButtonName }).click();
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：过程周期证明（虚构）" });
+    await expect(editor).toBeVisible();
+
+    const stateLine = page.locator(".cm-line").filter({ hasText: "state mana:" });
+    await expect(stateLine.locator("span").filter({ hasText: /^state$/ })).toHaveCSS("color", "rgb(217, 119, 87)");
+    const inputLine = page.locator(".cm-line").filter({ hasText: "input regeneration:" });
+    await expect(inputLine.locator("span").filter({ hasText: /^regeneration$/ })).toHaveCSS("color", "rgb(201, 196, 185)");
+    const boundsLine = page.locator(".cm-line").filter({ hasText: /^\s*bounds:/ });
+    await expect(boundsLine.locator("span").first()).toHaveCSS("color", "rgb(232, 184, 109)");
+    const proseLine = page.locator(".cm-line").filter({ hasText: "完全虚构的固定策略" });
+    await expect(proseLine.locator("span").first()).toHaveCSS("font-style", "italic");
+
+    await editor.press(`${modKey}+End`);
+    await editor.type("\nstate misplaced: count = 0");
+    await expect(page.getByRole("tab", { name: /诊断 1/ })).toBeVisible();
+    await page.getByRole("tab", { name: /诊断 1/ }).click();
+    await page.getByRole("button", { name: "查看相关语法" }).click();
+    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" }).getByRole("heading", { name: "有界 Process、场景与策略分析" })).toBeVisible();
   });
 
   test("光标、活动行和文本选择具有可见且可读的交互状态", async ({ page }) => {
