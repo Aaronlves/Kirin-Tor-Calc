@@ -1,23 +1,11 @@
-"""Structural lowering and name resolution from process AST to process IR.
-
-This stage resolves declared types, members, event arguments, phases, keys, and
-expression dependencies. Full expression result-type inference, transition
-conflict analysis, and execution deliberately remain later stages.
-"""
+"""Name resolution and semantic lowering from Process AST to typed IR."""
 
 from __future__ import annotations
 
-import ast as python_ast
 from typing import Dict, Iterable, Mapping, Optional, Sequence, Set, Tuple
 
-from .errors import ExpressionError, SchemaError, SourceLocation
-from .expression import ALLOWED_NODES
-from .kirin_v2 import normalize_expression
+from .errors import SchemaError, SourceLocation
 from .limits import (
-    MAX_AST_DEPTH,
-    MAX_AST_NODES,
-    MAX_DIRECT_DEPENDENCIES,
-    MAX_EXPRESSION_LENGTH,
     MAX_MODEL_INPUTS,
     MAX_PROCESS_COLLECTION_CAPACITY,
 )
@@ -80,56 +68,14 @@ from .process_model import (
     ProcessMemberKind,
     Reducer,
 )
+from .process_expression import compile_process_expression
+from .process_validation import validate_process_ir
 from .schema import require_identifier
-from .units import DIMENSIONLESS, DomainSpec, UnitRegistry
-
-
-_PROCESS_EXPRESSION_BUILTINS = frozenset(
-    {
-        "abs",
-        "all",
-        "any",
-        "argmax",
-        "argmin",
-        "ceil",
-        "contains",
-        "empty",
-        "filter",
-        "floor",
-        "get",
-        "if_else",
-        "max",
-        "min",
-        "put",
-        "remove",
-        "size",
-        "sqrt",
-        "sum",
-    }
-)
+from .units import DomainSpec, UnitRegistry
 
 
 def _error(message: str, location: Optional[SourceLocation]) -> SchemaError:
     return SchemaError(message, location)
-
-
-def _depth(node: python_ast.AST) -> int:
-    children = list(python_ast.iter_child_nodes(node))
-    return 1 if not children else 1 + max(_depth(child) for child in children)
-
-
-def _attribute_path(node: python_ast.AST, location: Optional[SourceLocation]) -> str:
-    parts = []
-    candidate = node
-    while isinstance(candidate, python_ast.Attribute):
-        if candidate.attr.startswith("__"):
-            raise ExpressionError("private expression paths are not allowed", location)
-        parts.append(candidate.attr)
-        candidate = candidate.value
-    if not isinstance(candidate, python_ast.Name) or candidate.id.startswith("__"):
-        raise ExpressionError("expression paths must begin with a declared name", location)
-    parts.append(candidate.id)
-    return ".".join(reversed(parts))
 
 
 class ProcessLowerer:
@@ -215,129 +161,7 @@ class ProcessLowerer:
         result_type: ValueTypeIR,
         symbols: Mapping[str, SymbolRefIR],
     ) -> TypedExpressionIR:
-        normalized = normalize_expression(source.text, self.registry.units)
-        if len(normalized) > MAX_EXPRESSION_LENGTH:
-            raise ExpressionError(
-                f"expression exceeds {MAX_EXPRESSION_LENGTH} characters",
-                source.location,
-            )
-        try:
-            tree = python_ast.parse(normalized, mode="eval")
-        except SyntaxError as exc:
-            raise ExpressionError(
-                f"invalid expression syntax at column {exc.offset}: {exc.msg}",
-                source.location,
-            ) from exc
-        nodes = list(python_ast.walk(tree))
-        if len(nodes) > MAX_AST_NODES:
-            raise ExpressionError(
-                f"expression exceeds {MAX_AST_NODES} AST nodes", source.location
-            )
-        for node in nodes:
-            if type(node) not in ALLOWED_NODES:
-                raise ExpressionError(
-                    f"expression syntax {type(node).__name__} is not allowed",
-                    source.location,
-                )
-        if _depth(tree) > MAX_AST_DEPTH:
-            raise ExpressionError(
-                f"expression exceeds AST depth {MAX_AST_DEPTH}", source.location
-            )
-
-        attribute_bases = {
-            id(node.value)
-            for node in nodes
-            if isinstance(node, python_ast.Attribute)
-        }
-        call_functions = {
-            id(node.func)
-            for node in nodes
-            if isinstance(node, python_ast.Call)
-        }
-        references: Dict[
-            Tuple[str, str, ExpressionSymbolKind], SymbolRefIR
-        ] = {}
-
-        def include(reference: SymbolRefIR) -> None:
-            references[(reference.owner_id, reference.id, reference.kind)] = reference
-
-        for node in nodes:
-            if isinstance(node, python_ast.Call):
-                if node.keywords:
-                    raise ExpressionError(
-                        "keyword arguments are not allowed", source.location
-                    )
-                if isinstance(node.func, python_ast.Name):
-                    function_name = node.func.id
-                elif isinstance(node.func, python_ast.Attribute):
-                    function_name = _attribute_path(node.func, source.location)
-                else:
-                    raise ExpressionError(
-                        "only declared named functions are allowed", source.location
-                    )
-                if function_name in _PROCESS_EXPRESSION_BUILTINS:
-                    continue
-                function = symbols.get(function_name)
-                if function is None or function.kind is not ExpressionSymbolKind.FUNCTION:
-                    raise ExpressionError(
-                        f"undeclared process function {function_name!r}",
-                        source.location,
-                    )
-                include(function)
-            elif (
-                isinstance(node, python_ast.Attribute)
-                and id(node) not in attribute_bases
-                and id(node) not in call_functions
-            ):
-                name = _attribute_path(node, source.location)
-                reference = symbols.get(name)
-                if reference is None:
-                    raise ExpressionError(
-                        f"undeclared process value {name!r}", source.location
-                    )
-                include(reference)
-            elif (
-                isinstance(node, python_ast.Name)
-                and id(node) not in attribute_bases
-                and id(node) not in call_functions
-            ):
-                name = node.id
-                if name in {"true", "false", "empty"}:
-                    continue
-                reference = symbols.get(name)
-                if reference is None and isinstance(result_type, SymbolicTypeIR):
-                    domain = self.registry.domains[result_type.domain_id]
-                    if name in domain.allowed_values:
-                        reference = SymbolRefIR(
-                            f"@domain.{result_type.domain_id}",
-                            name,
-                            ExpressionSymbolKind.STATIC_MEMBER,
-                            result_type,
-                        )
-                if reference is None and name in self.registry.units:
-                    reference = SymbolRefIR(
-                        "@units",
-                        name,
-                        ExpressionSymbolKind.UNIT,
-                        NumberTypeIR(name, self.registry.parse_unit(name, source.location)),
-                    )
-                if reference is None:
-                    raise ExpressionError(
-                        f"undeclared process value {name!r}", source.location
-                    )
-                include(reference)
-        if len(references) > MAX_DIRECT_DEPENDENCIES:
-            raise ExpressionError(
-                f"expression exceeds {MAX_DIRECT_DEPENDENCIES} direct dependencies",
-                source.location,
-            )
-        ordered = tuple(
-            references[key]
-            for key in sorted(
-                references, key=lambda value: (value[0], value[1], value[2].value)
-            )
-        )
-        return TypedExpressionIR(normalized, result_type, ordered, source.location)
+        return compile_process_expression(source, result_type, symbols, self.registry)
 
     def _member(
         self, process_id: str, member_id: str, kind: ProcessMemberKind
@@ -910,7 +734,7 @@ class ProcessLowerer:
             )
             for item in source.observations
         )
-        return ProcessIR(
+        process = ProcessIR(
             source.owner_id,
             source.id,
             source.label,
@@ -926,6 +750,8 @@ class ProcessLowerer:
             observations,
             location=source.location,
         )
+        validate_process_ir(process)
+        return process
 
 
 def lower_process_asts(

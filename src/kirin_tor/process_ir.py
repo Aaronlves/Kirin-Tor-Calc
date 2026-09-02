@@ -1,13 +1,14 @@
 """Resolved, typed intermediate representation for bounded processes.
 
-The IR is immutable and contains no raw source mappings. It deliberately models
-only game-neutral types, references, events, and effects. Parser lowering,
-semantic validation, and execution are separate later stages.
+The IR is immutable and contains no raw source mappings. Expressions are
+lowered to a small, game-neutral algebra so execution never needs to reparse
+source text or invoke a host-language evaluator.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 from typing import Optional, Tuple, Union
 
 from .errors import SourceLocation
@@ -93,11 +94,71 @@ class SymbolRefIR:
 
 
 @dataclass(frozen=True)
+class LiteralExpressionIR:
+    value: Union[Fraction, bool, str]
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class ReferenceExpressionIR:
+    reference: SymbolRefIR
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class UnaryExpressionIR:
+    operator: str
+    operand: "ExpressionNodeIR"
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class BinaryExpressionIR:
+    operator: str
+    left: "ExpressionNodeIR"
+    right: "ExpressionNodeIR"
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class ComparisonExpressionIR:
+    operators: Tuple[str, ...]
+    operands: Tuple["ExpressionNodeIR", ...]
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class BooleanExpressionIR:
+    operator: str
+    operands: Tuple["ExpressionNodeIR", ...]
+    value_type: ValueTypeIR
+
+
+@dataclass(frozen=True)
+class CallExpressionIR:
+    function: str
+    arguments: Tuple["ExpressionNodeIR", ...]
+    value_type: ValueTypeIR
+
+
+ExpressionNodeIR = Union[
+    LiteralExpressionIR,
+    ReferenceExpressionIR,
+    UnaryExpressionIR,
+    BinaryExpressionIR,
+    ComparisonExpressionIR,
+    BooleanExpressionIR,
+    CallExpressionIR,
+]
+
+
+@dataclass(frozen=True)
 class TypedExpressionIR:
     source: str
     result_type: ValueTypeIR
     references: Tuple[SymbolRefIR, ...] = ()
     location: Optional[SourceLocation] = field(default=None, compare=False)
+    node: Optional[ExpressionNodeIR] = None
 
 
 @dataclass(frozen=True)
