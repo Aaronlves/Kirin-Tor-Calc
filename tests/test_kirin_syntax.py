@@ -262,8 +262,8 @@ def test_fractional_unit_and_parameter_one_of_round_trip(tmp_path: Path) -> None
     }
     path = tmp_path / "semantics.kirin"
     path.write_text(render_kirin_document(raw), encoding="utf-8")
-    parsed, _text, _digest, _positions = load_kirin_document(path)
-    assert parsed == raw
+    loaded = load_kirin_document(path)
+    assert loaded.raw == raw
 
 
 def test_workspace_marker_is_game_neutral_and_reads_legacy_metadata(tmp_path: Path) -> None:

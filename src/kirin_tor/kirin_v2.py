@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .errors import SchemaError, SourceLocation
-from .limits import MAX_STRUCTURE_DEPTH
+from .limits import MAX_PROCESSES_PER_ENTRY, MAX_STRUCTURE_DEPTH
+from .process_ast import ProcessAst
 
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -372,7 +373,9 @@ def _parse_header(text: str, path: Path) -> Tuple[str, str, Optional[str], List[
     return entry_id, entry_name, description, remaining, metadata, positions
 
 
-def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]]]:
+def parse_kirin_v2_source(
+    text: str, path: Path
+) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]], Tuple["ProcessAst", ...]]:
     from .kirin_syntax import _parse_dimension_expression, _parse_input_statement, _type_spec
 
     entry_id, entry_name, _description, remaining, metadata, positions = _parse_header(text, path)
@@ -405,6 +408,8 @@ def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[s
     displays: Dict[str, Tuple[str, Optional[int], _Line]] = {}
     source_ids: set[str] = set()
     chart_seen = False
+    process_asts = []
+    process_ids = set()
 
     reserved = {
         "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
@@ -414,6 +419,27 @@ def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[s
 
     for node in nodes:
         text_head = node.line.text
+        if text_head.startswith("process "):
+            from .process_parser import _parse_process
+
+            process_ast = _parse_process(node, path, entry_id)
+            if process_ast.id in process_ids:
+                _fail(
+                    path,
+                    f"duplicate process {process_ast.id!r}",
+                    node.line,
+                    f"processes.{process_ast.id}",
+                )
+            process_ids.add(process_ast.id)
+            process_asts.append(process_ast)
+            if len(process_asts) > MAX_PROCESSES_PER_ENTRY:
+                _fail(
+                    path,
+                    f"entry exceeds {MAX_PROCESSES_PER_ENTRY} processes",
+                    node.line,
+                    "processes",
+                )
+            continue
         if text_head.startswith("dimension "):
             match = re.fullmatch(rf"dimension\s+({IDENTIFIER})(?:\s+({QUOTED}))?", text_head)
             if not match or node.children:
@@ -443,6 +469,73 @@ def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[s
             _position(positions, f"semantics.units.{name}", node.line)
             continue
         if text_head.startswith("domain "):
+            symbolic = _NAMED_BLOCK_RE.fullmatch(text_head)
+            if symbolic and symbolic.group("kind") == "domain":
+                if symbolic.group("name") in semantics["domains"]:
+                    _fail(
+                        path,
+                        f"duplicate domain {symbolic.group('name')!r}",
+                        node.line,
+                        f"semantics.domains.{symbolic.group('name')}",
+                    )
+                values = []
+                value_labels = {}
+                for child in node.children:
+                    item = re.fullmatch(
+                        rf"-\s+({IDENTIFIER})(?:\s+({QUOTED}))?",
+                        child.line.text,
+                    )
+                    if not item or child.children:
+                        _fail(
+                            path,
+                            'symbolic domain values must use - SYMBOL ["LABEL"]',
+                            child.line,
+                            f"semantics.domains.{symbolic.group('name')}",
+                        )
+                    value = item.group(1)
+                    if value in values:
+                        _fail(
+                            path,
+                            f"duplicate symbolic domain value {value!r}",
+                            child.line,
+                            f"semantics.domains.{symbolic.group('name')}",
+                        )
+                    values.append(value)
+                    if item.group(2):
+                        value_labels[value] = _decode(item.group(2), path, child.line)
+                    _position(
+                        positions,
+                        f"semantics.domains.{symbolic.group('name')}.allowed_values.{value}",
+                        child.line,
+                    )
+                if not values:
+                    _fail(
+                        path,
+                        "symbolic domain must declare at least one value",
+                        node.line,
+                        f"semantics.domains.{symbolic.group('name')}",
+                    )
+                data = {"value_type": "symbolic", "allowed_values": values}
+                if symbolic.group("label"):
+                    data["label"] = _decode(
+                        symbolic.group("label"), path, node.line
+                    )
+                if value_labels:
+                    data["value_labels"] = value_labels
+                semantics["domains"][symbolic.group("name")] = data
+                _position(
+                    positions,
+                    f"semantics.domains.{symbolic.group('name')}",
+                    node.line,
+                )
+                continue
+            if node.children:
+                _fail(
+                    path,
+                    "numeric or boolean domain may not contain a block",
+                    node.line,
+                    "semantics.domains",
+                )
             body = text_head[len("domain "):]
             name, data = _parse_input_statement(body, path, node.line, allow_default=False)
             if name in semantics["domains"]:
@@ -879,7 +972,7 @@ def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[s
     ):
         if value:
             raw[key] = value
-    return raw, positions
+    return raw, positions, tuple(process_asts)
 
 
 def _quoted(value: str) -> str:
@@ -898,7 +991,9 @@ def _render_expression(prefix: str, expression: str, indent: str = "") -> List[s
     return [f"{indent}{prefix}{expression}"]
 
 
-def render_kirin_v2_document(raw: Dict[str, Any]) -> str:
+def render_kirin_v2_document(
+    raw: Dict[str, Any], process_asts: Tuple["ProcessAst", ...] = ()
+) -> str:
     lines = ["@kirin 2"]
     entry_name = raw.get("name", raw["id"])
     header = f"@entry {raw['id']}"
@@ -931,8 +1026,23 @@ def render_kirin_v2_document(raw: Dict[str, Any]) -> str:
             expression = f"{scale} * {expression}"
         lines.extend(["", f"unit {name} = {expression}"])
     for name, data in semantics.get("domains", {}).items():
+        if data.get("value_type") == "symbolic":
+            line = f"domain {name}"
+            if data.get("label") and data.get("label") != name:
+                line += " " + _quoted(str(data["label"]))
+            lines.extend(["", line + ":"])
+            value_labels = data.get("value_labels", {})
+            for value in data.get("allowed_values", []):
+                item = f"  - {value}"
+                if value_labels.get(value) and value_labels[value] != value:
+                    item += " " + _quoted(str(value_labels[value]))
+                lines.append(item)
+            continue
         type_text = "boolean" if data.get("value_type") == "boolean" else data.get("unit", "dimensionless")
-        line = f"domain {name}: {type_text}"
+        line = f"domain {name}"
+        if data.get("label") and data.get("label") != name:
+            line += " " + _quoted(str(data["label"]))
+        line += f": {type_text}"
         if data.get("min") is not None or data.get("max") is not None:
             line += f" in {data.get('min', '*')}..{data.get('max', '*')}"
         if data.get("integer"):
@@ -1064,6 +1174,13 @@ def render_kirin_v2_document(raw: Dict[str, Any]) -> str:
     for name, data in raw.get("cycles", {}).items():
         lines.extend(["", _labeled("cycle", name, data), f"  using = {data['profile']}", "  sequence:"])
         lines.extend(f"    - {item}" for item in data["sequence"])
+
+    if process_asts:
+        from .process_renderer import render_process_ast
+
+        for process in process_asts:
+            lines.append("")
+            lines.extend(render_process_ast(process))
 
     for name, data in raw.get("tables", {}).items():
         lines.extend(["", _labeled("table", name, data), f"  input = {data['input_unit']}", f"  output = {data['unit']}", "  points:"])

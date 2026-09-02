@@ -376,8 +376,8 @@ def test_v2_multi_resource_cycle_spends_gains_waits_and_blocks(
         failure["resource"] for failure in joint["first_wait"]["resource_failures"]
     ] == ["energy", "mana"]
 
-    raw, _text, _digest, _positions = load_kirin_document(path)
-    rendered = render_kirin_document(raw)
+    loaded = load_kirin_document(path)
+    rendered = render_kirin_document(loaded)
     assert "    resources:\n      mana:\n        initial = mana_initial" in rendered
     assert "    spends:\n      mana = mana_cost" in rendered
     rendered_path = root / "entries" / "rendered.kirin"
@@ -385,8 +385,8 @@ def test_v2_multi_resource_cycle_spends_gains_waits_and_blocks(
         rendered.replace("@entry vector_rotation", "@entry vector_rendered", 1),
         encoding="utf-8",
     )
-    rendered_raw, _text, _digest, _positions = load_kirin_document(rendered_path)
-    assert rendered_raw["types"] == raw["types"]
+    rendered_loaded = load_kirin_document(rendered_path)
+    assert rendered_loaded.raw["types"] == loaded.raw["types"]
 
     rendered_path.unlink()
     monkeypatch.chdir(root)
@@ -636,13 +636,13 @@ def test_v2_closed_objects_and_private_paths_fail(tmp_path: Path) -> None:
 def test_v2_renderer_round_trips_public_source(tmp_path: Path) -> None:
     path = tmp_path / "source.kirin"
     path.write_text(SOURCE, encoding="utf-8")
-    raw, _text, _digest, _positions = load_kirin_document(path)
-    rendered = render_kirin_document(raw)
+    loaded = load_kirin_document(path)
+    rendered = render_kirin_document(loaded)
     assert rendered.startswith('@kirin 2\n@entry rotation "循环模型"\n')
     rendered_path = tmp_path / "rendered.kirin"
     rendered_path.write_text(rendered, encoding="utf-8")
-    rendered_raw, _text, _digest, _positions = load_kirin_document(rendered_path)
-    assert rendered_raw == raw
+    rendered_loaded = load_kirin_document(rendered_path)
+    assert rendered_loaded.raw == loaded.raw
 
 
 def test_v2_cross_entry_nested_types_paths_and_aliases(tmp_path: Path) -> None:

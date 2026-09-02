@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 from .errors import SchemaError, SourceLocation
 from .limits import (
@@ -29,6 +29,10 @@ from .limits import (
     MAX_CYCLE_STEPS,
 )
 from .units import Dimension, DomainSpec, UnitRegistry
+
+if TYPE_CHECKING:
+    from .process_ast import ProcessAst
+    from .process_ir import ProcessIR
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -252,6 +256,8 @@ class Entry(Document):
     structure_types: Dict[str, "StructureTypeSpec"] = field(default_factory=dict)
     objects: Dict[str, "StructuredObjectSpec"] = field(default_factory=dict)
     cycles: Dict[str, "CycleSpec"] = field(default_factory=dict)
+    process_asts: Tuple["ProcessAst", ...] = ()
+    processes: Dict[str, "ProcessIR"] = field(default_factory=dict)
     x: Optional[str] = None
     range_start: Optional[str] = None
     range_end: Optional[str] = None
@@ -516,13 +522,20 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
             spec = require_mapping(raw_spec, f"domain {name}", loc)
             _reject_unknown(
                 spec,
-                {"value_type", "unit", "min", "max", "integer", "allowed_values", "description"},
+                {
+                    "value_type", "unit", "min", "max", "integer",
+                    "allowed_values", "description", "label", "value_labels",
+                },
                 "domain",
                 loc,
             )
             value_type = spec.get("value_type", "number")
-            if value_type not in {"number", "boolean"}:
-                raise SchemaError("domain value_type must be number or boolean", loc)
+            if value_type not in {"number", "boolean", "symbolic"}:
+                raise SchemaError(
+                    "domain value_type must be number, boolean, or symbolic", loc
+                )
+            if "label" in spec:
+                require_display_label(spec["label"], "domain label", loc)
             unit_name = spec.get("unit", "dimensionless")
             require_identifier(unit_name, "domain unit", loc)
             minimum = number_text(spec["min"], "domain min", loc) if "min" in spec else None
@@ -537,10 +550,18 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
                 raise SchemaError(
                     f"domain allowed_values exceeds {MAX_DOMAIN_VALUES} items", loc
                 )
-            allowed = tuple(
-                item if isinstance(item, bool) else number_text(item, "allowed value", loc)
-                for item in allowed_raw
-            )
+            if value_type == "symbolic":
+                allowed = tuple(
+                    require_identifier(item, "symbolic domain value", loc)
+                    for item in allowed_raw
+                )
+            else:
+                allowed = tuple(
+                    item
+                    if isinstance(item, bool)
+                    else number_text(item, "allowed value", loc)
+                    for item in allowed_raw
+                )
             if value_type == "boolean" and (unit_name != "dimensionless" or minimum or maximum or integer):
                 raise SchemaError("boolean domains cannot define units, numeric bounds, or integer", loc)
             if value_type == "boolean" and any(not isinstance(item, bool) for item in allowed):
@@ -561,6 +582,36 @@ def build_semantic_registry(raw_documents: List[tuple[Dict[str, Any], str, str, 
                         raise SchemaError("domain allowed_values contains a value below min", loc)
                     if maximum_value is not None and item > maximum_value:
                         raise SchemaError("domain allowed_values contains a value above max", loc)
+            if value_type == "symbolic":
+                if unit_name != "dimensionless" or minimum or maximum or integer:
+                    raise SchemaError(
+                        "symbolic domains cannot define units, numeric bounds, or integer",
+                        loc,
+                    )
+                if not allowed:
+                    raise SchemaError(
+                        "symbolic domains require at least one allowed value", loc
+                    )
+                if len(set(allowed)) != len(allowed):
+                    raise SchemaError(
+                        "symbolic domain values must be unique", loc
+                    )
+                labels = require_mapping(
+                    spec.get("value_labels", {}), "symbolic domain labels", loc
+                )
+                unknown_labels = sorted(set(labels) - set(allowed))
+                if unknown_labels:
+                    raise SchemaError(
+                        "symbolic domain labels reference unknown value(s): "
+                        + ", ".join(unknown_labels),
+                        loc,
+                    )
+                for label in labels.values():
+                    require_display_label(label, "symbolic domain value label", loc)
+            elif "value_labels" in spec:
+                raise SchemaError(
+                    "value_labels is only valid for symbolic domains", loc
+                )
             registry.add_domain(
                 DomainSpec(name, value_type, unit_name, minimum, maximum, integer, allowed), loc
             )
@@ -711,6 +762,7 @@ def parse_document(
     registry: Optional[UnitRegistry] = None,
     positions: Optional[Dict[str, Tuple[int, int]]] = None,
     package_origin: Optional[PackageOrigin] = None,
+    process_asts: Optional[Tuple["ProcessAst", ...]] = None,
 ) -> Document:
     registry = registry or UnitRegistry()
     positions = positions or {}
@@ -1688,6 +1740,54 @@ def parse_document(
                 )
             chart["curve_labels"] = dict(labels_raw)
 
+        if process_asts is None:
+            from .process_parser import parse_process_asts
+
+            process_asts = parse_process_asts(text, path)
+        for process_ast in process_asts:
+            if process_ast.id in occupied:
+                raise SchemaError(
+                    f"duplicate member name {process_ast.id!r}",
+                    process_ast.location,
+                )
+            occupied.add(process_ast.id)
+
+        from .process_ir import SymbolicTypeIR, SymbolRefIR
+        from .process_lowering import lower_process_asts
+        from .process_model import ExpressionSymbolKind
+
+        static_symbols = {}
+        symbolic_candidates = {}
+        for domain_id, domain in registry.domains.items():
+            if domain.value_type != "symbolic":
+                continue
+            value_type = SymbolicTypeIR(domain_id)
+            for value in domain.allowed_values:
+                assert isinstance(value, str)
+                reference = SymbolRefIR(
+                    f"@domain.{domain_id}",
+                    value,
+                    ExpressionSymbolKind.STATIC_MEMBER,
+                    value_type,
+                )
+                static_symbols[f"{domain_id}.{value}"] = reference
+                symbolic_candidates.setdefault(value, []).append(reference)
+        for value, candidates in symbolic_candidates.items():
+            if len(candidates) == 1:
+                static_symbols[value] = candidates[0]
+        object_type_ids = {
+            name
+            for item in structure_types.values()
+            for name in (item.id, item.qualified_id)
+        }
+        lowered_processes = lower_process_asts(
+            process_asts,
+            registry,
+            object_types=object_type_ids,
+            static_symbols=static_symbols,
+        )
+        processes = {process.id: process for process in lowered_processes}
+
         semantics = dict(require_mapping(raw.get("semantics", {}), "semantics", root_location))
         return Entry(
             **base,
@@ -1710,6 +1810,8 @@ def parse_document(
             structure_types=structure_types,
             objects=objects,
             cycles=cycles,
+            process_asts=process_asts,
+            processes=processes,
             **chart,
         )
 
@@ -1719,5 +1821,13 @@ def parse_document(
 def load_document(path: Path, registry: Optional[UnitRegistry] = None) -> Document:
     from .kirin_syntax import load_kirin_document
 
-    raw, text, digest, positions = load_kirin_document(path)
-    return parse_document(raw, text, digest, path, registry, positions)
+    loaded = load_kirin_document(path)
+    return parse_document(
+        loaded.raw,
+        loaded.text,
+        loaded.sha256,
+        path,
+        registry,
+        loaded.positions,
+        process_asts=loaded.process_asts,
+    )

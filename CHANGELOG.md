@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added typed bounded-Process source AST and IR, symbolic domains, canonical Process rendering, and workspace loading with structural validation. Process declarations are not executable yet; scenario composition, full transition validation, and analysis remain pending.
 - Replaced public `.kirin` v1 section syntax with the single-declaration `@kirin 2` grammar; migrated built-in tutorials, examples, templates, Package scaffolds, syntax help, completion, highlighting, and tests. V1 source is now rejected rather than maintained as a second public dialect.
 - Added closed reusable structure types, named typed objects, exact percentage and numeric-unit literals, and statically resolved multi-level paths such as `entry.skill.coefficient.periodic`.
 - Added author-mapped `cycle_step` and `cycle_profile` interfaces plus exact deterministic fixed-sequence analysis. `kt cycle` and the browser projection report no-wait sustainability, the first wait or terminal block, eventual wait per cycle/minute, and replayable run provenance.
@@ -21,6 +22,7 @@
 Breaking changes:
 
 - All editable and Package `.kirin` documents must use `@kirin 2`; v1 section syntax is no longer accepted.
+- `parse_kirin_source` and `load_kirin_document` now return typed source containers instead of tuples; callers use explicit `.raw`, `.positions`, `.process_asts`, `.text`, and `.sha256` fields.
 
 ## 0.3.0rc1 — 2026-09-01 (pre-release)
 

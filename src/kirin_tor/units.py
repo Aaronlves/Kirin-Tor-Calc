@@ -140,10 +140,13 @@ class UnitRegistry:
         if spec.name in self.domains:
             def semantic_key(item: DomainSpec):
                 number = lambda value: None if value is None else Fraction(str(value))
-                allowed = frozenset(
-                    value if isinstance(value, bool) else Fraction(str(value))
-                    for value in item.allowed_values
-                )
+                if item.value_type == "symbolic":
+                    allowed = frozenset(item.allowed_values)
+                else:
+                    allowed = frozenset(
+                        value if isinstance(value, bool) else Fraction(str(value))
+                        for value in item.allowed_values
+                    )
                 return (
                     item.name,
                     item.value_type,

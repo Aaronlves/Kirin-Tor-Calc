@@ -1,9 +1,9 @@
 # Kirin Tor source syntax v2
 
 Kirin Tor uses one public source format: `.kirin` with `@kirin 2`. Each file is one
-`entry`; calculations, game data, named objects, fixed sequences, presets, and optional charts
-can live in the same file. The source remains the editable authority. Indexes, previews, and run
-records are derived projections.
+`entry`; calculations, game data, named objects, fixed sequences, bounded Process definitions,
+presets, and optional charts can live in the same file. The source remains the editable authority.
+Indexes, previews, and run records are derived projections.
 
 The surface language deliberately reuses four forms:
 
@@ -99,11 +99,20 @@ unit resource_per_time = resource / time
 unit damage_per_resource = damage / resource
 
 domain rank: number[dimensionless] in 1..3 integer
+
+domain dot_mode "周期模式":
+  - snapshot "快照"
+  - dynamic "动态"
 ```
 
 Unit expressions allow a positive exact scale, dimensions, multiplication, division, and exact
 integer or rational powers. Values are converted to an exact canonical scale and displayed in the
 declared unit. Kirin Tor never infers a unit from a field name.
+
+A block-form domain is a closed symbolic domain. Its ASCII symbols are stable values; quoted
+labels are presentation-only. Symbolic domains cannot declare units, numeric bounds, or `integer`.
+A short symbol is accepted when the expected symbolic type identifies its domain; where the same
+symbol exists in several domains and context does not resolve it, use `domain_id.symbol`.
 
 ## Closed types and named objects
 
@@ -358,6 +367,45 @@ exactly to one. Recurrences are pure and statically bounded to at most 1,000 ste
 are finite analytical systems, not event simulations; the current bounds are 16 states, 256
 transitions, and 64 rewards.
 
+## Bounded Process declarations
+
+The public source parser, workspace loader, and canonical renderer now accept typed `process`
+blocks. A Process declaration is lowered outside the legacy raw mapping into `ProcessAst` and then
+immutable `ProcessIR`:
+
+```text
+process delayed_damage "伤害延迟池":
+  input maximum_health: health
+  input conversion: probability = 80%
+  state health: health = maximum_health in 0 health..maximum_health
+  state pool: damage = 0 damage in 0 damage..30000 damage
+  key pool_tick
+  phase periodic_tick
+  event input incoming_damage(amount: damage reduce sum)
+  event internal stagger_tick()
+
+  on incoming_damage(amount):
+    let delayed: damage = amount * conversion
+    next health = max(0 health, health - (amount - delayed))
+    next pool = pool + delayed
+    replace stagger_tick() after 1/2 second phase periodic_tick key event.id
+
+  observe alive: boolean = health > 0 health
+```
+
+The accepted Process surface includes typed inputs and state, requirements, keys, local phase
+slots, input/output/internal events, guarded actions and handlers, closed flow expressions,
+`let`/`next`, event emission, keyed schedule/replace/cancel, finite nested `when`, finite
+independent/joint branches, and observations. Value types additionally include `event_id`,
+`list[TYPE, CAPACITY]`, and `map[KEY, VALUE, CAPACITY]`.
+
+At this implementation stage, loading performs structural type/name/ownership/event/phase/key
+validation and preserves complete source round trips. There is no public `scenario` or `analysis`
+declaration yet, and no operation executes a Process. Expression result-type inference, transition
+conflict validation, phase ordering, fuel accounting, and traces remain pending. The full target
+semantics and paper models are documented in [有界 Process 模型](bounded-process-model.md) and
+[有界 Process 纸面模型](bounded-process-paper-models.md).
+
 ## Chart projection
 
 ```text
@@ -383,4 +431,6 @@ unless the caller deliberately opts out.
 The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
 multi-level paths, navigation, safe rename for scalar declarations, diagnostics, live scalar/chart/
 cycle previews, and a syntax reference. These are tolerant projections over complete or incomplete
-drafts. They do not extend the grammar or make invalid source executable.
+drafts. Generic document editing and validation preserve Process blocks, but Process-specific
+completion, highlighting, outline items, previews, and execution are not implemented yet. Authoring
+projections do not extend the grammar or make invalid source executable.

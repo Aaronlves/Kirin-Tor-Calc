@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
 
@@ -21,6 +21,7 @@ from .schema import (
 from .limits import MAX_SOURCE_BYTES, MAX_WORKSPACE_DOCUMENTS, MAX_WORKSPACE_SOURCE_BYTES
 from .package_manifest import package_source_paths
 from .package_store import PackageResolution, locked_workspace_resolution
+from .process_ir import ProcessIR
 from .units import UnitRegistry
 
 
@@ -78,6 +79,14 @@ class Workspace:
         """Return documents that opt into a chart through x/y syntax."""
         return {key: value for key, value in self.entries.items() if value.has_chart}
 
+    @property
+    def processes(self) -> Dict[str, ProcessIR]:
+        result: Dict[str, ProcessIR] = {}
+        for entry in self.entries.values():
+            for process in entry.processes.values():
+                result[process.qualified_id] = process
+        return result
+
     def allowed_package_sources(self, source: str) -> Optional[set[str]]:
         """Return one package's declared dependency closure, or None for snapshots."""
         if self.package_resolution is None:
@@ -127,7 +136,13 @@ class Workspace:
                         f"package {kind} {name!r} collides across authority boundaries"
                     )
 
-        def check(document: Entry, kind: str, name: Optional[str], field: str) -> None:
+        def check(
+            document: Entry,
+            kind: str,
+            name: Optional[str],
+            field: str,
+            location: Optional[SourceLocation] = None,
+        ) -> None:
             if name is None or document.package_origin is None:
                 return
             builtin = {
@@ -144,7 +159,7 @@ class Workspace:
             if None in declared_by:
                 raise SchemaError(
                     f"package {document.package_origin.name!r} uses workspace-local {kind} {name!r}",
-                    document.location(field),
+                    location or document.location(field),
                 )
             unavailable = sorted(
                 source for source in declared_by if source is not None and source not in allowed
@@ -153,7 +168,7 @@ class Workspace:
                 raise SchemaError(
                     f"package {document.package_origin.name!r} uses {kind} {name!r} from undeclared "
                     f"package source {unavailable[0]!r}",
-                    document.location(field),
+                    location or document.location(field),
                 )
 
         for document in self.entries.values():
@@ -232,6 +247,70 @@ class Workspace:
                             f"semantics.domains.{domain_name}",
                         )
 
+            from .process_ir import (
+                BooleanTypeIR,
+                ListTypeIR,
+                MapTypeIR,
+                NumberTypeIR,
+                SymbolicTypeIR,
+                TypedExpressionIR,
+            )
+            from .process_model import ExpressionSymbolKind
+
+            def check_process_value(
+                value, field: str, location: Optional[SourceLocation] = None
+            ) -> None:
+                if isinstance(value, NumberTypeIR):
+                    check(document, "domain", value.domain_id, field, location)
+                    check(document, "unit", value.unit_name, field, location)
+                    return
+                if isinstance(value, BooleanTypeIR):
+                    check(document, "domain", value.domain_id, field, location)
+                    return
+                if isinstance(value, SymbolicTypeIR):
+                    check(document, "domain", value.domain_id, field, location)
+                    return
+                if isinstance(value, ListTypeIR):
+                    check_process_value(value.item_type, field, location)
+                    return
+                if isinstance(value, MapTypeIR):
+                    check_process_value(value.key_type, field, location)
+                    check_process_value(value.value_type, field, location)
+                    return
+                if isinstance(value, TypedExpressionIR):
+                    check_process_value(value.result_type, field, value.location or location)
+                    for reference in value.references:
+                        if reference.kind is ExpressionSymbolKind.UNIT:
+                            check(
+                                document,
+                                "unit",
+                                reference.id,
+                                field,
+                                value.location or location,
+                            )
+                        check_process_value(
+                            reference.value_type, field, value.location or location
+                        )
+                    return
+                if isinstance(value, tuple):
+                    for item in value:
+                        check_process_value(item, field, location)
+                    return
+                if (
+                    is_dataclass(value)
+                    and type(value).__module__ == "kirin_tor.process_ir"
+                ):
+                    node_location = getattr(value, "location", None) or location
+                    for item in fields(value):
+                        check_process_value(
+                            getattr(value, item.name), field, node_location
+                        )
+
+            for process in document.processes.values():
+                check_process_value(
+                    process, f"processes.{process.id}", process.location
+                )
+
     @classmethod
     def find_root(cls, start: Optional[Path] = None) -> Path:
         current = (start or Path.cwd()).resolve()
@@ -256,10 +335,14 @@ class Workspace:
         paths = cls._document_paths(root, package_resolution)
         origins = cls._package_origins(package_resolution)
         raw_documents = []
+        process_asts_by_path = {}
         for path in paths:
-            raw, text, digest, positions = cls._load_source_document(path)
-            cls._validate_package_source(raw, path, origins.get(path))
-            raw_documents.append((raw, text, digest, path, positions))
+            loaded = cls._load_source_document(path)
+            cls._validate_package_source(loaded.raw, path, origins.get(path))
+            raw_documents.append(
+                (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
+            )
+            process_asts_by_path[path] = loaded.process_asts
         registry = build_semantic_registry(raw_documents)
         documents = [
             parse_document(
@@ -270,6 +353,7 @@ class Workspace:
                 registry,
                 positions,
                 package_origin=origins.get(path),
+                process_asts=process_asts_by_path[path],
             )
             for raw, text, digest, path, positions in raw_documents
         ]
@@ -323,12 +407,16 @@ class Workspace:
                 f"workspace sources exceed {MAX_WORKSPACE_SOURCE_BYTES} total bytes"
             )
         raw_documents = []
+        process_asts_by_path = {}
         for path in paths:
-            raw, text, digest, positions = cls._load_source_document(
+            loaded = cls._load_source_document(
                 path, resolved_overlays.get(path)
             )
-            cls._validate_package_source(raw, path, origins.get(path))
-            raw_documents.append((raw, text, digest, path, positions))
+            cls._validate_package_source(loaded.raw, path, origins.get(path))
+            raw_documents.append(
+                (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
+            )
+            process_asts_by_path[path] = loaded.process_asts
         registry = build_semantic_registry(raw_documents)
         documents = [
             parse_document(
@@ -339,6 +427,7 @@ class Workspace:
                 registry,
                 positions,
                 package_origin=origins.get(path),
+                process_asts=process_asts_by_path[path],
             )
             for raw, text, digest, path, positions in raw_documents
         ]
@@ -466,12 +555,16 @@ class Workspace:
         package_resolution = locked_workspace_resolution(root)
         origins = cls._package_origins(package_resolution)
         raw_documents = []
+        process_asts_by_path = {}
         errors = []
         for path in cls._document_paths(root, package_resolution):
             try:
-                raw, text, digest, positions = cls._load_source_document(path)
-                cls._validate_package_source(raw, path, origins.get(path))
-                raw_documents.append((raw, text, digest, path, positions))
+                loaded = cls._load_source_document(path)
+                cls._validate_package_source(loaded.raw, path, origins.get(path))
+                raw_documents.append(
+                    (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
+                )
+                process_asts_by_path[path] = loaded.process_asts
             except KTError as exc:
                 errors.append(exc)
         try:
@@ -493,6 +586,7 @@ class Workspace:
                         registry,
                         positions,
                         package_origin=origins.get(path),
+                        process_asts=process_asts_by_path[path],
                     )
                 )
             except KTError as exc:
@@ -552,14 +646,18 @@ class Workspace:
             )
 
         raw_documents = []
+        process_asts_by_path = {}
         errors = []
         for path in paths:
             try:
-                raw, text, digest, positions = cls._load_source_document(
+                loaded = cls._load_source_document(
                     path, resolved_overlays.get(path)
                 )
-                cls._validate_package_source(raw, path, origins.get(path))
-                raw_documents.append((raw, text, digest, path, positions))
+                cls._validate_package_source(loaded.raw, path, origins.get(path))
+                raw_documents.append(
+                    (loaded.raw, loaded.text, loaded.sha256, path, loaded.positions)
+                )
+                process_asts_by_path[path] = loaded.process_asts
             except KTError as exc:
                 errors.append(exc)
         try:
@@ -579,6 +677,7 @@ class Workspace:
                         registry,
                         positions,
                         package_origin=origins.get(path),
+                        process_asts=process_asts_by_path[path],
                     )
                 )
             except KTError as exc:
@@ -597,6 +696,7 @@ class Workspace:
         documents = []
         virtual_root = Path("/snapshot")
         raw_documents = []
+        process_asts_by_path = {}
         origins: Dict[Path, PackageOrigin] = {}
         for index, snapshot in enumerate(snapshots):
             raw = snapshot.get("content")
@@ -607,8 +707,9 @@ class Workspace:
                 text = render_kirin_document(raw)
             digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
             path = virtual_root / f"{index:04d}-{raw.get('id', 'unknown')}.kirin"
-            _parsed, positions = parse_kirin_source(text, path)
-            raw_documents.append((raw, text, digest, path, positions))
+            parsed = parse_kirin_source(text, path)
+            raw_documents.append((raw, text, digest, path, parsed.positions))
+            process_asts_by_path[path] = parsed.process_asts
             package = snapshot.get("package")
             if isinstance(package, dict):
                 required = {
@@ -636,6 +737,7 @@ class Workspace:
                     registry,
                     positions,
                     package_origin=origins.get(path),
+                    process_asts=process_asts_by_path[path],
                 )
             )
         return cls(virtual_root, documents, registry)

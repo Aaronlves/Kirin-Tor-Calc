@@ -509,12 +509,12 @@ def _effects(
             cases = []
             for case_index, case in enumerate(node.children):
                 probability = re.fullmatch(r"probability\s+(.+):", case.line.text)
-                if not probability or not case.children:
+                if not probability:
                     _fail(
                         path,
                         owner_id,
                         case,
-                        "branch cases must use probability EXPRESSION with effects",
+                        "branch cases must use probability EXPRESSION:",
                         effect_field,
                     )
                 cases.append(

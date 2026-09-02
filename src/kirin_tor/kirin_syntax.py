@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .errors import SchemaError, SourceLocation
 from .limits import MAX_SOURCE_BYTES
+from .process_ast import ProcessAst
 
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -25,6 +26,26 @@ _INPUT_RE = re.compile(
     r"(?:\s+(?P<integer>integer))?"
     r"(?:\s+one-of\s+\[(?P<allowed>[^\]]*)\])?$"
 )
+
+
+@dataclass(frozen=True)
+class ParsedKirinSource:
+    """One parsed source with typed declarations kept outside the raw schema."""
+
+    raw: Dict[str, Any]
+    positions: Dict[str, Tuple[int, int]]
+    process_asts: Tuple[ProcessAst, ...] = ()
+
+
+@dataclass(frozen=True)
+class LoadedKirinDocument:
+    """Loaded source text, digest, static raw schema, and typed declarations."""
+
+    raw: Dict[str, Any]
+    text: str
+    sha256: str
+    positions: Dict[str, Tuple[int, int]]
+    process_asts: Tuple[ProcessAst, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -308,25 +329,32 @@ def _parse_dimension_expression(
 
 def parse_kirin_source(
     text: str, path: Path
-) -> Tuple[Dict[str, Any], Dict[str, Tuple[int, int]]]:
+) -> ParsedKirinSource:
     """Parse the sole public Kirin Tor v2 source format."""
 
     from .kirin_v2 import parse_kirin_v2_source
 
-    return parse_kirin_v2_source(text, path)
+    raw, positions, process_asts = parse_kirin_v2_source(text, path)
+    return ParsedKirinSource(raw, positions, process_asts)
 
 
-def render_kirin_document(raw: Dict[str, Any]) -> str:
+def render_kirin_document(document: Any) -> str:
     """Render the sole public Kirin Tor v2 source format."""
 
     from .kirin_v2 import render_kirin_v2_document
 
-    return render_kirin_v2_document(raw)
+    if isinstance(document, dict):
+        raw = document
+        process_asts: Tuple[ProcessAst, ...] = ()
+    else:
+        raw = document.raw
+        process_asts = tuple(getattr(document, "process_asts", ()))
+    return render_kirin_v2_document(raw, process_asts)
 
 
 def load_kirin_document(
     path: Path, text_override: Optional[str] = None
-) -> Tuple[Dict[str, Any], str, str, Dict[str, Tuple[int, int]]]:
+) -> LoadedKirinDocument:
     """Load one source file or unsaved editor buffer with a stable digest."""
 
     if text_override is None:
@@ -351,5 +379,11 @@ def load_kirin_document(
                 f"Kirin Tor source buffer exceeds {MAX_SOURCE_BYTES} bytes",
                 SourceLocation(path=str(path)),
             )
-    raw, positions = parse_kirin_source(text, path)
-    return raw, text, hashlib.sha256(raw_bytes).hexdigest(), positions
+    parsed = parse_kirin_source(text, path)
+    return LoadedKirinDocument(
+        parsed.raw,
+        text,
+        hashlib.sha256(raw_bytes).hexdigest(),
+        parsed.positions,
+        parsed.process_asts,
+    )

@@ -76,15 +76,15 @@ def test_finite_recurrence_supports_bounded_inputs_index_and_cross_entry_use(
 def test_recurrence_source_round_trips(tmp_path: Path) -> None:
     root = _recurrence_workspace(tmp_path / "round-trip")
     source = root / "entries" / "recurrence_model.kirin"
-    raw, _text, _digest, _positions = load_kirin_document(source)
-    rendered = render_kirin_document(raw)
+    loaded = load_kirin_document(source)
+    rendered = render_kirin_document(loaded)
     rendered_path = root / "entries" / "rendered.kirin"
     rendered_path.write_text(
         rendered.replace("@entry recurrence_model", "@entry rendered"),
         encoding="utf-8",
     )
-    rendered_raw, _text, _digest, _positions = load_kirin_document(rendered_path)
-    assert rendered_raw["recurrences"] == raw["recurrences"]
+    rendered_loaded = load_kirin_document(rendered_path)
+    assert rendered_loaded.raw["recurrences"] == loaded.raw["recurrences"]
 
 
 def test_recurrence_requires_statically_bounded_nonnegative_steps(tmp_path: Path) -> None:

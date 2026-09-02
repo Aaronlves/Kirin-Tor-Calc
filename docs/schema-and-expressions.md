@@ -6,7 +6,8 @@
 ## 1. 权威与加载
 
 工作区的可编辑权威只有 `entries/**/*.kirin`。本地文档与锁定 Package 文档都经同一个
-`@kirin 2` 解析器进入内部 schema；关系图、索引、预览、运行记录和导出不能反向修改数学定义。
+`@kirin 2` 解析器进入内部模型；已有静态声明进入 raw schema，Process 声明则进入独立的类型化 AST
+与不可变 IR。关系图、索引、预览、运行记录和导出不能反向修改数学定义。
 
 每个文件只声明一个 `entry`。正式 ID、成员、类型、对象和属性名使用
 `[A-Za-z_][A-Za-z0-9_]*`，且不能以 `__` 开头。文件路径、注释和显示标签都不构成引用身份。
@@ -22,6 +23,10 @@
 核心只内置游戏中立的 `dimensionless`、`time`、`second`、`millisecond`、
 `probability`、`count`、`nonnegative_integer` 和 `positive_integer`。其他量纲、单位和值域由普通
 entry 声明。相同语义声明必须结构一致；冲突会同时保留来源位置。
+
+Domain 除数值和布尔值外也可以是封闭 symbolic value 集合。Symbol 使用 ASCII canonical ID，显示
+标签不参与相等判断；symbolic domain 不带单位、数值范围或整数约束。同名 symbol 的完整身份包含
+domain；无法由期望类型消歧时使用 `domain.symbol`。
 
 输入、函数参数、字段、输出、类型属性、查表、求解目标和扫描范围都经过量纲检查。精确零可以
 适配声明量纲，非零表达式不能靠名称或上下文猜测单位。
@@ -127,7 +132,23 @@ wait = max(
 所有操作都受表达式深度、节点数、展开大小、依赖数、数值长度、精度和进程级超时限制。限制值以
 `src/kirin_tor/limits.py` 为准；触发限制不会返回伪造的近似结果。
 
-## 8. 运行记录与重放
+## 8. 有界 Process 的当前接入边界
+
+Process source 不进入旧 raw dictionary。Source parser 生成保留位置的 `ProcessAst`，workspace 加载
+时再解析单位、domain、集合容量和成员引用，生成不可变 `ProcessIR`。`Entry.process_asts` 保留可往返
+的 source 结构，`Entry.processes` 保存已降低的语义结构；canonical renderer 必须接收这个类型化文档
+容器，不能从 raw schema 猜测或重建 Process。
+
+当前加载阶段验证声明命名空间、类型存在性、有界 list/map 容量、状态所有权、事件参数、reducer
+类型族、handler 参数、事件方向、phase 与 schedule key 引用，并对表达式执行受限 AST 与未声明名称
+检查。每个 entry 最多 256 个 Process；每个 Process 最多 1,024 个声明和 4,096 个 effect，effect
+最多嵌套 16 层，集合静态容量最多 10,000。
+
+这些检查只证明 source 可以无损加载并形成结构正确的 IR。当前没有 scenario/analysis parser、Process
+执行操作、表达式结果类型推导、同批写冲突证明、全局 phase 排序、fuel 消耗或 trace；因此
+`Workspace.load` 成功不能解释为动态机制已经可运行。
+
+## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/
 依赖版本和产物摘要。`cycle` 与 `eval`、扫描、求解等操作走同一记录路径。
@@ -135,7 +156,7 @@ wait = max(
 重放先校验嵌入 source 与结构内容一致，再在隔离的快照工作区执行相同操作。软件环境变化会被报告，
 不会被解释成源码变化。
 
-## 9. Package 与安全
+## 10. Package 与安全
 
 社区 Package 只包含数据。manifest、精确依赖版本、Git commit、namespace 和内容摘要经锁文件固定，
 然后从内容寻址缓存只读加载。Package 不能运行 Python、安装脚本、Git hook 或其他代码，也不能引用

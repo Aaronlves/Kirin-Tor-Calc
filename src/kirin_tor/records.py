@@ -203,14 +203,14 @@ def load_run(workspace_or_root: Union[Workspace, Path], run_id: str) -> dict:
         if hashlib.sha256(source_text.encode("utf-8")).hexdigest() != snapshot.get("source_sha256"):
             raise SchemaError(f"embedded definition snapshot {snapshot.get('id')!r} failed its source hash")
         try:
-            parsed_source, _positions = parse_kirin_source(
+            parsed_source = parse_kirin_source(
                 source_text, Path(f"{snapshot.get('id', 'unknown')}.kirin")
             )
         except SchemaError as exc:
             raise SchemaError(
                 f"embedded definition snapshot {snapshot.get('id')!r} has invalid source text"
             ) from exc
-        if parsed_source != snapshot.get("content"):
+        if parsed_source.raw != snapshot.get("content"):
             raise SchemaError(
                 f"embedded definition snapshot {snapshot.get('id')!r} source and structured content disagree"
             )

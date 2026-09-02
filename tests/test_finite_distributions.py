@@ -101,16 +101,16 @@ def test_finite_distribution_expectation_variance_probability_and_dependencies(
 def test_distribution_source_round_trips_without_losing_outcomes(tmp_path: Path) -> None:
     root = _distribution_workspace(tmp_path / "round-trip")
     source = root / "entries" / "proc_model.kirin"
-    raw, _text, _digest, _positions = load_kirin_document(source)
-    rendered = render_kirin_document(raw)
+    loaded = load_kirin_document(source)
+    rendered = render_kirin_document(loaded)
     rendered_path = root / "entries" / "rendered.kirin"
     rendered_path.write_text(
         rendered.replace("@entry proc_model", "@entry rendered"),
         encoding="utf-8",
     )
 
-    rendered_raw, _text, _digest, _positions = load_kirin_document(rendered_path)
-    assert rendered_raw["distributions"] == raw["distributions"]
+    rendered_loaded = load_kirin_document(rendered_path)
+    assert rendered_loaded.raw["distributions"] == loaded.raw["distributions"]
 
 
 def test_distribution_probabilities_are_checked_at_defaults_and_overrides(

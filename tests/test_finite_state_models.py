@@ -91,15 +91,15 @@ def test_state_model_solves_steady_rewards_and_hitting_queries(tmp_path: Path) -
 def test_state_model_source_round_trips(tmp_path: Path) -> None:
     root = _state_workspace(tmp_path / "round-trip")
     source = root / "entries" / "state_model.kirin"
-    raw, _text, _digest, _positions = load_kirin_document(source)
-    rendered = render_kirin_document(raw)
+    loaded = load_kirin_document(source)
+    rendered = render_kirin_document(loaded)
     rendered_path = root / "entries" / "rendered.kirin"
     rendered_path.write_text(
         rendered.replace("@entry state_model", "@entry rendered"),
         encoding="utf-8",
     )
-    rendered_raw, _text, _digest, _positions = load_kirin_document(rendered_path)
-    assert rendered_raw["state_models"] == raw["state_models"]
+    rendered_loaded = load_kirin_document(rendered_path)
+    assert rendered_loaded.raw["state_models"] == loaded.raw["state_models"]
 
 
 def test_state_model_validates_probability_rows_and_reward_coverage(tmp_path: Path) -> None:

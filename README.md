@@ -251,8 +251,8 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限�
 | --- | --- |
 | [Kirin Tor source syntax v2](docs/kirin-syntax.md) | 表面语法、类型化属性、多层访问与固定循环写法 |
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
-| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制重构的目标语义、统一 fuel、迁移边界和完成条件；尚未实现 |
-| [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标语法验证、通用缺口和冻结边界；尚未实现 |
+| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制重构语义、统一 fuel 与迁移边界；Process 解析/IR 已实现，执行尚未实现 |
+| [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标验证；Process 可解析，scenario、analysis 与执行尚未实现 |
 | [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
 | [Kirin Tor community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
 | [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md) | 沙箱 UI 插件、贡献点、权限、批准、锁定和安全模式 |

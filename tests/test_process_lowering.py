@@ -7,7 +7,7 @@ import re
 import pytest
 
 from kirin_tor.errors import ExpressionError, SchemaError, SourceLocation
-from kirin_tor.kirin_syntax import parse_kirin_source
+from kirin_tor.kirin_syntax import parse_kirin_source, render_kirin_document
 from kirin_tor.process_ir import (
     EventIdScheduleKeyIR,
     LetEffectIR,
@@ -20,6 +20,7 @@ from kirin_tor.process_ir import (
 from kirin_tor.process_lowering import lower_process_asts
 from kirin_tor.process_model import EventDirection, ExpressionSymbolKind, Reducer
 from kirin_tor.process_parser import parse_process_asts
+from kirin_tor.process_renderer import render_process_ast
 from kirin_tor.units import DomainSpec, UnitRegistry
 
 
@@ -100,9 +101,15 @@ def test_process_block_parser_and_lowerer_build_typed_ir() -> None:
     assert scheduled.delay.references[0].id == "second"
 
 
-def test_public_raw_parser_still_rejects_process_until_renderer_can_preserve_it() -> None:
-    with pytest.raises(SchemaError, match="unknown v2 declaration"):
-        parse_kirin_source(PROCESS_SOURCE, Path("combat.kirin"))
+def test_public_parser_and_typed_renderer_preserve_process_outside_raw_schema() -> None:
+    parsed = parse_kirin_source(PROCESS_SOURCE, Path("combat.kirin"))
+
+    assert "processes" not in parsed.raw
+    assert [process.id for process in parsed.process_asts] == ["delayed_damage"]
+    rendered = render_kirin_document(parsed)
+    reparsed = parse_kirin_source(rendered, Path("rendered.kirin"))
+    assert reparsed.raw == parsed.raw
+    assert reparsed.process_asts == parsed.process_asts
 
 
 @pytest.mark.parametrize(
@@ -218,3 +225,33 @@ def test_all_documented_paper_processes_parse_with_the_frozen_surface_grammar() 
     assert [process.id for process in lowered] == [
         process.id for process in parsed_processes
     ]
+    for index, process in enumerate(parsed_processes):
+        rendered = "\n".join(
+            ["@kirin 2", f"@entry {process.owner_id}", "", *render_process_ast(process)]
+        )
+        assert parse_process_asts(
+            rendered, Path(f"rendered-process-{index}.kirin")
+        ) == (process,)
+
+
+def test_probability_case_can_explicitly_preserve_state_with_no_effects() -> None:
+    source = """@kirin 2
+@entry proc
+
+process random_event:
+  input chance: probability
+  event input attempt()
+  on attempt():
+    branch roll independent:
+      probability chance:
+      probability 1 - chance:
+"""
+    process = parse_process_asts(source, Path("empty-branch.kirin"))[0]
+    branch = process.handlers[0].effects[0]
+    assert not branch.cases[0].effects
+    assert not branch.cases[1].effects
+
+    rendered = "\n".join(
+        ["@kirin 2", "@entry proc", "", *render_process_ast(process)]
+    )
+    assert parse_process_asts(rendered, Path("rendered.kirin")) == (process,)

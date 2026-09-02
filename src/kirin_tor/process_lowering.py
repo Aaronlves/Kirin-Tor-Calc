@@ -305,6 +305,15 @@ class ProcessLowerer:
                 if name in {"true", "false", "empty"}:
                     continue
                 reference = symbols.get(name)
+                if reference is None and isinstance(result_type, SymbolicTypeIR):
+                    domain = self.registry.domains[result_type.domain_id]
+                    if name in domain.allowed_values:
+                        reference = SymbolRefIR(
+                            f"@domain.{result_type.domain_id}",
+                            name,
+                            ExpressionSymbolKind.STATIC_MEMBER,
+                            result_type,
+                        )
                 if reference is None and name in self.registry.units:
                     reference = SymbolRefIR(
                         "@units",

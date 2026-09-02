@@ -34,8 +34,7 @@ def example_workspace(tmp_path: Path) -> Path:
 
 
 def load_kirin(path: Path) -> dict:
-    raw, _text, _digest, _positions = load_kirin_document(path)
-    return raw
+    return load_kirin_document(path).raw
 
 
 def write_kirin(path: Path, content: dict) -> None:
