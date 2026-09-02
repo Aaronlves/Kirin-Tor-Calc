@@ -488,6 +488,13 @@ One entry may declare one chart. `x`, `range`, `points`, and at least one `y` it
 Preview is derived from the current source; export paths are explicit and confined to the workspace
 unless the caller deliberately opts out.
 
+This one-chart limit applies only to the static scan chart above. A Process `analysis` may contain up
+to 64 chart blocks with `kind = trajectory|decision_surface|pareto|variant_comparison`. Trajectory
+series read public observations and may mark `event INSTANCE.PUBLIC_EVENT` or `decision ACTION`;
+Pareto axes require explicit `x_direction` and `y_direction`. Their structured rows are derived from
+optimal runs and bounded search candidates. `kt analyze ENTRY.ANALYSIS --export-charts` writes each
+configured SVG/CSV explicitly; preview data itself never becomes editable authority.
+
 ## Authoring boundary
 
 The browser editor provides v2 snippets, syntax highlighting, completion for canonical and

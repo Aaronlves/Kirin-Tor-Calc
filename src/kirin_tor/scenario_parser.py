@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from .errors import SchemaError, SourceLocation
 from .kirin_v2 import IDENTIFIER, PATH, QUOTED, _Node, _decode, _nodes, _parse_header
 from .limits import (
+    MAX_ANALYSIS_CHARTS,
     MAX_SCENARIO_ACTIONS,
     MAX_SCENARIO_INSTANCES,
     MAX_SCENARIO_MEASURES,
@@ -18,6 +19,7 @@ from .limits import (
 from .process_ast import EventArgumentAst, EventCallAst, ExpressionAst
 from .process_parser import _split_top_level, _typed_declaration
 from .scenario_ast import (
+    AnalysisChartAst,
     AnalysisAst,
     AtScheduleAst,
     CompositeActionAst,
@@ -676,8 +678,86 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
     analysis_id = header.group("id")
     base = f"analyses.{analysis_id}"
     values: Dict[str, object] = {}
+    charts = []
     for child in node.children:
         text = child.line.text
+        chart = re.fullmatch(
+            rf"chart\s+({IDENTIFIER})(?:\s+({QUOTED}))?:", text
+        )
+        if chart:
+            properties: Dict[str, object] = {}
+            for property_node in child.children:
+                if property_node.line.text in {"series:", "markers:"}:
+                    key = property_node.line.text[:-1]
+                    if key in properties:
+                        _fail(path, owner_id, property_node, f"duplicate chart {key}", base)
+                    items = []
+                    for item in property_node.children:
+                        match = re.fullmatch(r"-\s+(.+)", item.line.text)
+                        if not match or item.children:
+                            _fail(path, owner_id, item, f"chart {key} item must use - VALUE", base)
+                        items.append(match.group(1).strip())
+                    if not items:
+                        _fail(path, owner_id, property_node, f"chart {key} may not be empty", base)
+                    properties[key] = tuple(items)
+                    continue
+                assignment = re.fullmatch(
+                    rf"(kind|x|y|value|x_direction|y_direction)\s*=\s*({PATH})",
+                    property_node.line.text,
+                )
+                export = re.fullmatch(
+                    rf"(export_svg|export_csv)\s*=\s*({QUOTED})",
+                    property_node.line.text,
+                )
+                if assignment and not property_node.children:
+                    key = assignment.group(1)
+                    value = assignment.group(2)
+                elif export and not property_node.children:
+                    key = export.group(1)
+                    value = _decode(export.group(2), path, property_node.line)
+                else:
+                    _fail(path, owner_id, property_node, "unknown analysis chart property", base)
+                if key in properties:
+                    _fail(path, owner_id, property_node, f"duplicate chart {key}", base)
+                properties[key] = value
+            if "kind" not in properties:
+                _fail(path, owner_id, child, "analysis chart requires kind", base)
+            charts.append(
+                AnalysisChartAst(
+                    chart.group(1),
+                    str(properties["kind"]),
+                    _decode(chart.group(2), path, child.line)
+                    if chart.group(2)
+                    else None,
+                    tuple(properties.get("series", ())),
+                    tuple(properties.get("markers", ())),
+                    str(properties["x"]) if "x" in properties else None,
+                    str(properties["y"]) if "y" in properties else None,
+                    str(properties["value"]) if "value" in properties else None,
+                    str(properties["x_direction"])
+                    if "x_direction" in properties
+                    else None,
+                    str(properties["y_direction"])
+                    if "y_direction" in properties
+                    else None,
+                    str(properties["export_svg"])
+                    if "export_svg" in properties
+                    else None,
+                    str(properties["export_csv"])
+                    if "export_csv" in properties
+                    else None,
+                    _location(path, owner_id, child, base),
+                )
+            )
+            if len(charts) > MAX_ANALYSIS_CHARTS:
+                _fail(
+                    path,
+                    owner_id,
+                    child,
+                    f"analysis exceeds {MAX_ANALYSIS_CHARTS} charts",
+                    base,
+                )
+            continue
         if text == "policies:":
             if "policies" in values or "policy" in values:
                 _fail(path, owner_id, child, "analysis policies may be declared only once", base)
@@ -788,6 +868,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
         search.get("maximum_evaluations")
         if isinstance(search.get("maximum_evaluations"), ExpressionAst)
         else None,
+        tuple(charts),
         values.get("target") if isinstance(values.get("target"), ExpressionAst) else None,
         _location(path, owner_id, node, base),
     )

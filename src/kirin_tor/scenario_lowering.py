@@ -31,6 +31,7 @@ from .process_crossing import supports_exact_affine_crossing
 from .process_lowering import ProcessLowerer
 from .scenario_ast import AnalysisAst, AtScheduleAst, EveryScheduleAst, ScenarioAst, ScenarioSendAst
 from .scenario_ir import (
+    AnalysisChartIR,
     AnalysisIR,
     AtScheduleIR,
     CompositeActionIR,
@@ -1221,6 +1222,170 @@ def lower_analysis_asts(
                 "search settings require a continuous decision declaration",
                 source.location,
             )
+        charts = []
+        chart_ids = set()
+        measure_map = {measure.id: measure for measure in scenario.measures}
+        observation_map = {
+            symbol.id: symbol
+            for symbol in scenario.observation_symbols
+            if symbol.kind is ExpressionSymbolKind.OBSERVATION
+        }
+        instance_map = {instance.id: instance for instance in scenario.instances}
+        action_ids = {action.id for action in scenario.actions}
+        for chart in source.charts:
+            require_identifier(chart.id, "analysis chart id", chart.location)
+            if chart.id in chart_ids:
+                raise SchemaError(f"duplicate analysis chart {chart.id!r}", chart.location)
+            chart_ids.add(chart.id)
+            if source.operation != "optimize":
+                raise SchemaError(
+                    "Process charts currently require an optimize analysis",
+                    chart.location,
+                )
+            if chart.kind not in {
+                "trajectory",
+                "pareto",
+                "decision_surface",
+                "variant_comparison",
+            }:
+                raise SchemaError(
+                    f"unknown Process chart kind {chart.kind!r}", chart.location
+                )
+            series = []
+            if chart.kind == "trajectory":
+                if not chart.series:
+                    raise SchemaError("trajectory chart requires series", chart.location)
+                for name in chart.series:
+                    symbol = observation_map.get(name)
+                    if symbol is None or not isinstance(symbol.value_type, NumberTypeIR):
+                        raise ReferenceError(
+                            f"trajectory series requires numeric observation {name!r}",
+                            chart.location,
+                        )
+                    series.append(symbol)
+                dimensions = {
+                    symbol.value_type.dimension for symbol in series
+                }
+                if len(dimensions) != 1:
+                    raise SchemaError(
+                        "trajectory chart series must share one unit dimension",
+                        chart.location,
+                    )
+            elif chart.kind == "variant_comparison":
+                if not chart.series:
+                    raise SchemaError(
+                        "variant_comparison chart requires Measure series",
+                        chart.location,
+                    )
+                for name in chart.series:
+                    measure = measure_map.get(name)
+                    if measure is None or not isinstance(measure.value_type, NumberTypeIR):
+                        raise ReferenceError(
+                            f"variant comparison requires numeric Measure {name!r}",
+                            chart.location,
+                        )
+                    series.append(
+                        SymbolRefIR(
+                            scenario.qualified_id,
+                            measure.id,
+                            ExpressionSymbolKind.MEASURE,
+                            measure.value_type,
+                        )
+                    )
+                if len(
+                    {
+                        symbol.value_type.dimension
+                        for symbol in series
+                        if isinstance(symbol.value_type, NumberTypeIR)
+                    }
+                ) != 1:
+                    raise SchemaError(
+                        "variant comparison series must share one unit dimension",
+                        chart.location,
+                    )
+            markers = []
+            for marker in chart.markers:
+                event = re.fullmatch(
+                    r"event\s+([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)",
+                    marker,
+                )
+                decision = re.fullmatch(
+                    r"decision\s+([a-z][a-z0-9_]*)", marker
+                )
+                if event:
+                    instance = instance_map.get(event.group(1))
+                    declaration = next(
+                        (
+                            item
+                            for item in instance.process.events
+                            if item.ref.member_id == event.group(2)
+                            and item.direction is not EventDirection.INTERNAL
+                        ),
+                        None,
+                    ) if instance is not None else None
+                    if declaration is None:
+                        raise ReferenceError(
+                            f"chart marker requires public event {event.group(1)}.{event.group(2)}",
+                            chart.location,
+                        )
+                    markers.append(("event", f"{event.group(1)}.{event.group(2)}"))
+                elif decision and decision.group(1) in action_ids:
+                    markers.append(("decision", decision.group(1)))
+                else:
+                    raise SchemaError(
+                        "chart marker must use event INSTANCE.PUBLIC_EVENT or decision ACTION",
+                        chart.location,
+                    )
+            x_measure = measure_map.get(chart.x) if chart.x else None
+            y_measure = measure_map.get(chart.y) if chart.y else None
+            value_measure = measure_map.get(chart.value) if chart.value else None
+            if chart.kind == "pareto" and (
+                x_measure is None or y_measure is None
+            ):
+                raise SchemaError("pareto chart requires x and y Measures", chart.location)
+            if chart.kind == "pareto" and (
+                chart.x_direction not in {"maximize", "minimize"}
+                or chart.y_direction not in {"maximize", "minimize"}
+            ):
+                raise SchemaError(
+                    "pareto chart requires explicit x_direction and y_direction",
+                    chart.location,
+                )
+            if chart.kind != "pareto" and (
+                chart.x_direction is not None or chart.y_direction is not None
+            ):
+                raise SchemaError(
+                    "chart directions are only valid for pareto charts", chart.location
+                )
+            if chart.kind == "decision_surface" and value_measure is None:
+                raise SchemaError(
+                    "decision_surface chart requires a value Measure", chart.location
+                )
+            for measure in (x_measure, y_measure, value_measure):
+                if measure is not None and not isinstance(measure.value_type, NumberTypeIR):
+                    raise SchemaError("chart Measures must be numeric", chart.location)
+            if chart.export_svg is not None and not chart.export_svg.endswith(".svg"):
+                raise SchemaError("chart export_svg must end in .svg", chart.location)
+            if chart.export_csv is not None and not chart.export_csv.endswith(".csv"):
+                raise SchemaError("chart export_csv must end in .csv", chart.location)
+            charts.append(
+                AnalysisChartIR(
+                    source.qualified_id,
+                    chart.id,
+                    chart.kind,
+                    chart.label,
+                    tuple(series),
+                    tuple(markers),
+                    x_measure.id if x_measure is not None else None,
+                    y_measure.id if y_measure is not None else None,
+                    value_measure.id if value_measure is not None else None,
+                    chart.x_direction,
+                    chart.y_direction,
+                    chart.export_svg,
+                    chart.export_csv,
+                    chart.location,
+                )
+            )
         result.append(
             AnalysisIR(
                 source.owner_id,
@@ -1234,6 +1399,7 @@ def lower_analysis_asts(
                 search_method,
                 time_tolerance,
                 maximum_evaluations,
+                tuple(charts),
                 target,
                 source.location,
             )

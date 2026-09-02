@@ -267,9 +267,28 @@ class AnalysisIR:
     search_method: Optional[str] = None
     time_tolerance: Optional[Fraction] = None
     maximum_evaluations: Optional[int] = None
+    charts: Tuple["AnalysisChartIR", ...] = ()
     target: Optional[TypedExpressionIR] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
     def qualified_id(self) -> str:
         return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class AnalysisChartIR:
+    analysis_id: str
+    id: str
+    kind: str
+    label: Optional[str] = None
+    series: Tuple[SymbolRefIR, ...] = ()
+    markers: Tuple[Tuple[str, str], ...] = ()
+    x_measure_id: Optional[str] = None
+    y_measure_id: Optional[str] = None
+    value_measure_id: Optional[str] = None
+    x_direction: Optional[str] = None
+    y_direction: Optional[str] = None
+    export_svg: Optional[str] = None
+    export_csv: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)

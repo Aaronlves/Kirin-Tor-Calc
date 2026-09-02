@@ -15,6 +15,10 @@ from kirin_tor.process_analysis import (
     execute_process_analysis,
     process_analysis_result_data,
 )
+from kirin_tor.process_chart import (
+    render_process_chart_svg,
+    write_process_chart_csv,
+)
 from kirin_tor.cli import app
 from kirin_tor.records import replay
 from kirin_tor.workspace import Workspace, initialize
@@ -212,6 +216,29 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         "deep_clean",
     ]
     assert all(len(item["objectives"]) == 3 for item in projected["variants"])
+    assert [chart["kind"] for chart in projected["charts"]] == [
+        "trajectory",
+        "trajectory",
+        "trajectory",
+        "decision_surface",
+        "pareto",
+        "variant_comparison",
+    ]
+    health_chart = projected["charts"][0]
+    assert health_chart["rows"]
+    assert any(marker["kind"] == "decision" for marker in health_chart["markers"])
+    surface = projected["charts"][3]
+    assert surface["rows"]
+    tradeoff = projected["charts"][4]
+    assert any(row["nondominated"] for row in tradeoff["rows"])
+    csv_path = write_process_chart_csv(
+        health_chart, tmp_path / "health.csv"
+    )
+    svg_path = render_process_chart_svg(
+        tradeoff, tmp_path / "tradeoff.svg"
+    )
+    assert csv_path.read_text(encoding="utf-8").startswith("variant,objective,time")
+    assert "<svg" in svg_path.read_text(encoding="utf-8")
 
 
 def test_named_objectives_apply_constraints_and_optimize_independently(
@@ -468,3 +495,71 @@ analysis execute:
     assert record.is_file()
     replayed = replay(workspace.root, "process-run")
     assert replayed["matches_recorded_result"] is True
+
+
+def test_process_analysis_cli_explicitly_exports_multiple_charts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = """@kirin 2
+@entry chart_export
+
+process counter:
+  state value: count = 0
+  event input add()
+  on add():
+    next value = value + 1
+  observe current: count = value
+
+scenario choice:
+  phases:
+    - decision
+  use actor = counter:
+  action add:
+    send actor.add() phase decision
+  decide every 1 second from 0 second until 0 second phase decision:
+    - add
+    - wait
+  measure final_value: count = final(actor.current)
+  objective highest:
+    maximize final_value
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 4
+    maximum_entities = 1
+
+analysis search:
+  using = choice
+  operation = optimize
+  objectives:
+    - highest
+  chart trajectory:
+    kind = trajectory
+    series:
+      - actor.current
+    markers:
+      - decision add
+    export_svg = "results/trajectory.svg"
+    export_csv = "results/trajectory.csv"
+  chart tradeoff:
+    kind = pareto
+    x = final_value
+    x_direction = maximize
+    y = final_value
+    y_direction = minimize
+    export_svg = "results/tradeoff.svg"
+    export_csv = "results/tradeoff.csv"
+"""
+    workspace = _workspace(tmp_path, source)
+    monkeypatch.chdir(workspace.root)
+    completed = runner.invoke(
+        app,
+        ["analyze", "chart_export.search", "--export-charts", "--json"],
+    )
+    assert completed.exit_code == 0, completed.output
+    payload = json.loads(completed.stdout)
+    assert len(payload["charts"]) == 2
+    for stem in ("trajectory", "tradeoff"):
+        assert (workspace.root / "results" / f"{stem}.svg").is_file()
+        assert (workspace.root / "results" / f"{stem}.csv").is_file()

@@ -166,6 +166,11 @@ Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射�
 variant；执行器分别初始化实例、分别搜索并输出 variant × objective 结果，包含生效的覆盖值和每个
 最优策略的完整 trace。Variant 不提供私有 state 写入口。
 
+Process Analysis 可以携带最多 64 张图，且不受普通静态 entry “一张 chart”历史结构的限制。
+`trajectory` 读取最优 trace 的 observation samples 和公开 marker；`decision_surface` 读取至少两次决策
+的候选；`pareto` 用作者声明的两个方向标记非支配点；`variant_comparison` 读取各最优解的同量纲
+Measure。结构化 chart rows 随 Analysis 结果生成，SVG/CSV 仅在显式导出请求下写入。
+
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/

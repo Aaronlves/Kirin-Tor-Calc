@@ -279,6 +279,11 @@ output event 和引擎时间，不读 Process 私有 state。内核提供 `final
 Process 私有状态、Measure 或 Objective。Analysis 为每个 variant 分别优化，返回 variant × objective
 结构，而不是先求一套策略再强制复用。
 
+一个 Analysis 可以声明多张派生图。轨迹图叠加 variant/objective 最优运行的公开 observation，并可
+标记公开事件和 action；搜索图读取有界候选的动作时点与 Measure，形成两时点 surface、作者显式方向
+的 Pareto 散点或方案对照。图表数据、SVG 与 CSV 都是 Analysis 结果的投影，不是新的数学权威；导出
+必须是显式动作并继续执行工作区路径与覆盖保护。
+
 搜索结果的证明等级只有三种：
 
 - `exact_global`：模型范围内的精确全局最优已经证明；

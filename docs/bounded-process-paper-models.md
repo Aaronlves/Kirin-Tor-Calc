@@ -166,6 +166,7 @@ analysis ID ["LABEL"]:
     [method = adaptive_dyadic]
     [time_tolerance = DURATION]
     [maximum_evaluations = INTEGER]
+  [chart ID ["LABEL"]: ...]
   [target = OBSERVATION_CONDITION]
 ```
 
@@ -189,6 +190,12 @@ Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回�
 Scenario variant 只覆盖 Process 实例的公开 input，不复制 Scenario、Measure 或 Objective。Analysis 对
 每个选中 variant 独立搜索，因此两个方案可以得到不同的使用次数和动作时点；结构化结果以
 variant × objective 分组，并在每格保留实际 input override、策略、全部 Measure、约束与证明等级。
+
+一个 Analysis 可以声明任意有限张 `trajectory`、`decision_surface`、`pareto` 或
+`variant_comparison` 图。轨迹图的 series 必须是同量纲公开 observation；marker 只能引用公开事件或
+Scenario action。Pareto 图必须分别声明 x/y 的 maximize/minimize 方向，不能由内核猜测“更好”。图表
+行随 Analysis 结果返回供实时预览；SVG/CSV 只有在 `kt analyze --export-charts` 或工作台的显式导出动作
+下写入，且仍服从工作区路径与覆盖保护。
 
 ## 2. 多资源、冷却与顺序充能
 
@@ -417,6 +424,50 @@ analysis latest_death "最晚死亡":
     method = adaptive_dyadic
     time_tolerance = 1/4 second
     maximum_evaluations = 200
+  chart health_trajectory "生命轨迹":
+    kind = trajectory
+    series:
+      - actor.remaining_health
+    markers:
+      - event actor.incoming_damage
+      - event actor.stagger_tick
+      - decision purifying_brew
+    export_svg = "results/brewmaster-health.svg"
+    export_csv = "results/brewmaster-health.csv"
+  chart pool_trajectory "酒池轨迹":
+    kind = trajectory
+    series:
+      - actor.stagger_remaining
+    markers:
+      - decision purifying_brew
+    export_svg = "results/brewmaster-pool.svg"
+    export_csv = "results/brewmaster-pool.csv"
+  chart charge_trajectory "充能轨迹":
+    kind = trajectory
+    series:
+      - brew.count
+    export_svg = "results/brewmaster-charges.svg"
+    export_csv = "results/brewmaster-charges.csv"
+  chart release_surface "两次释放与生存时间":
+    kind = decision_surface
+    value = survival_time
+    export_svg = "results/brewmaster-release-surface.svg"
+    export_csv = "results/brewmaster-release-surface.csv"
+  chart tradeoff "生命与清除量权衡":
+    kind = pareto
+    x = minimum_health
+    x_direction = maximize
+    y = total_purified
+    y_direction = maximize
+    export_svg = "results/brewmaster-tradeoff.svg"
+    export_csv = "results/brewmaster-tradeoff.csv"
+  chart talent_comparison "方案对照":
+    kind = variant_comparison
+    series:
+      - minimum_health
+      - health_variation
+    export_svg = "results/brewmaster-variants.svg"
+    export_csv = "results/brewmaster-variants.csv"
 ```
 
 同一时间先结算旧的周期伤害，再加入两种来袭伤害，恢复充能，最后作决策。两个 incoming 事件通过

@@ -92,11 +92,18 @@ class ObjectiveOptimizationResult:
 
 
 @dataclass(frozen=True)
+class SearchCandidateResult:
+    decisions: Tuple[Tuple[Fraction, str], ...]
+    measures: Tuple[Tuple[str, ProcessValue], ...]
+
+
+@dataclass(frozen=True)
 class VariantOptimizationResult:
     variant_id: str
     input_overrides: Tuple[Tuple[str, ProcessValue], ...]
     objectives: Tuple[ObjectiveOptimizationResult, ...]
     explored_branches: int
+    candidates: Tuple[SearchCandidateResult, ...]
 
 
 @dataclass(frozen=True)
@@ -345,7 +352,11 @@ def _optimize_finite(
     scenario: ScenarioIR,
     registry: UnitRegistry,
     input_overrides: Mapping[Tuple[str, str], ProcessValue],
-) -> Tuple[Tuple[ObjectiveOptimizationResult, ...], int]:
+) -> Tuple[
+    Tuple[ObjectiveOptimizationResult, ...],
+    int,
+    Tuple[SearchCandidateResult, ...],
+]:
     pending: List[Tuple[str, ...]] = [()]
     complete: List[
         Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
@@ -391,6 +402,10 @@ def _optimize_finite(
             ),
         ),
         max(explored, 1),
+        tuple(
+            SearchCandidateResult(run.decisions, measures)
+            for measures, run in complete
+        ),
     )
 
 
@@ -476,7 +491,11 @@ def _optimize_continuous(
     scenario: ScenarioIR,
     registry: UnitRegistry,
     input_overrides: Mapping[Tuple[str, str], ProcessValue],
-) -> Tuple[Tuple[ObjectiveOptimizationResult, ...], int]:
+) -> Tuple[
+    Tuple[ObjectiveOptimizationResult, ...],
+    int,
+    Tuple[SearchCandidateResult, ...],
+]:
     if analysis.search_method != "adaptive_dyadic":
         raise UnsupportedError(
             "continuous-time optimization requires adaptive_dyadic search settings",
@@ -580,6 +599,10 @@ def _optimize_continuous(
             ),
         ),
         max(evaluated, 1),
+        tuple(
+            SearchCandidateResult(run.decisions, measures)
+            for measures, run in complete
+        ),
     )
 
 
@@ -617,17 +640,21 @@ def _optimize(
                 for binding in variant.inputs
             )
         if scenario.continuous_decisions:
-            objectives, explored = _optimize_continuous(
+            objectives, explored, candidates = _optimize_continuous(
                 analysis, scenario, registry, input_overrides
             )
         else:
-            objectives, explored = _optimize_finite(
+            objectives, explored, candidates = _optimize_finite(
                 analysis, scenario, registry, input_overrides
             )
         total_explored += explored
         variants.append(
             VariantOptimizationResult(
-                variant_id, rendered_overrides, objectives, explored
+                variant_id,
+                rendered_overrides,
+                objectives,
+                explored,
+                candidates,
             )
         )
     return OptimizeAnalysisResult(
@@ -1101,6 +1128,8 @@ def process_analysis_result_data(
             for item in result.policies
         ]
     elif isinstance(result, OptimizeAnalysisResult):
+        from .process_chart import process_charts_data
+
         base.update(
             {
                 "explored_branches": result.explored_branches,
@@ -1147,6 +1176,7 @@ def process_analysis_result_data(
                     }
                     for variant in result.variants
                 ],
+                "charts": process_charts_data(result, analysis, scenario),
             }
         )
     elif isinstance(result, ReachAnalysisResult):

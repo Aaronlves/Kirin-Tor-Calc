@@ -231,9 +231,27 @@ class AnalysisAst:
     search_method: Optional[str] = None
     time_tolerance: Optional[ExpressionAst] = None
     maximum_evaluations: Optional[ExpressionAst] = None
+    charts: Tuple["AnalysisChartAst", ...] = ()
     target: Optional[ExpressionAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
     def qualified_id(self) -> str:
         return f"{self.owner_id}.{self.id}"
+
+
+@dataclass(frozen=True)
+class AnalysisChartAst:
+    id: str
+    kind: str
+    label: Optional[str] = None
+    series: Tuple[str, ...] = ()
+    markers: Tuple[str, ...] = ()
+    x: Optional[str] = None
+    y: Optional[str] = None
+    value: Optional[str] = None
+    x_direction: Optional[str] = None
+    y_direction: Optional[str] = None
+    export_svg: Optional[str] = None
+    export_csv: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)

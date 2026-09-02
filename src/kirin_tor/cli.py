@@ -42,6 +42,7 @@ from .package_authoring import (
 )
 from .package_store import PackageResolver, PackageStoreManager
 from .plotting import render_plot, write_grid_csv, write_scan_csv
+from .process_chart import render_process_chart_svg, write_process_chart_csv
 from .plugin_store import PluginManager
 from .records import replay as replay_run
 from .timeout import run_with_timeout
@@ -678,6 +679,11 @@ def process_analysis_command(
     no_trace: bool = typer.Option(False, "--no-trace", help="Omit event trace details."),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
     save_run_id: Optional[str] = typer.Option(None, "--save-run"),
+    export_charts: bool = typer.Option(
+        False, "--export-charts", help="Export every configured Process chart."
+    ),
+    force: bool = typer.Option(False, "--force"),
+    allow_outside: bool = typer.Option(False, "--allow-outside-workspace"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Execute a source-declared Process analysis as ENTRY.ANALYSIS."""
@@ -701,6 +707,43 @@ def process_analysis_command(
                 timeout_seconds=timeout,
             ),
         )
+        if export_charts:
+            charts = result.get("charts", [])
+            configured = [
+                (chart, chart.get("export_svg"), chart.get("export_csv"))
+                for chart in charts
+                if chart.get("export_svg") or chart.get("export_csv")
+            ]
+            if not configured:
+                raise ParameterError(
+                    "analysis has no chart export_svg or export_csv paths"
+                )
+            paths = [
+                _artifact_path(workspace, value, allow_outside)
+                for _chart, svg, csv_path in configured
+                for value in (svg, csv_path)
+                if value is not None
+            ]
+            _preflight_artifacts(paths, force)
+            for chart, svg, csv_path in configured:
+                artifacts = {}
+                if svg is not None:
+                    artifacts["svg"] = str(
+                        render_process_chart_svg(
+                            chart,
+                            _artifact_path(workspace, svg, allow_outside),
+                            overwrite=force,
+                        )
+                    )
+                if csv_path is not None:
+                    artifacts["csv"] = str(
+                        write_process_chart_csv(
+                            chart,
+                            _artifact_path(workspace, csv_path, allow_outside),
+                            overwrite=force,
+                        )
+                    )
+                chart["artifacts"] = artifacts
         operation = result["analysis_operation"]
         if operation == "optimize":
             variants = result["variants"]

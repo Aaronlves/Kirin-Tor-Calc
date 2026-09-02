@@ -198,6 +198,29 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
             "    maximum_evaluations = "
             + _expression(analysis.maximum_evaluations)
         )
+    for chart in analysis.charts:
+        line = f"  chart {chart.id}"
+        if chart.label is not None:
+            line += " " + _quoted(chart.label)
+        lines.extend([line + ":", f"    kind = {chart.kind}"])
+        if chart.series:
+            lines.append("    series:")
+            lines.extend(f"      - {item}" for item in chart.series)
+        if chart.markers:
+            lines.append("    markers:")
+            lines.extend(f"      - {item}" for item in chart.markers)
+        for name in ("x", "y", "value"):
+            value = getattr(chart, name)
+            if value is not None:
+                lines.append(f"    {name} = {value}")
+        for name in ("x_direction", "y_direction"):
+            value = getattr(chart, name)
+            if value is not None:
+                lines.append(f"    {name} = {value}")
+        if chart.export_svg is not None:
+            lines.append(f"    export_svg = {_quoted(chart.export_svg)}")
+        if chart.export_csv is not None:
+            lines.append(f"    export_csv = {_quoted(chart.export_csv)}")
     if analysis.target is not None:
         lines.append(f"  target = {_expression(analysis.target)}")
     return lines
