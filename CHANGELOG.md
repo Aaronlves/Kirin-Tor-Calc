@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0rc2 — 2026-09-03 (pre-release)
+
 - Added typed bounded-Process expression, Process, Scenario, Policy, and Analysis AST/IR; symbolic domains; canonical round trips; exact safe expression evaluation; transition and static batch conflict validation; explicit phase mapping; and visible event/decision fuel preflight.
 - Added the deterministic bounded-Process runtime with exact time and flow, phase-start snapshots, explicit reducers, stable event identities, keyed schedule/replace/cancel, guarded composite actions, state/domain checks, dynamic fuel enforcement, stop conditions, and replay-stable traces.
 - Added exact finite random-path enumeration, source-declared conditional and fixed-sequence policies, and named `run`, `compare`, deterministic bounded `optimize`, `reach`, finite-state `steady`, and repeated-state `cycle` Process analyses. `kt analyze` returns a structured result and saved runs replay through the same Analysis entry without implicit sampling.
