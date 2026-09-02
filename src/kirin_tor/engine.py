@@ -257,42 +257,6 @@ class Engine:
             f"structured object reference {reference!r} must use OBJECT or ENTRY.OBJECT"
         )
 
-    def object_interface(
-        self,
-        owner: Entry,
-        reference: str,
-        interface_name: str,
-    ) -> tuple[Entry, StructuredObjectSpec, Dict[str, str]]:
-        object_owner, obj = self.resolve_object_reference(reference, owner)
-        type_spec = self.resolve_structure_type(object_owner, obj.type_name)
-        interface = type_spec.interfaces.get(interface_name)
-        if interface is None:
-            raise SchemaError(
-                f"type {type_spec.qualified_id!r} does not implement {interface_name!r}",
-                obj.location,
-            )
-        return object_owner, obj, dict(interface)
-
-    def object_interface_value(
-        self,
-        owner: Entry,
-        reference: str,
-        interface_name: str,
-        role: str,
-    ) -> MathValue:
-        object_owner, obj, interface = self.object_interface(
-            owner, reference, interface_name
-        )
-        member_path = interface.get(role)
-        if member_path is None:
-            raise SchemaError(
-                f"interface {interface_name!r} is missing role {role!r}",
-                obj.location,
-            )
-        return self.resolve_object_member(
-            object_owner, obj, tuple(member_path.split("."))
-        )
-
     def _scalar_type(self, owner: Entry, type_name: str) -> tuple[str, str, Dimension]:
         if type_name == "boolean":
             return "boolean", "dimensionless", DIMENSIONLESS

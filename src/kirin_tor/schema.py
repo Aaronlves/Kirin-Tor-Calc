@@ -18,7 +18,6 @@ from .limits import (
     MAX_MODEL_INPUTS,
     MAX_NUMERIC_LITERAL_LENGTH,
     MAX_STRUCTURE_FIELDS,
-    MAX_STRUCTURE_INTERFACE_MAPPINGS,
     MAX_STRUCTURE_DEPTH,
     MAX_STRUCTURE_TYPES,
     MAX_STRUCTURED_OBJECTS,
@@ -355,7 +354,6 @@ class StructureTypeSpec:
     owner_id: str
     label: str
     fields: Dict[str, StructureFieldSpec]
-    interfaces: Dict[str, Dict[str, str]]
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property
@@ -814,7 +812,7 @@ def parse_document(
             type_location = _location(path, doc_id, positions, f"types.{type_id}")
             require_identifier(type_id, "type id", type_location)
             type_raw = require_mapping(type_raw, f"types.{type_id}", type_location)
-            _reject_unknown(type_raw, {"label", "fields", "interfaces"}, "type", type_location)
+            _reject_unknown(type_raw, {"label", "fields"}, "type", type_location)
             fields_raw = require_mapping(
                 type_raw.get("fields", {}), f"types.{type_id}.fields", type_location
             )
@@ -856,45 +854,11 @@ def parse_document(
                     label,
                     field_location,
                 )
-            interfaces_raw = require_mapping(
-                type_raw.get("interfaces", {}),
-                f"types.{type_id}.interfaces",
-                type_location,
-            )
-            interfaces: Dict[str, Dict[str, str]] = {}
-            for interface_id, mappings_raw in interfaces_raw.items():
-                require_identifier(interface_id, "interface id", type_location)
-                mappings_raw = require_mapping(
-                    mappings_raw,
-                    f"types.{type_id}.interfaces.{interface_id}",
-                    type_location,
-                )
-                if len(mappings_raw) > MAX_STRUCTURE_INTERFACE_MAPPINGS:
-                    raise SchemaError(
-                        f"interface exceeds {MAX_STRUCTURE_INTERFACE_MAPPINGS} role mappings",
-                        type_location,
-                    )
-                mappings: Dict[str, str] = {}
-                for role, member_path in mappings_raw.items():
-                    require_reference_path(role, "interface role", type_location)
-                    mappings[role] = require_reference_path(
-                        member_path, "interface member path", type_location
-                    )
-                roles = sorted(mappings)
-                for index, role in enumerate(roles):
-                    for other in roles[index + 1 :]:
-                        if other.startswith(role + "."):
-                            raise SchemaError(
-                                f"interface role {role!r} conflicts with nested role {other!r}",
-                                type_location,
-                            )
-                interfaces[interface_id] = mappings
             structure_types[type_id] = StructureTypeSpec(
                 type_id,
                 doc_id,
                 require_display_label(type_raw.get("label", type_id), "type label", type_location),
                 type_fields,
-                interfaces,
                 type_location,
             )
 

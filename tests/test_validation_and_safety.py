@@ -175,9 +175,9 @@ def test_duplicate_kirin_members_are_rejected(example_workspace: Path) -> None:
     assert caught.value.location.line == 5
 
 
-def test_legacy_business_entry_types_are_not_core_schema_types(example_workspace: Path) -> None:
-    path = example_workspace / "entries" / "legacy.kirin"
-    path.write_text("@kirin 2\n@skill legacy\n", encoding="utf-8")
+def test_game_specific_entry_types_are_not_core_schema_types(example_workspace: Path) -> None:
+    path = example_workspace / "entries" / "unsupported.kirin"
+    path.write_text("@kirin 2\n@skill unsupported\n", encoding="utf-8")
     with pytest.raises(SchemaError, match="second declaration"):
         Workspace.load(example_workspace)
 

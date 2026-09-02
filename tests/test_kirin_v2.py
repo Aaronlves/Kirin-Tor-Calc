@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -85,32 +86,27 @@ def test_v2_renderer_round_trips_public_source(tmp_path: Path) -> None:
     assert loaded.raw["objects"] == document.raw["objects"]
 
 
-@pytest.mark.parametrize(
-    ("body", "pattern"),
-    [
-        (
-            "cycle old:\n  using = profile\n  sequence:\n    - action\n",
-            "cycle.*removed.*Process",
-        ),
-        (
-            "type old:\n  value: dimensionless\n  cycle_step:\n    occupies = value\n",
-            "cycle_step.*removed.*Process",
-        ),
-        (
-            "type old:\n  value: dimensionless\n  cycle_profile:\n    initial = value\n",
-            "cycle_profile.*removed.*Process",
-        ),
-    ],
-)
-def test_removed_cycle_constructs_point_to_process(
-    tmp_path: Path, body: str, pattern: str
-) -> None:
-    root = initialize(tmp_path / pattern.split(".*", 1)[0])
+def test_v2_renderer_rejects_unsupported_type_metadata(tmp_path: Path) -> None:
+    raw = deepcopy(_workspace(tmp_path).entries["typed_objects"].raw)
+    raw["types"]["skill"]["behavior"] = {"cost": "cost"}
+    with pytest.raises(SchemaError, match="unsupported properties: behavior"):
+        render_kirin_document(raw)
+
+
+def test_type_declaration_accepts_fields_only(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "invalid-type-block")
     (root / "entries" / "removed.kirin").write_text(
-        "@kirin 2\n@entry removed\n\n" + body,
+        """@kirin 2
+@entry invalid_type_block
+
+type sample:
+  value: dimensionless
+  behavior:
+    role = value
+""",
         encoding="utf-8",
     )
-    with pytest.raises(SchemaError, match=pattern):
+    with pytest.raises(SchemaError, match="type body requires FIELD: TYPE"):
         Workspace.load(root)
 
 

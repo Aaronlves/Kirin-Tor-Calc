@@ -3,9 +3,6 @@ from __future__ import annotations
 from fractions import Fraction
 from pathlib import Path
 
-import pytest
-
-from kirin_tor.errors import SchemaError
 from kirin_tor.process_analysis import RunAnalysisResult, execute_process_analysis
 from kirin_tor.workspace import Workspace, initialize
 
@@ -79,20 +76,3 @@ def test_bounded_iteration_uses_process_events_and_shared_runtime(tmp_path: Path
         "final_steps": Fraction(3),
     }
     assert result.outcomes[0].result.event_count == 3
-
-
-def test_removed_recurrence_syntax_points_to_process(tmp_path: Path) -> None:
-    root = initialize(tmp_path / "removed")
-    (root / "entries" / "removed.kirin").write_text(
-        """@kirin 2
-@entry removed
-
-recurrence result: dimensionless:
-  initial = 0
-  steps = 2
-  next(current, index) = current + 1
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(SchemaError, match="recurrence.*removed.*process"):
-        Workspace.load(root)

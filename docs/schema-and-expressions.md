@@ -153,7 +153,7 @@ Measure。结构化 chart rows 随 Analysis 结果生成，SVG/CSV 仅在显式�
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/
-依赖版本和产物摘要。`process_analysis` 与旧 `cycle`、`eval`、扫描、求解等操作走同一记录路径。
+依赖版本和产物摘要。`process_analysis` 与 `eval`、扫描、求解等操作走同一记录路径。
 
 重放先校验嵌入 source 与结构内容一致，再在隔离的快照工作区执行相同操作。软件环境变化会被报告，
 不会被解释成源码变化。

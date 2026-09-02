@@ -22,7 +22,7 @@ When current game facts matter and are not supplied, verify them from current pr
 
 - Read `docs/game-mechanics-capability-audit.md` when deciding whether a mechanic is directly expressible, requires an externally derived equivalent model, or remains unsupported.
 - Keep game-specific names, formulas, and data in workspace or community-package sources rather than privileging them in the core.
-- Use exact values, units, domains, presets, tables, distributions, recurrences, or finite state models only when their assumptions match the mechanic.
+- Use exact values, units, domains, presets, tables, distributions, or bounded Process state/event models only when their assumptions match the mechanic.
 - Do not infer probabilistic independence, server rounding, hidden coefficients, or action priorities from keyword similarity or incomplete descriptions.
 - If the requested mechanic exposes a core limitation, explain the gap separately. Do not modify the core without implementation authorization.
 

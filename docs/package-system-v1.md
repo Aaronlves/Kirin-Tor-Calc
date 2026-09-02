@@ -249,14 +249,13 @@ Immutable calculation records continue embedding the exact participating Kirin T
 They additionally record package release identity for auditability. Replay therefore remains
 possible after the package is removed or its remote repository becomes unavailable.
 
-## Compatibility and migration
+## Workspace marker
 
-New workspaces are always game-neutral and no longer accept a built-in game starter selection.
-The legacy `initial-package` workspace line remains readable for existing workspaces but has no
-runtime authority. The previously bundled game-specific starter is removed from new installations.
-Repository examples may exercise game-mechanic capabilities, but
-they remain outside both wheel and source-distribution payloads; reusable game-specific content
-belongs in independently versioned community packages.
+New workspaces are game-neutral. `kirin.workspace` contains only `@kirin-workspace 1`, plus optional
+blank lines or `//` comments; the marker has no settings or built-in starter selection. Repository
+examples may exercise game-mechanic capabilities, but they remain outside both wheel and
+source-distribution payloads; reusable game-specific content belongs in independently versioned
+community packages.
 
 V1 success requires local-path and GitHub packages to share one resolver, one validator, one
 lockfile, one content store, and one read-only workspace loading path. A test or successful build

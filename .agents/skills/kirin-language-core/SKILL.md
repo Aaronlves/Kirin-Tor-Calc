@@ -22,7 +22,7 @@ Maintain these invariants when they are relevant:
 
 - Exact numbers, dimensions, units, domains, and retained conditions keep their mathematical meaning across parsing and evaluation.
 - User-authored expressions remain restricted: do not introduce arbitrary imports, execution, attribute traversal, or unbounded computation.
-- Finite distributions, recurrences, and state models remain explicitly bounded. Do not infer probabilistic independence that the author did not declare.
+- Finite distributions and Process execution remain explicitly bounded. Do not infer probabilistic independence that the author did not declare.
 - Parser, renderer, schema, completion, diagnostics, and engine should agree on public syntax, but touch only the layers affected by the change.
 - Update public documentation when the public language or behavior changes. Internal refactors do not require documentation churn.
 

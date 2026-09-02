@@ -1,9 +1,4 @@
-"""Parser for bounded ``process`` blocks inside a Kirin source document.
-
-This is intentionally an independent parse entry point until the typed document
-container and renderer can preserve process declarations end to end. The legacy
-raw-mapping parser must not accept syntax that its renderer would silently drop.
-"""
+"""Parser for bounded ``process`` blocks inside a Kirin Tor source document."""
 
 from __future__ import annotations
 

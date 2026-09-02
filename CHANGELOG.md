@@ -31,7 +31,9 @@
 Breaking changes:
 
 - All editable and Package `.kirin` documents must use `@kirin 2`; v1 section syntax is no longer accepted.
-- The pre-release `recurrence`, `state_model`, `cycle`, `cycle_step`, and `cycle_profile` syntax and `kt cycle` command are removed; migrate dynamic models to Process/Scenario/Analysis. Old source receives an explicit migration diagnostic.
+- The pre-release `recurrence`, `state_model`, `cycle`, `cycle_step`, and `cycle_profile` syntax and `kt cycle` command are removed. Unsupported source is rejected by the ordinary v2 grammar; no migration-only parser or authoring compatibility is retained.
+- Structure `type` bodies accept declared fields only; the undocumented generic interface mapping layer is removed.
+- `kirin.workspace` accepts only the `@kirin-workspace 1` marker plus blank lines or comments; workspace settings, including pre-release starter metadata, are rejected.
 - `parse_kirin_source` and `load_kirin_document` now return typed source containers instead of tuples; callers use explicit `.raw`, `.positions`, `.process_asts`, `.scenario_asts`, `.analysis_asts`, `.text`, and `.sha256` fields.
 
 ## 0.3.0rc1 — 2026-09-01 (pre-release)

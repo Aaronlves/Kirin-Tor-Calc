@@ -18,9 +18,8 @@ run/compare/optimize/reach/steady/cycle 分析分派、CLI、运行记录、浏�
 
 ## 1. 为什么重构
 
-当前语言分别实现普通表达式、有限递推、有限状态解析模型和固定 cycle。固定 cycle 又通过
-`cycle_step`、`cycle_profile` 接口为资源、冷却和充能赋予专用语义。继续在这些接口上加入
-伤害池、护盾、效果刷新、重置、触发、目标状态和决策，会使每一种新机制都要求新的内核合同。
+普通公式不足以表达同时依赖时间、状态和先前路径的机制。如果内核为资源、冷却、充能、伤害池、
+护盾或效果刷新分别建立专用合同，每一种新机制都会要求另一套语法和执行规则。
 
 目标不是把 Kirin Tor 变成通用脚本语言，而是让游戏机制由 `.kirin` source 或 Community
 Package 使用少量游戏中立原语组合出来。内核只理解类型、状态、时间、事件、动作、选择、概率、
@@ -325,21 +324,17 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 策略或优化目标、所有 fuel 边界、phase 顺序、分析器和实现摘要。相同记录的重放必须得到相同精确
 结果，或明确报告软件环境差异。
 
-## 12. 现有构造的迁移
-
-动态重构不得改变现有静态数值、单位、类型、对象、来源和输入覆盖的含义。
+## 12. 单一动态语言边界
 
 - `process`、`scenario` 和 `analysis` 是唯一公开动态语义；
-- 旧 `recurrence` 已改写为 Process 状态与有界事件链，旧声明及其独立求值器已删除；
-- 旧 `state_model` 已改写为有限随机 Process，由 `steady`、`reach` 等分析器解释，旧声明和解析函数已删除；
-- 固定序列使用 Scenario source Policy；周期证明使用同一 Process runtime 的 `cycle` Analysis；
-- `cycle_step`、`cycle_profile`、旧 `cycle` 声明、内建资源/冷却/充能合同和独立 timeline 执行器已删除；
-- 原先由 `continuous`、`waiting`、`blocked` 汇总的事实现在由作者定义 observation/Measure、guard
-  失败、完整 trace 和明确的周期证明共同表达，不保留隐式自动等待语义；
-- canonical ID、跨 entry Process 引用、Package 权限检查和运行记录闭包继续由统一 workspace/lowering
-  链路维护。
-
-这是单一 v2 cutover。旧语法只在迁移诊断中出现，不再是可执行或可发布的第二套动态语言。
+- 有界迭代使用 Process 状态与有限事件链，有限随机转移使用显式 Process branch；
+- 固定序列使用 Scenario source Policy，周期证明使用同一 Process runtime 的 `cycle` Analysis；
+- 资源、冷却、充能、生命、伤害池和其他作者概念都由普通类型、状态、事件、动作、guard 与 Measure
+  组合，不存在隐式的领域接口合同；
+- observation、公开 output event、Measure、完整 trace 和分析结果是运行时信息的公开边界；
+- canonical ID、跨 entry Process 引用、Package 权限检查和运行记录闭包由统一 workspace/lowering
+  链路维护；
+- 其他顶层声明由普通 v2 语法检查拒绝；解析器、编辑器帮助和补全不维护其他方言或专用诊断。
 
 ## 13. 纸面能力验收
 
@@ -368,9 +363,9 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 5. **已完成静态部分：**表达式结果类型、安全求值、单个 process 转移及可枚举场景批次的写入/调度
    key 冲突、phase 映射与外部事件/决策 fuel 已验证；动态事件链 fuel 由执行器继续落实；
 6. **已完成内核：**实现确定性 `run` 与完整 trace；具名 Analysis/CLI 分派在步骤 10 接入；
-7. **已完成：**将有限递推、有限随机状态转移和固定策略/周期能力迁移到 Process，并删除旧动态执行器；
+7. **已完成：**用 Process 统一实现有界迭代、有限随机状态转移和固定策略/周期能力；
 8. **已完成：**实现有限随机分支、source Policy、策略比较和有界优化；
-9. **已完成：**实现精确可达、有限离散稳态和确定性周期证明，并移除旧 `state_model` 路径；
+9. **已完成：**实现精确可达、有限离散稳态和确定性周期证明；
 10. **已完成：**同步诊断、补全、高亮、浏览器预览、CLI、Package 校验、运行记录和公开能力文档。
 
 完成意味着当前受支持模型的行为等价、新的六类机制无需游戏专用内核扩展、所有执行边界可见且可

@@ -3,9 +3,6 @@ from __future__ import annotations
 from fractions import Fraction
 from pathlib import Path
 
-import pytest
-
-from kirin_tor.errors import SchemaError
 from kirin_tor.process_analysis import (
     ReachAnalysisResult,
     SteadyAnalysisResult,
@@ -93,21 +90,3 @@ def test_finite_random_state_uses_process_steady_and_reach(tmp_path: Path) -> No
     )
     assert isinstance(reach, ReachAnalysisResult)
     assert reach.probability == Fraction(37, 64)
-
-
-def test_removed_state_model_syntax_points_to_process_analysis(tmp_path: Path) -> None:
-    root = initialize(tmp_path / "removed")
-    (root / "entries" / "removed.kirin").write_text(
-        """@kirin 2
-@entry removed
-
-state_model model:
-  states:
-    - only
-  transitions:
-    - only -> only @ 1
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(SchemaError, match="state_model.*removed.*process"):
-        Workspace.load(root)

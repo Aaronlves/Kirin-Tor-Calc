@@ -14,7 +14,6 @@ _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _QUOTED = r'"(?:[^"\\]|\\.)*"'
 _FENCE_RE = re.compile(r"^-{3,}$")
 _ENTRY_RE = re.compile(rf"^@entry\s+({_IDENTIFIER})(?:\s+({_QUOTED}))?$")
-_SECTION_RE = re.compile(rf"^({_IDENTIFIER}):$")
 _MEMBER_RE = re.compile(rf"^\s+(?P<name>{_IDENTIFIER})(?:\s+(?P<label>{_QUOTED}))?")
 _ALIAS_RE = re.compile(
     rf"^alias\s+(?P<name>[^\s=]+)\s*=\s*"
@@ -83,25 +82,6 @@ _KIND_LABELS = {
     "builtin": "内置函数",
     "keyword": "关键字",
     "snippet": "片段",
-}
-
-_AUTHORING_SECTIONS = {
-    "aliases", "dimensions", "units", "domains", "inputs", "constraints", "fields",
-    "functions", "tables", "distributions", "outputs",
-    "sources", "groups", "presets", "display", "y",
-}
-
-_MEMBER_SECTIONS = {
-    "inputs", "fields", "functions", "tables", "distributions", "outputs",
-}
-
-_SECTION_KIND = {
-    "inputs": "input",
-    "fields": "field",
-    "functions": "function",
-    "tables": "table",
-    "distributions": "distribution",
-    "outputs": "output",
 }
 
 _DECLARATION_KIND = {

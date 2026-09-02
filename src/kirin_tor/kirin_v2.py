@@ -19,7 +19,6 @@ from .limits import (
     MAX_ANALYSES_PER_ENTRY,
     MAX_PROCESSES_PER_ENTRY,
     MAX_SCENARIOS_PER_ENTRY,
-    MAX_STRUCTURE_DEPTH,
 )
 from .process_ast import ProcessAst
 from .scenario_ast import AnalysisAst, ScenarioAst
@@ -234,57 +233,6 @@ def _assignments(node: _Node, path: Path, field: str) -> Dict[str, Any]:
     return result
 
 
-def _interface_assignments(
-    node: _Node,
-    path: Path,
-    field: str,
-    prefix: Tuple[str, ...] = (),
-) -> Dict[str, Any]:
-    """Flatten readable nested interface roles to stable dotted role paths."""
-
-    result: Dict[str, Any] = {}
-    for child in node.children:
-        assignment = _ASSIGN_RE.fullmatch(child.line.text)
-        block = re.fullmatch(rf"({IDENTIFIER}):", child.line.text)
-        if assignment:
-            role_parts = (*prefix, *assignment.group("name").split("."))
-            role = ".".join(role_parts)
-            value = _atom(
-                _expression(child, assignment.group("value"), path, f"{field}.{role}"),
-                path,
-                child.line,
-            )
-            additions = {role: value}
-        elif block:
-            if not child.children:
-                _fail(path, "interface role block may not be empty", child.line, field)
-            if len(prefix) >= MAX_STRUCTURE_DEPTH + 2:
-                _fail(
-                    path,
-                    f"interface role exceeds maximum depth {MAX_STRUCTURE_DEPTH + 2}",
-                    child.line,
-                    field,
-                )
-            additions = _interface_assignments(
-                child,
-                path,
-                field,
-                (*prefix, block.group(1)),
-            )
-        else:
-            _fail(
-                path,
-                "interface roles require NAME = MEMBER_PATH or NAME:",
-                child.line,
-                field,
-            )
-        for role, value in additions.items():
-            if role in result:
-                _fail(path, f"duplicate interface role {role!r}", child.line, f"{field}.{role}")
-            result[role] = value
-    return result
-
-
 def _object_values(node: _Node, path: Path, field: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for child in node.children:
@@ -433,27 +381,6 @@ def parse_kirin_v2_source(
 
     for node in nodes:
         text_head = node.line.text
-        if text_head.startswith("recurrence "):
-            _fail(
-                path,
-                "recurrence was removed in the Process cutover; model bounded iteration "
-                "with process state/events and a scenario run analysis",
-                node.line,
-            )
-        if text_head.startswith("state_model "):
-            _fail(
-                path,
-                "state_model was removed in the Process cutover; model finite transitions "
-                "with process branches and use reach or steady analysis",
-                node.line,
-            )
-        if text_head.startswith("cycle "):
-            _fail(
-                path,
-                "cycle was removed in the Process cutover; declare a fixed source policy "
-                "and use a Process cycle analysis",
-                node.line,
-            )
         if text_head.startswith("process "):
             from .process_parser import _parse_process
 
@@ -719,7 +646,6 @@ def parse_kirin_v2_source(
             if type_id in types:
                 _fail(path, f"duplicate type {type_id!r}", node.line, f"types.{type_id}")
             fields: Dict[str, Any] = {}
-            interfaces: Dict[str, Any] = {}
             for child in node.children:
                 typed = _TYPED_VALUE_RE.fullmatch(child.line.text)
                 if typed:
@@ -739,29 +665,12 @@ def parse_kirin_v2_source(
                     fields[field_name] = field_data
                     _position(positions, f"types.{type_id}.fields.{field_name}", child.line)
                     continue
-                interface = re.fullmatch(rf"({IDENTIFIER}):", child.line.text)
-                if interface:
-                    if interface.group(1) in {"cycle_step", "cycle_profile"}:
-                        _fail(
-                            path,
-                            f"{interface.group(1)} was removed in the Process cutover; "
-                            "declare ordinary process state, flow, actions, guards, and events",
-                            child.line,
-                            f"types.{type_id}.interfaces.{interface.group(1)}",
-                        )
-                    if interface.group(1) in interfaces:
-                        _fail(path, f"duplicate interface {interface.group(1)!r}", child.line, f"types.{type_id}")
-                    interfaces[interface.group(1)] = _interface_assignments(
-                        child, path, f"types.{type_id}.interfaces.{interface.group(1)}"
-                    )
-                    continue
-                _fail(path, "type body requires FIELD: TYPE or INTERFACE:", child.line, f"types.{type_id}")
+                _fail(path, "type body requires FIELD: TYPE", child.line, f"types.{type_id}")
             if not fields:
                 _fail(path, "type must declare at least one field", node.line, f"types.{type_id}")
             types[type_id] = {
                 "label": _label(match, path, node.line) or type_id,
                 "fields": fields,
-                "interfaces": interfaces,
             }
             _position(positions, f"types.{type_id}", node.line)
             continue
@@ -1117,6 +1026,11 @@ def render_kirin_v2_document(
             lines.append(display)
 
     for name, data in raw.get("types", {}).items():
+        unsupported = sorted(set(data) - {"label", "fields"})
+        if unsupported:
+            raise SchemaError(
+                f"type {name!r} contains unsupported properties: {', '.join(unsupported)}"
+            )
         lines.extend(["", _labeled("type", name, data)])
         for field_name, field_data in data.get("fields", {}).items():
             optional = "?" if field_data.get("optional") else ""
@@ -1128,26 +1042,6 @@ def render_kirin_v2_document(
                 )
                 line += f" = {rendered_default}"
             lines.append(line)
-        for interface_name, mappings in data.get("interfaces", {}).items():
-            lines.append(f"  {interface_name}:")
-
-            mapping_tree: Dict[str, Any] = {}
-            for role, member in mappings.items():
-                cursor = mapping_tree
-                parts = role.split(".")
-                for part in parts[:-1]:
-                    cursor = cursor.setdefault(part, {})
-                cursor[parts[-1]] = member
-
-            def render_mappings(values: Dict[str, Any], indent: str) -> None:
-                for role, member in values.items():
-                    if isinstance(member, dict):
-                        lines.append(f"{indent}{role}:")
-                        render_mappings(member, indent + "  ")
-                    else:
-                        lines.append(f"{indent}{role} = {member}")
-
-            render_mappings(mapping_tree, "    ")
     for name, data in raw.get("objects", {}).items():
         lines.extend(["", _labeled(data["type"], name, data)])
 

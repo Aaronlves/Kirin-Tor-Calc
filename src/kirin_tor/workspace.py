@@ -606,25 +606,11 @@ class Workspace:
                 "workspace marker must start with '@kirin-workspace 1'",
                 SourceLocation(path=str(marker), line=lines[0][0] if lines else 1, column=1),
             )
-        seen = set()
-        for number, line in lines[1:]:
-            if ":" not in line:
-                raise SchemaError(
-                    "workspace setting must use KEY: VALUE",
-                    SourceLocation(path=str(marker), line=number, column=1),
-                )
-            key, value = (part.strip() for part in line.split(":", 1))
-            if key != "initial-package":
-                raise SchemaError(
-                    f"unknown workspace setting {key!r}",
-                    SourceLocation(path=str(marker), line=number, column=1),
-                )
-            if key in seen or not value:
-                raise SchemaError(
-                    "workspace initial-package must appear once with a value",
-                    SourceLocation(path=str(marker), line=number, column=1),
-                )
-            seen.add(key)
+        if len(lines) > 1:
+            raise SchemaError(
+                "workspace marker does not accept settings",
+                SourceLocation(path=str(marker), line=lines[1][0], column=1),
+            )
 
     @classmethod
     def load_for_check(cls, root: Path) -> "Workspace":

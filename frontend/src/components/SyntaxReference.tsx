@@ -26,7 +26,7 @@ interface SyntaxReferenceSection {
 
 const sections = rawSections as SyntaxReferenceSection[];
 
-function legacyCopy(text: string): boolean {
+function fallbackCopy(text: string): boolean {
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.readOnly = true;
@@ -73,10 +73,10 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
     setCopyFailed(false);
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(section.code);
-      else if (!legacyCopy(section.code)) throw new Error("clipboard unavailable");
+      else if (!fallbackCopy(section.code)) throw new Error("clipboard unavailable");
       setCopiedId(section.id);
     } catch {
-      if (legacyCopy(section.code)) setCopiedId(section.id);
+      if (fallbackCopy(section.code)) setCopiedId(section.id);
       else {
         setCopiedId(null);
         setCopyFailed(true);

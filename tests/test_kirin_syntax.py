@@ -267,18 +267,14 @@ def test_fractional_unit_and_parameter_one_of_round_trip(tmp_path: Path) -> None
     assert loaded.raw == raw
 
 
-def test_workspace_marker_is_game_neutral_and_reads_legacy_metadata(tmp_path: Path) -> None:
+def test_workspace_marker_is_game_neutral_and_rejects_settings(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     marker = root / "kirin.workspace"
     marker.write_text("@kirin-workspace 1\n", encoding="utf-8")
     assert Workspace.load(root).documents == {}
 
-    # The old starter name remains readable as inert migration metadata.
-    marker.write_text("@kirin-workspace 1\ninitial-package: mystery\n", encoding="utf-8")
-    assert Workspace.load(root).documents == {}
-
-    marker.write_text("@kirin-workspace 1\nunknown: value\n", encoding="utf-8")
-    with pytest.raises(SchemaError, match="unknown workspace setting"):
+    marker.write_text("@kirin-workspace 1\nstarter: none\n", encoding="utf-8")
+    with pytest.raises(SchemaError, match="workspace marker does not accept settings"):
         Workspace.load(root)
 
 

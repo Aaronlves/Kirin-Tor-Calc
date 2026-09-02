@@ -1,20 +1,6 @@
 import type { DiagnosticItem } from "./types";
 
 const sectionTopics: Record<string, string> = {
-  aliases: "aliases",
-  inputs: "members",
-  fields: "members",
-  functions: "members",
-  outputs: "members",
-  presets: "presets",
-  tables: "tables",
-  distributions: "distributions",
-  type: "structures",
-  object: "structures",
-  object_field: "structures",
-  process: "process",
-  scenario: "process",
-  analysis: "process",
   phases: "process",
   objectives: "process",
   variants: "process",
@@ -23,10 +9,6 @@ const sectionTopics: Record<string, string> = {
   markers: "process",
   bounds: "process",
   sequence: "process",
-  dimensions: "semantics",
-  units: "semantics",
-  domains: "semantics",
-  display: "charts",
   y: "charts",
 };
 
@@ -65,9 +47,6 @@ export function syntaxTopicForLine(line: string): string | null {
   if (/^type\b/.test(trimmed)) return "structures";
   if (/^(process|scenario|analysis|state|key|phase|event|action|flow|on|observe|let|next|emit|schedule|replace|cancel|when|branch|probability|use|variant|connect|at|every|send|policy|choose|otherwise|decide|measure|objective|maximize|minimize|then|stop|target|operation)\b/.test(trimmed)) return "process";
   if (/^(horizon|maximum_events|maximum_decisions|maximum_branches|maximum_entities|method|time_tolerance|maximum_evaluations)\b/.test(trimmed)) return "process";
-  // Removed dynamic declarations still route to the Process topic so their
-  // migration diagnostics lead to the current replacement language.
-  if (/^(recurrence|state_model)\b/.test(trimmed)) return "process";
   for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }
@@ -81,8 +60,7 @@ export function syntaxTopicForDiagnostic(item: DiagnosticItem, line = ""): strin
   const message = `${item.code ?? ""} ${item.author_message ?? ""} ${item.message ?? ""}`.toLocaleLowerCase();
   for (const [needle, topic] of [
     ["alias", "aliases"], ["别名", "aliases"], ["table", "tables"], ["查表", "tables"],
-    ["distribution", "distributions"], ["分布", "distributions"], ["recurrence", "process"], ["递推", "process"],
-    ["state_model", "process"], ["状态模型", "process"], ["preset", "presets"], ["参数方案", "presets"],
+    ["distribution", "distributions"], ["分布", "distributions"], ["preset", "presets"], ["参数方案", "presets"],
     ["cycle", "process"], ["sequence", "process"], ["循环", "process"], ["等待", "process"],
     ["process", "process"], ["scenario", "process"], ["analysis", "process"], ["measure", "process"], ["过程", "process"],
     ["unit", "semantics"], ["dimension", "semantics"], ["domain", "semantics"], ["单位", "semantics"], ["量纲", "semantics"],
