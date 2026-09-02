@@ -55,6 +55,13 @@ explicit local-directory flow defined below.
 - `kt web --safe-mode` suppresses all third-party contributions and asset serving regardless of
   workspace configuration.
 
+An external Agent with separately granted host-filesystem access is not a Workbench Plugin and does
+not receive a plugin permission. It may edit writable local `.kirin` source outside the browser, after
+which the official workbench performs its ordinary external-change synchronization and validation.
+That host-level capability does not weaken the iframe sandbox: plugin code still cannot read or write
+files, inspect Agent activity, or obtain the browser's dirty buffers. See the
+[browser workbench contract](web-workbench.md#external-agent-authoring).
+
 Sandboxed iframes are an authority boundary, not a complete resource sandbox. A plugin can still
 consume browser CPU or memory while its frame is mounted. Protocol v1 therefore gives the author
 an always-available disable action and Safe Mode recovery; stronger process-level browser

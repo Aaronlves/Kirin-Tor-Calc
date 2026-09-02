@@ -357,3 +357,12 @@ chart and Process Analysis previews. Process/Scenario/Analysis have insertion sn
 top-level outline identities, contextual syntax help, variant/objective result tables, proof badges,
 interactive multi-chart selection, and explicit export-all. These authoring projections do not
 extend the grammar or make invalid source executable.
+
+A local Agent or another text editor may write the same `entries/**/*.kirin` files without using a
+Kirin-specific Agent syntax or the CLI. While the workbench page is visible, it discovers new local
+documents and reloads externally changed clean buffers; a dirty browser buffer is never overwritten
+and instead enters explicit conflict comparison. The Agent identity, prompts, editing operations,
+and transcript are not source declarations and are not displayed or recorded by Kirin. Direct
+external writes still pass through the ordinary parser and validator before they can be evaluated.
+The synchronization and multi-file-write limits are defined by the
+[browser workbench contract](web-workbench.md#external-agent-authoring).

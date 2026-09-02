@@ -20,6 +20,11 @@ Workbench Extension Plugins are a separate explicitly approved executable system
 Package may document a recommended renderer, but Package installation never installs, approves,
 enables, or executes one. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 
+An Agent is not a third package kind and does not add executable Package semantics. With ordinary
+host-filesystem permission it may author a Package development directory or local workspace source,
+but the resulting manifest and `.kirin` files pass through exactly the same validation, resolution,
+content-digest, and provenance rules as human-authored files.
+
 ## Core and community boundary
 
 The installed mathematical core owns exact numbers, booleans, `dimensionless`, arithmetic,
@@ -137,6 +142,10 @@ version = "1.0.0"
 For local authoring, `source` may be `path:../example`. A local requirement still records and
 loads an immutable cached snapshot; editing the source directory does not silently change a
 validated workspace. Running package update or restore is required to accept changed content.
+This remains true when an Agent edits the development directory: browser synchronization watches
+only writable workspace `entries/**/*.kirin`, never an installed Package snapshot or its mutable
+upstream directory. The file-mediated Agent boundary is defined by the
+[browser workbench contract](web-workbench.md#external-agent-authoring).
 
 Aliases are local presentation handles used by package-management commands. They do not change
 Kirin Tor document IDs or source identities.

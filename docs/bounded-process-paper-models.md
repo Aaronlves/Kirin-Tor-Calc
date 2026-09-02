@@ -15,6 +15,12 @@
 reducer、死亡 stop、轨迹 Measure、三个作者定义 Objective 的独立搜索，以及工作台的结构化结果与
 多图投影。一般连续搜索只提供带显式预算的 `best_found`，不声称全局证明。
 
+这些模型可以由作者本人或获得本地文件权限的 Agent 写成普通 `entries/**/*.kirin`。写入者身份不进入
+AST、IR、运行记录或证明等级，也不会赋予模型额外语义；Agent 仍必须把假设、事件顺序、Measure、
+Objective 和边界完整写进 source。打开的浏览器工作台只展示从磁盘发现的 source、其诊断和必要的
+冲突比较，不展示 Agent 的编辑过程。同步和冲突合同见
+[浏览器工作台规范](web-workbench.md#external-agent-authoring)。
+
 ## 1. 候选最小表面语法
 
 本轮冻结以下动态词汇作为 AST 与 parser 实现的输入；允许后续调整标点和不改变语义的简写，不能在

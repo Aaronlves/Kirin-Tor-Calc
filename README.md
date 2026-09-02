@@ -98,6 +98,18 @@ kt eval basic_model.total
 
 右侧检查器的结果使用源码默认值。需要改变默认预览时应编辑 `.kirin` 输入默认值；需要重复使用的组合应写成命名 `presets`。变换、求导、求解、扫描和网格目前使用相应 CLI 命令；多方案比较保留在共享计算服务层。这些高级操作没有在浏览器中复制成一组通用参数表单。
 
+### 与 Agent 一起创作
+
+保持 `kt web` 打开的同时，可以让本地 Agent 直接创建或修改工作区中的
+`entries/**/*.kirin`。Agent 不需要操作浏览器，也不需要通过 Kirin CLI 写文档；工作台会自动发现新
+文档，并在当前缓冲区没有未保存修改时重新加载源码和派生预览。界面只显示最终文档、诊断与结果，
+不会显示 Agent 的提示词、操作过程、终端或 CLI 输出。
+
+这是一种以 `.kirin` 文件为中介的协作，不是共享光标或隐藏的 Agent 状态。Agent 看不到浏览器内尚未
+保存的草稿；若双方改到同一文档，工作台保留草稿并打开 base/draft/disk 冲突比较。Agent 直接修改多
+个文件也不属于 Save All 原子事务，期间出现的不完整源码会照常显示诊断，只有通过完整校验的模型才
+能计算。详细合同见[浏览器工作台规范](docs/web-workbench.md#external-agent-authoring)。
+
 常用编辑快捷键：
 
 | 操作 | 快捷键 |
@@ -257,7 +269,7 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布，以及�
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
 | [有界 Process 模型](docs/bounded-process-model.md) | 动态机制统一语义、fuel、分析器与证明边界 |
 | [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标验证、Policy/Analysis 声明与当前可执行边界 |
-| [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
+| [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、外部 Agent 协作、保存、冲突与权威边界 |
 | [Kirin Tor community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
 | [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md) | 沙箱 UI 插件、贡献点、权限、批准、锁定和安全模式 |
 | [游戏机制计算能力边界](docs/game-mechanics-capability-audit.md) | 已证明能力、需要外部等效模型的情况和明确非目标 |

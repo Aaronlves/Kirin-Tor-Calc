@@ -311,6 +311,13 @@ runtime。容差是终止条件而非隐藏的固定步长，一般模型没有�
 Process、scenario 和普通静态声明都属于 `.kirin` source authority。索引、关系图、编辑器投影、trace、
 优化搜索树和运行记录不是可反向编辑的模型定义。
 
+Agent 不是 Process 运行时中的参与者，也不获得新的状态、事件、动作或求值权限。作者、Agent 和普通
+文本编辑器若修改本地 `entries/**/*.kirin`，写入的是同一份 source authority；后续加载仍必须经过
+同一个 parser、类型检查、fuel 验证和分析器。Agent 不能从字段名推断游戏语义，不能读取 Process
+运行时私有状态作为 Scenario/Analysis 输入，也不能把未写入 source 的推理变成模型事实。浏览器如何
+发现这类外部写入及保护未保存草稿，以
+[浏览器工作台规范](web-workbench.md#external-agent-authoring)为准。
+
 Community Package 可以发布游戏通用或游戏专用 process，但不能发布 Python 求值器或替换核心执行
 语义。Workbench Plugin 仍只能提供沙箱化视图和声明式操作请求，不能修改 process 结果。
 

@@ -18,9 +18,10 @@ The workbench keeps the following authority boundary:
 
 | State or surface | Author-editable | Persistence | Authority role |
 | --- | --- | --- | --- |
-| Local `.kirin` buffer | Yes | Unsaved overlay until Save All | The only editable definition source |
-| Local `.kirin` file | Through validated Save All | Durable workspace content | Authoritative local definition |
+| Local `.kirin` buffer | In the official editor | Unsaved overlay until Save All | Editable draft over the same source model; not durable authority |
+| Local `.kirin` file | Through validated Save All or an external local editor/Agent | Durable workspace content | Authoritative local definition; validity is established separately |
 | Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
+| Agent prompt, transcript, or activity state | No Workbench editing contract | Outside Kirin | Not model authority and not displayed or recorded by Kirin |
 | Completion and symbol index | No | Rebuilt in memory | Tolerant authoring projection, not validation evidence |
 | Bundled syntax reference | No | Versioned frontend content | Searchable writing aid whose examples are checked by the current validator |
 | Bundled tutorial source | No | Versioned application resource | Game-neutral learning source; excluded from the workspace until explicitly copied |
@@ -122,22 +123,42 @@ Saving a local document as a template copies its current durable source into the
 
 Package templates are data-only authoritative Package content: they participate in the release content digest, immutable cache copy, install-time syntax and mathematical validation, and offline verification. They cannot contain or register executable hooks.
 
+## External Agent authoring
+
+An external Agent is an ordinary local authoring tool to which the host environment has separately
+granted filesystem access. It is not a Process actor, Workbench Plugin, authenticated browser
+client, or new Kirin authority layer. The workbench does not grant that access and exposes no Agent
+control protocol. The Agent may create or edit writable `entries/**/*.kirin` directly; it does not
+need to drive the browser or invoke the Kirin CLI to write a document.
+
+The author sees the resulting source, diagnostics, and derived projections. The workbench does not
+embed an Agent activity feed, prompt history, CLI transcript, terminal, file-operation log, or
+hidden Agent-authored model state. Conversely, an external Agent cannot read the browser's unsaved
+buffers through this mechanism. Every durable definition remains inspectable as ordinary `.kirin`
+source.
+
+Direct external writes occur outside the Save All transaction. Kirin therefore does not promise an
+atomic multi-document update or suppress a temporarily incomplete source while an external tool is
+writing several files. Every observed disk state is parsed and validated normally; invalid or
+incomplete source remains visible with diagnostics and cannot be evaluated as if it were valid. An
+external tool that needs a single coherent multi-file cutover must provide its own atomic write
+discipline. This file-mediated contract is not simultaneous cursor sharing, CRDT collaboration, or
+a general Agent execution protocol.
+
 ## Saving and conflicts
 
 Every opened local document has an original source hash and an in-memory buffer. Save All first loads and validates the complete overlay. It then compares each original hash with the current disk file and rejects external changes. If all checks pass, all modified files are staged, flushed, and atomically replaced. Package documents never enter the writable overlay. A rejected external change keeps the draft intact and opens a base/draft/disk comparison. When a verified common base is available, a three-way merge combines non-overlapping edits and returns the result as an unsaved draft; overlapping edits remain explicit conflict markers. Recovered drafts without a verified base cannot invoke automatic merge. The author may also continue editing, download a `.workbench-draft.kirin` recovery copy, or explicitly replace the buffer with the current disk version.
 
-While the page is visible, the browser polls a lightweight revision containing only local
-`entries/**/*.kirin` paths and source hashes. A newly created local document appears without a page
-refresh. If an already opened buffer is clean, an external write reloads that source and revalidates
+While the page is visible, the browser polls a lightweight revision containing local document
+metadata and source hashes, but no source bodies. A newly created local document appears without a
+page refresh. If an already opened buffer is clean, an external write reloads that source and revalidates
 the derived preview automatically. If the buffer contains an unsaved draft, the external write never
 overwrites it and instead opens the same base/draft/disk comparison. If a dirty source is removed from
 disk, its buffer is retained as a new unsaved document that Save All can recreate. Locked Package
 documents are outside this local-write monitor.
 
-This synchronization exposes only the resulting authoritative source state. The workbench does not
-embed an Agent activity feed, CLI transcript, terminal, or file-operation log; an Agent or any other
-local tool may edit `.kirin` files directly, and the author sees the resulting document and its derived
-projections.
+The lightweight monitor is a discovery mechanism, not another persistence layer. It does not write
+source, acknowledge Agent operations, or change the authority and validation rules above.
 
 Document file actions require a clean workspace and an unchanged source hash. Move changes only an `entries/**/*.kirin` file path; it does not rename the source-authored `@entry` ID, aliases, members, or mathematical semantics. Duplicate asks for a new ASCII entry ID, updates the copied document's self-qualified references, validates the candidate workspace, and opens an unsaved draft. Remove first moves the file to `.kirin/trash/documents` and validates the remaining workspace; any broken reference or semantic dependency restores the original file and rejects the action. These actions never mutate locked Package documents.
 
