@@ -10,7 +10,29 @@ Process Analysis 已接入 CLI、浏览器工作台实时投影、多图导出�
 
 ## 安装
 
-需要 Python 3.9 或更新版本。预发布构建可从 [GitHub Releases](https://github.com/Aaronlves/Kirin-Tor-Calc/releases) 下载：
+Kirin Tor 需要 Python 3.9 或更新版本。长期使用推荐先按
+[`uv` 官方说明](https://docs.astral.sh/uv/getting-started/installation/)安装 `uv`，再让它为 Kirin Tor
+维护独立环境。当前版本仍是预发布版，因此安装和升级时需要显式允许预发布版本：
+
+```bash
+uv tool install --prerelease allow kirin-tor-cli
+kt version
+kt web
+```
+
+以后升级仍使用同一独立环境，不需要进入源码目录或手动激活虚拟环境：
+
+```bash
+uv tool upgrade --prerelease allow kirin-tor-cli
+```
+
+正式版发布后，上述安装和升级命令可以省略 `--prerelease allow`。不再需要时可以完整移除：
+
+```bash
+uv tool uninstall kirin-tor-cli
+```
+
+也可以从 [GitHub Releases](https://github.com/Aaronlves/Kirin-Tor-Calc/releases) 下载 wheel，手动安装到自行管理的虚拟环境：
 
 ```bash
 python3 -m venv .venv
@@ -20,7 +42,7 @@ python -m pip install /path/to/kirin_tor_cli-VERSION-py3-none-any.whl
 kt version
 ```
 
-也可以安装当前源码：
+也可以直接安装当前源码：
 
 ```bash
 python3 -m venv .venv

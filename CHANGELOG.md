@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0rc3 — 2026-09-03 (pre-release)
+
+- Added credential-free PyPI publication through GitHub trusted publishing and documented the persistent `uv tool` installation, upgrade, launch, and removal path.
+
 ## 0.3.0rc2 — 2026-09-03 (pre-release)
 
 - Added typed bounded-Process expression, Process, Scenario, Policy, and Analysis AST/IR; symbolic domains; canonical round trips; exact safe expression evaluation; transition and static batch conflict validation; explicit phase mapping; and visible event/decision fuel preflight.
