@@ -47,7 +47,7 @@ function chartOption(chart: ProcessChart): EChartsOption {
     textStyle: { color: "#9c998f", fontFamily: "Inter, sans-serif" },
     grid: { left: 66, right: 38, top: 58, bottom: 66 },
     tooltip: { trigger: "item", backgroundColor: "#1d1c18", borderColor: "#3a3832", textStyle: { color: "#eeeae1" } },
-    legend: { top: 8, textStyle: { color: "#b8b4aa", fontSize: 10 } },
+    legend: { top: 8, textStyle: { color: "#b8b4aa", fontSize: 11 } },
     dataZoom: [{ type: "inside", filterMode: "none" }],
   };
   if (kind === "trajectory") {

@@ -115,7 +115,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
       setResult(response);
       notifications.show({ color: "green", title: "工作区已初始化", message: String(response.path || workspacePath) });
     } catch (error) {
-      notifications.show({ color: "red", title: "无法初始化工作区", message: errorMessage(error) });
+      notifications.show({ color: "red", title: "无法初始化工作区", message: errorMessage(error), autoClose: false });
     } finally {
       setWorking(false);
     }

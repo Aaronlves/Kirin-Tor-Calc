@@ -106,7 +106,7 @@ export function RelationshipGraphCanvas({
         backgroundColor: "#1d1c18",
         borderColor: "#3a3832",
         borderWidth: 1,
-        textStyle: { color: "#eeeae1", fontSize: 11 },
+        textStyle: { color: "#eeeae1", fontSize: 12 },
         formatter: (params: unknown) => {
           const item = params as { dataType?: string; data?: { id?: string } };
           if (item.dataType !== "node" || !item.data?.id) return "公式依赖";
@@ -120,7 +120,7 @@ export function RelationshipGraphCanvas({
         top: 10,
         left: 12,
         data: categories.map((category) => category.name),
-        textStyle: { color: "#8d887d", fontSize: 10 },
+        textStyle: { color: "#a8a399", fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
       }],
@@ -135,7 +135,7 @@ export function RelationshipGraphCanvas({
           name: (labelCounts.get(node.label) || 0) > 1 ? `${node.document_id}.${node.label}` : node.label,
           selected: node.id === selectedId,
           category: categoryIndex.get(categoryLabels[node.kind] || node.kind) ?? 0,
-          symbolSize: Math.min(compact ? 23 : 34, (compact ? 11 : 15) + Math.sqrt(degree.get(node.id) || 1) * 3 + (rootIdSet.has(node.id) ? 2 : 0)),
+          symbolSize: Math.min(compact ? 25 : 38, (compact ? 13 : 17) + Math.sqrt(degree.get(node.id) || 1) * 3 + (rootIdSet.has(node.id) ? 2 : 0)),
           itemStyle: {
             color: categoryColors[node.kind] || "#8d887d",
             borderColor: rootIdSet.has(node.id) ? "#df8665" : "#171612",
@@ -144,7 +144,7 @@ export function RelationshipGraphCanvas({
           label: {
             show: sortedNodes.length <= (compact ? 18 : 45),
             color: "#b9b5aa",
-            fontSize: 10,
+            fontSize: compact ? 11 : 12,
             position: "right",
           },
         })),
@@ -163,9 +163,9 @@ export function RelationshipGraphCanvas({
           },
         } : { circular: { rotateLabel: false } }),
         edgeSymbol: ["none", "arrow"],
-        edgeSymbolSize: [0, compact ? 4 : 6],
-        lineStyle: { color: "source", opacity: 0.32, width: 1, curveness: 0.08 },
-        emphasis: { focus: "adjacency", lineStyle: { opacity: 0.8, width: 1.5 } },
+        edgeSymbolSize: [0, compact ? 5 : 7],
+        lineStyle: { color: "source", opacity: 0.48, width: 1.25, curveness: 0.08 },
+        emphasis: { focus: "adjacency", lineStyle: { opacity: 1, width: 2 } },
         select: { itemStyle: { borderColor: "#fff4e8", borderWidth: 2 } },
       }],
     };

@@ -33,7 +33,7 @@ The workbench keeps the following authority boundary:
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates. An empty workspace replaces the three-pane editor with a welcome surface for the bundled basic-model, preset-comparison, and scan/chart tutorials.
 - Relationship Graph derives global document and member projections from validated expression references and Process composition, then provides source navigation. Members include inputs, fields, functions, tables, finite distributions, objects, outputs, processes, scenarios, and analyses. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
-- Syntax Reference is a read-only drawer opened from the navigation rail, workspace menu, or command palette. It searches Chinese labels, canonical syntax terms, external-Agent authoring boundaries, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
+- Syntax Reference is a read-only drawer opened from the navigation rail or command palette. It searches Chinese labels, canonical syntax terms, external-Agent authoring boundaries, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
 - Workspace Search searches local drafts, disk sources, and locked Package sources together. Replace All skips Package sources and returns ordinary unsaved local overlays; it never writes directly to disk. Change Review compares every dirty buffer with its opening or creation baseline before Save All and separately exposes read-only Git log and working-tree summaries when the workspace belongs to a repository.
 - Runs is a workspace drawer for replay and explicit artifact regeneration.
 - Packages is a workspace drawer for add, add-path, list, update, remove, restore, verify, Package new/check, and workspace initialization.
@@ -60,7 +60,7 @@ The editor adds a tolerant authoring projection over complete or incomplete draf
 
 ## Workbench Extension Plugins
 
-The stable host discovers contributions only from enabled, locally approved, API-compatible plugin snapshots whose current cache content matches `kirin.plugins.lock`. The default Profile retains `documents` and `graph` and appends active plugin views; a contributed Profile supplies ordered view and tool lists, a default view, and an initial document focus mode. Switching Profile changes composition and layout state only. The workspace menu always retains Plugin management and a route back to the default Profile.
+The stable host discovers contributions only from enabled, locally approved, API-compatible plugin snapshots whose current cache content matches `kirin.plugins.lock`. The default Profile retains `documents` and `graph` and appends active plugin views; a contributed Profile supplies ordered view and tool lists, a default view, and an initial document focus mode. Switching Profile changes composition and layout state only. The Settings menu always retains Plugin management and a route back to the default Profile.
 
 A matching document renderer is selected by validated canonical entry ID, ID prefix, or Package name. It receives a structured projection only after the complete overlay validates. The author can switch back to the generic result/chart projection without changing source or plugin state. Top-level plugin views and tools receive only the workspace summary unless their manifest declares another supported permission.
 
@@ -68,20 +68,25 @@ Every executable surface is an iframe with `sandbox="allow-scripts"` and no same
 
 Plugin installation, update, enable, disable, removal, verification, activation status, digest, and contribution counts are available from the built-in Plugins drawer and the corresponding CLI. `kt web --safe-mode` returns no active contributions and refuses plugin assets even when workspace control files request them. A malformed plugin control file is reported without preventing the core Safe Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 
+`Ctrl/⌘` below means `Ctrl` on Windows and Linux, and `Command` on macOS.
+
 | Command | Shortcut | Contract |
 | --- | --- | --- |
-| Save All | `Mod+S` | Strictly validates and atomically saves all writable drafts |
+| Save All | `Ctrl/⌘+S` | Strictly validates and atomically saves all writable drafts |
 | Completion | `Ctrl+Space` | Searches built-ins, snippets, disk sources, and in-memory drafts |
-| Find/replace | `Mod+F` | Edits the current in-memory document |
-| Go to line | `Mod+G` | Navigates within the current document |
-| Document outline | `Mod+Shift+O` | Navigates the tolerant current-document symbol index |
-| Safe formatting | `Mod+Shift+F` | Normalizes safe whitespace without schema re-rendering |
-| Go to definition | `F12` or Mod-click | Opens the indexed source definition, including another document |
+| Find/replace | `Ctrl/⌘+F` | Edits the current in-memory document |
+| Go to line | `Ctrl/⌘+G` | Navigates within the current document |
+| Document outline | `Ctrl/⌘+Shift+O` | Navigates the tolerant current-document symbol index |
+| Safe formatting | `Ctrl/⌘+Shift+F` | Normalizes safe whitespace without schema re-rendering |
+| Go to definition | `F12` or Ctrl/⌘-click | Opens the indexed source definition, including another document |
 | Definitions and references | `Shift+F12` | Lists definitions, direct references, and alias-mediated uses |
-| Validated rename | `F2` | Produces validated writable overlays; it never edits Package source |
-| Workspace command/open search | `Mod+K` or `Mod+P` | Searches views, tools, documents, and symbols |
+| Validated member rename in the editor | `F2` | Produces validated writable overlays; it never edits Package source |
+| Rename or move a real `.kirin` file from the document list | `F2` | Opens the filesystem-path operation without changing the canonical `@entry` ID |
+| Workspace command/open search | `Ctrl/⌘+K` or `Ctrl/⌘+P` | Searches views, tools, documents, and symbols |
 
-Workspace Search and Change Review are available from the workspace menu and command palette. Search results navigate to exact source coordinates. A workspace replacement always opens Change Review when it produces edits, so Save All remains a separate author decision.
+Workspace Search, Change Review, run history, and plugin-contributed tools are available from the explicit Workspace Tools button and command palette. Package, plugin, and interface Profile controls live under the separate Settings button. Search results navigate to exact source coordinates. A workspace replacement always opens Change Review when it produces edits, so Save All remains a separate author decision.
+
+Ordinary success and informational notifications close after four seconds, with at most three visible at once. Failures, conflicts, and other notifications that require an author decision remain visible until dismissed or resolved.
 
 The fold gutter collapses indented declaration blocks and prose blocks. Hover shows a symbol's canonical identity, kind, signature, and unit or domain detail; completion details, symbol hover, and diagnostics can open the relevant bundled syntax topic without inserting text. The status bar shows the active function signature and parameter number together with the current line/column or selected character/line count. Focused and unfocused selections remain visibly distinct, and the insertion cursor and active line use the same ember interaction accent. The command palette also exposes Editor Only, Split, and Preview Only layout modes. Focus mode is remembered locally and changes only layout visibility, never source or projection semantics.
 
@@ -103,8 +108,8 @@ preview rows and rendered canvases remain derived, read-only state.
 
 The workbench uses one explicit grid hierarchy rather than stacking framework offsets and percentage split panes:
 
-- the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 64 px compact state, and the author choice is remembered locally;
-- the document view is a three-track grid with a 216–272 px source index, a flexible editor, and a 280–360 px inspector; the header switches between Editor Only, Split, and Preview Only focus modes, and remembers the author's choice locally;
+- the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 72 px compact state with visible labels, and the author choice is remembered locally;
+- the document view is a three-track grid with a 216–260 px source index, a flexible editor, and a 320–420 px inspector; the inspector collapses to a 40 px rail when the current document has no useful projection, while the header also switches between Editor Only, Split, and Preview Only focus modes and remembers the author's choice locally;
 - page-level tools use twelve-part proportions, including 9/3 for the relationship graph and 4/8 for run history;
 - adjacent workbench tracks share a single 1 px divider and never add their own outer margins.
 

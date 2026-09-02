@@ -320,9 +320,9 @@ const editorTheme = EditorView.theme({
     borderLeft: "2px solid #f08b66",
     marginLeft: "-1px",
   },
-  ".cm-selectionBackground": { backgroundColor: "#3f352f !important" },
-  "&.cm-focused .cm-selectionBackground": { backgroundColor: "#704536 !important" },
-  ".cm-content ::selection": { backgroundColor: "#704536 !important" },
+  ".cm-selectionBackground": { backgroundColor: "rgba(207, 116, 85, 0.24) !important" },
+  "&.cm-focused .cm-selectionBackground": { backgroundColor: "rgba(207, 116, 85, 0.42) !important" },
+  ".cm-content ::selection": { backgroundColor: "rgba(207, 116, 85, 0.42) !important" },
   ".cm-activeLine": { backgroundColor: "#171714" },
   "&.cm-focused .cm-activeLine": {
     backgroundColor: "#1b1916",

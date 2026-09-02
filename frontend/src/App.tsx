@@ -40,7 +40,7 @@ interface WorkbenchProfile {
 
 export function App() {
   const controller = useWorkbench();
-  const [activeView, setActiveView] = useState<ViewId>("documents");
+  const [activeView, setActiveView] = useState<ViewId>(() => localStorage.getItem("kirin:active-view") || "documents");
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
   const [syntaxTopic, setSyntaxTopic] = useState<string | null>(null);
   const [documentFocusMode, setDocumentFocusMode] = useState<DocumentFocusMode>(() => {
@@ -75,14 +75,19 @@ export function App() {
   }, [documentFocusMode]);
 
   useEffect(() => {
+    localStorage.setItem("kirin:active-view", activeView);
+  }, [activeView]);
+
+  useEffect(() => {
     if (profiles.some((item) => item.id === activeProfileId)) return;
     setActiveProfileId("default");
   }, [activeProfileId, profiles]);
 
   useEffect(() => {
+    if (!controller.bootstrapData) return;
     if (activeProfile.views.includes(activeView)) return;
     setActiveView(activeProfile.default_view);
-  }, [activeProfile, activeView]);
+  }, [activeProfile, activeView, controller.bootstrapData]);
 
   useEffect(() => {
     if (

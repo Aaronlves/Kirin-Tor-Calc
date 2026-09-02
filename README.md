@@ -135,20 +135,21 @@ kt eval basic_model.total
 个文件也不属于 Save All 原子事务，期间出现的不完整源码会照常显示诊断，只有通过完整校验的模型才
 能计算。详细合同见[浏览器工作台规范](docs/web-workbench.md#external-agent-authoring)。
 
-常用编辑快捷键：
+常用编辑快捷键（`Ctrl/⌘` 表示 Windows/Linux 使用 `Ctrl`，macOS 使用 `Command`）：
 
 | 操作 | 快捷键 |
 | --- | --- |
-| 保存全部 | `Mod+S` |
+| 保存全部 | `Ctrl/⌘+S` |
 | 补全 | `Ctrl+Space` |
-| 查找/替换 | `Mod+F` |
-| 跳到行 | `Mod+G` |
-| 文档符号大纲 | `Mod+Shift+O` |
-| 安全格式化 | `Mod+Shift+F` |
-| 转到定义 | `F12` 或 `Mod+单击` |
+| 查找/替换 | `Ctrl/⌘+F` |
+| 跳到行 | `Ctrl/⌘+G` |
+| 文档符号大纲 | `Ctrl/⌘+Shift+O` |
+| 安全格式化 | `Ctrl/⌘+Shift+F` |
+| 转到定义 | `F12` 或 `Ctrl/⌘+单击` |
 | 查看定义与引用 | `Shift+F12` |
-| 安全重命名 | `F2` |
-| 工作区快速打开 | `Mod+K` 或 `Mod+P` |
+| 编辑器内安全重命名成员 | `F2` |
+| 文档列表中重命名/移动真实 `.kirin` 文件 | `F2` |
+| 工作区快速打开 | `Ctrl/⌘+K` 或 `Ctrl/⌘+P` |
 
 完整交互与权威边界见[浏览器工作台规范](docs/web-workbench.md)。
 

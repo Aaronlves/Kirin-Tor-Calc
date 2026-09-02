@@ -76,7 +76,7 @@ function lineOption(result: OperationResult): EChartsOption {
     color: colors,
     backgroundColor: "transparent",
     textStyle: { color: "#9c998f", fontFamily: "Inter, sans-serif" },
-    grid: { left: 64, right: 34, top: 58, bottom: 74, containLabel: false },
+    grid: { left: 52, right: 18, top: 56, bottom: 72, containLabel: false },
     legend: {
       top: 10,
       left: 10,
@@ -103,7 +103,7 @@ function lineOption(result: OperationResult): EChartsOption {
         backgroundColor: "#151512",
         fillerColor: "rgba(217, 119, 87, .18)",
         handleStyle: { color: "#d97757", borderColor: "#d97757" },
-        textStyle: { color: "#77736a", fontSize: 10 },
+        textStyle: { color: "#8f8a80", fontSize: 11 },
       },
     ],
     xAxis: {
@@ -115,13 +115,13 @@ function lineOption(result: OperationResult): EChartsOption {
       data: isNumericAxis ? undefined : xValues,
       axisLine: { lineStyle: { color: "#45423b" } },
       axisTick: { lineStyle: { color: "#45423b" } },
-      axisLabel: { color: "#817d74", hideOverlap: true },
+      axisLabel: { color: "#918d84", fontSize: 11, hideOverlap: true },
       splitLine: { lineStyle: { color: "#25241f" } },
     } as EChartsOption["xAxis"],
     yAxis: {
       type: "value",
       axisLine: { show: false },
-      axisLabel: { color: "#817d74" },
+      axisLabel: { color: "#918d84", fontSize: 11 },
       splitLine: { lineStyle: { color: "#25241f" } },
     },
     series: targets.map((target, targetIndex) => ({
@@ -195,14 +195,14 @@ function heatmapOption(result: OperationResult): EChartsOption {
       orient: "vertical",
       right: 12,
       top: "center",
-      textStyle: { color: "#817d74", fontSize: 10 },
+      textStyle: { color: "#918d84", fontSize: 11 },
       inRange: { color: ["#2a2521", "#7a4738", "#d97757", "#e8b86d"] },
     },
     series: [{
       name: String(result.target_label || result.target || "结果"),
       type: "heatmap",
       data,
-      label: { show: data.length <= 100, color: "#f5efe6", fontSize: 10 },
+      label: { show: data.length <= 100, color: "#f5efe6", fontSize: 11 },
       emphasis: { itemStyle: { borderColor: "#f2efe8", borderWidth: 1 } },
     }],
   };

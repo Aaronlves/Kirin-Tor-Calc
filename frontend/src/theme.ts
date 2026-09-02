@@ -1,4 +1,4 @@
-import { createTheme, rem } from "@mantine/core";
+import { createTheme, Drawer, Modal, rem } from "@mantine/core";
 
 export const kirinTheme = createTheme({
   primaryColor: "ember",
@@ -20,6 +20,18 @@ export const kirinTheme = createTheme({
       h2: { fontSize: rem(16), lineHeight: "1.35" },
       h3: { fontSize: rem(14), lineHeight: "1.4" },
     },
+  },
+  components: {
+    Drawer: Drawer.extend({
+      defaultProps: {
+        closeButtonProps: { "aria-label": "关闭抽屉" },
+      },
+    }),
+    Modal: Modal.extend({
+      defaultProps: {
+        closeButtonProps: { "aria-label": "关闭对话框" },
+      },
+    }),
   },
   colors: {
     dark: [

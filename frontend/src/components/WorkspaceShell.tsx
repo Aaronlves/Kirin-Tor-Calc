@@ -20,6 +20,7 @@ import {
   BookOpenText,
   Braces,
   Check,
+  ChevronDown,
   CircleAlert,
   Columns3,
   Command,
@@ -34,7 +35,9 @@ import {
   Puzzle,
   Save,
   Search,
+  Settings,
   Square,
+  Wrench,
 } from "lucide-react";
 
 import type { DocumentFocusMode, PluginCommandContribution, PluginSurfaceContribution, ViewId, WorkspaceTool } from "../types";
@@ -134,9 +137,16 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      if (!event.metaKey && !event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "s") {
         event.preventDefault();
         void controller.saveAll();
+        return;
+      }
+      if (key === "k" || key === "p") {
+        event.preventDefault();
+        spotlight.open();
       }
     };
     window.addEventListener("keydown", handleShortcut);
@@ -283,7 +293,6 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
     <>
       <Spotlight
         actions={spotlightActions}
-        shortcut={["mod + K", "mod + P"]}
         searchProps={{
           leftSection: <Search size={17} strokeWidth={1.7} />,
           placeholder: "搜索页面或命令…",
@@ -330,20 +339,27 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                 variant="default"
                 size="xs"
                 leftSection={<Command size={14} strokeWidth={1.7} />}
-                rightSection={<Kbd>⌘ K</Kbd>}
+                rightSection={<Kbd>Ctrl/⌘K</Kbd>}
                 onClick={() => spotlight.open()}
               >
                 命令
               </Button>
               <Menu position="bottom-end" withinPortal>
-                <Menu.Target><Button variant="default" size="xs">工作区</Button></Menu.Target>
+                <Menu.Target>
+                  <Button
+                    variant="default"
+                    size="xs"
+                    leftSection={<Wrench size={14} strokeWidth={1.7} />}
+                    rightSection={<ChevronDown size={12} strokeWidth={1.7} />}
+                  >
+                    工作区工具
+                  </Button>
+                </Menu.Target>
                 <Menu.Dropdown>
                   <Menu.Label>工作区工具</Menu.Label>
                   <Menu.Item leftSection={<Search size={14} />} onClick={() => onOpenTool("search")}>全文搜索与替换</Menu.Item>
                   <Menu.Item leftSection={<ListChecks size={14} />} onClick={() => onOpenTool("changes")}>保存前变更审查</Menu.Item>
                   <Menu.Item leftSection={<History size={14} />} onClick={() => onOpenTool("runs")}>运行记录</Menu.Item>
-                  <Menu.Item leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Menu.Item>
-                  <Menu.Item leftSection={<Plug size={14} />} onClick={() => onOpenTool("plugins")}>Workbench Plugins</Menu.Item>
                   {controller.pluginSummary.contributions.tools.filter((tool) => activeProfile.tools.includes(tool.id)).length > 0 && <>
                     <Menu.Divider />
                     <Menu.Label>插件工具</Menu.Label>
@@ -351,6 +367,23 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                       <Menu.Item key={tool.id} leftSection={<Puzzle size={14} />} onClick={() => onOpenTool(tool.id)}>{tool.title}</Menu.Item>
                     ))}
                   </>}
+                </Menu.Dropdown>
+              </Menu>
+              <Menu position="bottom-end" withinPortal>
+                <Menu.Target>
+                  <Button
+                    variant="default"
+                    size="xs"
+                    leftSection={<Settings size={14} strokeWidth={1.7} />}
+                    rightSection={<ChevronDown size={12} strokeWidth={1.7} />}
+                  >
+                    设置
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>依赖与扩展</Menu.Label>
+                  <Menu.Item leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Menu.Item>
+                  <Menu.Item leftSection={<Plug size={14} />} onClick={() => onOpenTool("plugins")}>Workbench Plugins</Menu.Item>
                   <Menu.Divider />
                   <Menu.Label>界面 Profile</Menu.Label>
                   {profiles.map((profile) => (
@@ -360,10 +393,6 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                       onClick={() => onProfileChange(profile.id)}
                     >{profile.title}</Menu.Item>
                   ))}
-                  <Menu.Divider />
-                  <Menu.Label>参考</Menu.Label>
-                  <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin Tor 语法参考</Menu.Item>
-                  <Menu.Item leftSection={<FileCode2 size={14} />} onClick={() => openSyntaxReference("external-authoring")}>Agent 与外部编辑器</Menu.Item>
                 </Menu.Dropdown>
               </Menu>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
@@ -430,7 +459,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                             component="button"
                             active={activeView === item.id}
                             aria-label={item.label}
-                            label={compactNavigation ? undefined : item.label}
+                            label={item.label}
                             leftSection={<Icon size={17} strokeWidth={1.65} />}
                             onClick={() => onViewChange(item.id)}
                           />
@@ -446,7 +475,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                       component="button"
                       active={activeTool === "syntax"}
                       aria-label="语法参考"
-                      label={compactNavigation ? undefined : "语法参考"}
+                      label="语法参考"
                       leftSection={<BookOpenText size={17} strokeWidth={1.65} />}
                       onClick={() => onOpenTool("syntax")}
                     />

@@ -14,7 +14,7 @@ import { kirinTheme } from "./theme";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <MantineProvider defaultColorScheme="dark" theme={kirinTheme}>
-      <Notifications position="top-right" />
+      <Notifications position="top-right" autoClose={4000} limit={3} />
       <App />
     </MantineProvider>
   </StrictMode>,

@@ -77,6 +77,20 @@ function filteredProjection(nodes: RelationshipNode[], edges: RelationshipEdge[]
   };
 }
 
+function relatedNodes(
+  selectedId: string,
+  edges: RelationshipEdge[],
+  nodes: RelationshipNode[],
+  relation: "dependencies" | "users",
+): RelationshipNode[] {
+  const relatedIds = new Set(edges.flatMap((edge) => {
+    if (relation === "dependencies" && edge.target === selectedId) return [edge.source];
+    if (relation === "users" && edge.source === selectedId) return [edge.target];
+    return [];
+  }));
+  return nodes.filter((node) => relatedIds.has(node.id));
+}
+
 export function GraphView({ controller, onNavigate }: GraphViewProps) {
   const [graph, setGraph] = useState<RelationshipGraphResult | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("documents");
@@ -112,11 +126,27 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
     () => filteredProjection(baseNodes, baseEdges, query),
     [baseEdges, baseNodes, query],
   );
-  const selected = baseNodes.find((node) => node.id === selectedId) || null;
+  const selected = projection.nodes.find((node) => node.id === selectedId) || null;
+  const selectedDependencies = selected ? relatedNodes(selected.id, projection.edges, projection.nodes, "dependencies") : [];
+  const selectedUsers = selected ? relatedNodes(selected.id, projection.edges, projection.nodes, "users") : [];
 
   useEffect(() => {
-    if (selectedId && !baseNodes.some((node) => node.id === selectedId)) setSelectedId(null);
-  }, [baseNodes, selectedId]);
+    if (!projection.nodes.length) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (selectedId && projection.nodes.some((node) => node.id === selectedId)) return;
+    const degree = new Map(projection.nodes.map((node) => [node.id, 0]));
+    for (const edge of projection.edges) {
+      degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+      degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+    }
+    const next = [...projection.nodes].sort((left, right) => (
+      (degree.get(right.id) || 0) - (degree.get(left.id) || 0)
+      || left.label.localeCompare(right.label)
+    ))[0];
+    setSelectedId(next.id);
+  }, [projection.edges, projection.nodes, selectedId]);
 
   if (loading && !graph) return <LoadingState label="正在从公式构建关系图…" />;
 
@@ -191,9 +221,25 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
                 <Box>
                   <Text className="result-label">连接</Text>
                   <Text fz="xs" c="dimmed" mt={6}>
-                    {baseEdges.filter((edge) => edge.target === selected.id).length} 个直接依赖 · {baseEdges.filter((edge) => edge.source === selected.id).length} 个直接使用者
+                    {selectedDependencies.length} 个直接依赖 · {selectedUsers.length} 个直接使用者
                   </Text>
                 </Box>
+                <Stack gap="md" className="graph-neighbor-groups">
+                  <Box>
+                    <Text className="result-label">直接依赖</Text>
+                    <div className="graph-neighbor-list">
+                      {selectedDependencies.map((node) => <button key={node.id} type="button" onClick={() => setSelectedId(node.id)}><strong>{node.label}</strong><small>{node.id}</small></button>)}
+                      {!selectedDependencies.length && <Text c="dimmed" fz="xs">无</Text>}
+                    </div>
+                  </Box>
+                  <Box>
+                    <Text className="result-label">直接使用者</Text>
+                    <div className="graph-neighbor-list">
+                      {selectedUsers.map((node) => <button key={node.id} type="button" onClick={() => setSelectedId(node.id)}><strong>{node.label}</strong><small>{node.id}</small></button>)}
+                      {!selectedUsers.length && <Text c="dimmed" fz="xs">无</Text>}
+                    </div>
+                  </Box>
+                </Stack>
                 <Button leftSection={<ExternalLink size={14} />} onClick={() => onNavigate(selected.path, selected.line, selected.column)}>在文档中打开</Button>
               </Stack>
             </ScrollArea>

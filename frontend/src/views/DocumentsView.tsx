@@ -42,6 +42,8 @@ import {
   MoreHorizontal,
   Network,
   PackageOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Save,
   Search,
   Trash2,
@@ -121,8 +123,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [renameName, setRenameName] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [documentLifecycleAction, setDocumentLifecycleAction] = useState<"move" | "duplicate" | "remove" | null>(null);
+  const [documentLifecycleDocument, setDocumentLifecycleDocument] = useState<DocumentItem | null>(null);
   const [documentLifecycleValue, setDocumentLifecycleValue] = useState("");
   const [documentLifecycleRunning, setDocumentLifecycleRunning] = useState(false);
+  const [inspectorOverrides, setInspectorOverrides] = useState<Record<string, boolean>>({});
   const [cursorContext, setCursorContext] = useState<EditorCursorContext>({
     symbolId: null,
     containerSymbolId: null,
@@ -157,7 +161,8 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const validTutorialDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(tutorialDocumentId.trim());
   const tutorialDocumentPath = `entries/${tutorialDocumentId.trim()}.kirin`;
   const tutorialDocumentExists = controller.documents.some((item) => item.path === tutorialDocumentPath);
-  const validMovePath = isSafeDocumentPath(documentLifecycleValue.trim());
+  const safeMovePath = isSafeDocumentPath(documentLifecycleValue.trim());
+  const validMovePath = safeMovePath && documentLifecycleValue.trim() !== documentLifecycleDocument?.path;
   const validDuplicateId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentLifecycleValue.trim());
   const currentOutline = useMemo(
     () => current ? documentOutline(controller.authoringIndex, current.key) : [],
@@ -282,6 +287,29 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       return path === current.path || path.endsWith(current.path);
     });
   }, [controller.bootstrapData?.workspace, controller.validationItems, current]);
+  const currentHasPreviewProjection = Boolean(currentEntryId && (
+    currentExplainTargets.length
+    || controller.workspaceIndex.charts.some((item) => item.value === currentEntryId)
+    || controller.workspaceIndex.analyses.some((item) => item.value.startsWith(`${currentEntryId}.`))
+    || controller.pluginSummary.contributions.renderers.some((renderer) => {
+      const match = renderer.match;
+      return Boolean(match && (
+        match.document_ids.includes(currentEntryId)
+        || match.document_id_prefixes.some((prefix) => currentEntryId.startsWith(prefix))
+        || current?.package?.name && match.package_names.includes(current.package.name)
+      ));
+    })
+  ));
+  const inspectorCollapsed = Boolean(current && (
+    inspectorOverrides[current.key] ?? (!currentHasPreviewProjection && currentDiagnostics.length === 0)
+  ));
+  const effectiveInspectorCollapsed = focusMode === "split" && inspectorCollapsed;
+
+  useEffect(() => {
+    if (!current || currentDiagnostics.length === 0) return;
+    setInspectorOverrides((overrides) => ({ ...overrides, [current.key]: false }));
+    setInspectorTab("diagnostics");
+  }, [current, currentDiagnostics.length]);
 
   const navigateToSource = (key: string, line?: number | null, column?: number | null) => {
     onFocusModeChange("split");
@@ -347,7 +375,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       setDocumentId("");
       notifications.show({ color: "orange", title: "草稿已创建", message: "文档尚未写入磁盘；保存全部后才会成为工作区源码。" });
     } catch (error) {
-      notifications.show({ color: "red", title: "无法创建文档", message: errorMessage(error) });
+      notifications.show({ color: "red", title: "无法创建文档", message: errorMessage(error), autoClose: false });
     } finally {
       setCreating(false);
     }
@@ -384,24 +412,34 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     }
   };
 
-  const openDocumentLifecycle = (action: "move" | "duplicate" | "remove") => {
-    if (!current) return;
+  const openDocumentLifecycle = (action: "move" | "duplicate" | "remove", document = current) => {
+    if (!document || document.read_only) return;
+    if (controller.dirtyCount > 0) {
+      notifications.show({
+        color: "orange",
+        title: "暂不能改变文件结构",
+        message: "请先保存或处理全部草稿，再重命名、移动、复制或移除真实文件。",
+      });
+      return;
+    }
+    setDocumentLifecycleDocument(document);
     setDocumentLifecycleAction(action);
-    setDocumentLifecycleValue(action === "move" ? current.path : "");
+    setDocumentLifecycleValue(action === "move" ? document.path : "");
   };
 
   const handleDocumentLifecycle = async () => {
-    if (!current || !documentLifecycleAction || documentLifecycleRunning) return;
+    if (!documentLifecycleDocument || !documentLifecycleAction || documentLifecycleRunning) return;
     setDocumentLifecycleRunning(true);
     try {
       const payload: Record<string, unknown> = {
-        key: current.key,
-        expected_sha256: controller.hashes[current.key],
+        key: documentLifecycleDocument.key,
+        expected_sha256: controller.hashes[documentLifecycleDocument.key] ?? documentLifecycleDocument.source_sha256,
       };
       if (documentLifecycleAction === "move") payload.destination = documentLifecycleValue.trim();
       if (documentLifecycleAction === "duplicate") payload.document_id = documentLifecycleValue.trim();
       await controller.documentAction(documentLifecycleAction, payload);
       setDocumentLifecycleAction(null);
+      setDocumentLifecycleDocument(null);
       setDocumentLifecycleValue("");
     } catch (error) {
       notifications.show({ color: "red", title: "文档操作未完成", message: errorMessage(error), autoClose: false });
@@ -413,12 +451,12 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const handleSaveTemplate = async () => {
     if (!current || !templateId.trim()) return;
     if (currentDirty) {
-      notifications.show({ color: "red", message: "请先保存当前文档，再将它保存为创建模板。" });
+      notifications.show({ color: "orange", message: "请先保存当前文档，再将它保存为创建模板。" });
       return;
     }
     const header = currentText.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$/m);
     if (!header) {
-      notifications.show({ color: "red", message: "当前源码没有有效的 @entry 文档头。" });
+      notifications.show({ color: "orange", message: "当前源码没有有效的 @entry 文档头。" });
       return;
     }
     try {
@@ -427,7 +465,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       setTemplateId("");
       notifications.show({ color: "green", message: "创建模板已保存到工作区。" });
     } catch (error) {
-      notifications.show({ color: "red", title: "无法保存模板", message: errorMessage(error) });
+      notifications.show({ color: "red", title: "无法保存模板", message: errorMessage(error), autoClose: false });
     }
   };
 
@@ -438,7 +476,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       notifications.show({ color: "green", message: "工作区模板已删除；由它生成的现有文档没有改变。" });
       setDeleteTemplate(null);
     } catch (error) {
-      notifications.show({ color: "red", title: "无法删除模板", message: errorMessage(error) });
+      notifications.show({ color: "red", title: "无法删除模板", message: errorMessage(error), autoClose: false });
     }
   };
 
@@ -448,7 +486,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
 
   return (
     <>
-      <div className={`documents-workspace is-focus-${focusMode}${emptyWorkspace ? " is-empty" : ""}`} id="documents-layout">
+      <div className={`documents-workspace is-focus-${focusMode}${emptyWorkspace ? " is-empty" : ""}${effectiveInspectorCollapsed ? " is-inspector-collapsed" : ""}`} id="documents-layout">
         {!emptyWorkspace && focusMode === "split" && <section className="workspace-panel explorer-panel" aria-label="文档索引">
           <div className="panel-toolbar">
             <Group justify="space-between" wrap="nowrap">
@@ -479,6 +517,12 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                     key={item.key}
                     type="button"
                     onClick={() => { void controller.openDocument(item.key); }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "F2") return;
+                      event.preventDefault();
+                      openDocumentLifecycle("move", item);
+                    }}
+                    title="F2：重命名或移动真实文件"
                   >
                     <span className="document-kind-icon">{documentIcon(item)}</span>
                     <span className="document-list-copy">
@@ -584,7 +628,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   <Group gap={4} wrap="nowrap">
                     <Popover opened={outlineOpened} onChange={setOutlineOpened} position="bottom-end" width={330} withinPortal>
                       <Popover.Target>
-                        <Tooltip label="文档符号大纲 · ⌘⇧O">
+                        <Tooltip label="文档符号大纲 · Ctrl/⌘ Shift+O">
                           <ActionIcon variant="subtle" color="gray" aria-label="文档符号大纲" onClick={() => setOutlineOpened((opened) => !opened)}>
                             <ListTree size={15} />
                           </ActionIcon>
@@ -624,7 +668,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         </ActionIcon>
                       </Tooltip>
                     )}
-                    <Tooltip label={`保存全部${controller.dirtyCount ? `（${controller.dirtyCount} 个草稿）` : ""} · ⌘S`}>
+                    <Tooltip label={`保存全部${controller.dirtyCount ? `（${controller.dirtyCount} 个草稿）` : ""} · Ctrl/⌘ S`}>
                       <ActionIcon
                         variant="subtle"
                         color="gray"
@@ -633,6 +677,17 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         disabled={!controller.dirtyCount}
                       >
                         <Save size={15} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="重命名或移动真实文件 · 文档列表 F2">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        aria-label="重命名或移动真实文件"
+                        disabled={current.read_only || controller.dirtyCount > 0}
+                        onClick={() => openDocumentLifecycle("move")}
+                      >
+                        <FolderInput size={15} />
                       </ActionIcon>
                     </Tooltip>
                     <Menu position="bottom-end" withinPortal>
@@ -653,9 +708,9 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         <Menu.Item
                           leftSection={<WandSparkles size={14} />}
                           disabled={current.read_only}
-                          onClick={() => { void controller.formatDocument(current.key).catch((error) => notifications.show({ color: "red", title: "无法格式化", message: errorMessage(error) })); }}
+                          onClick={() => { void controller.formatDocument(current.key).catch((error) => notifications.show({ color: "red", title: "无法格式化", message: errorMessage(error), autoClose: false })); }}
                         >
-                          格式化文档 <span className="menu-shortcut">⌘⇧F</span>
+                          格式化文档 <span className="menu-shortcut">Ctrl/⌘ Shift+F</span>
                         </Menu.Item>
                         <Menu.Item
                           leftSection={<BookTemplate size={14} />}
@@ -671,7 +726,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                           disabled={current.read_only || controller.dirtyCount > 0}
                           onClick={() => openDocumentLifecycle("move")}
                         >
-                          移动文件路径
+                          重命名 / 移动真实文件 <span className="menu-shortcut">文档列表 F2</span>
                         </Menu.Item>
                         <Menu.Item
                           leftSection={<Copy size={14} />}
@@ -727,7 +782,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                     : `行 ${cursorContext.line}，列 ${cursorContext.column}`}
                 </span>
                 <span>UTF-8</span>
-                {!current.read_only && <span>补全 ⌃Space · 定义 F12 · 引用 ⇧F12 · 改名 F2</span>}
+                {!current.read_only && <span>补全 Ctrl+Space · 定义 F12 · 引用 Shift+F12 · 成员改名 F2</span>}
               </div>
             </>
           ) : (
@@ -739,16 +794,49 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           )}
         </section>
 
-        {!emptyWorkspace && focusMode !== "editor" && <aside className="workspace-panel inspector-panel" aria-label="文档检查器">
-          <Tabs value={inspectorTab} onChange={setInspectorTab} className="inspector-tabs" keepMounted={false}>
-            <Tabs.List grow>
-              <Tabs.Tab value="preview" leftSection={<Eye size={13} />}>预览</Tabs.Tab>
-              <Tabs.Tab value="relationships" leftSection={<Network size={13} />}>关系</Tabs.Tab>
-              <Tabs.Tab value="diagnostics" leftSection={controller.validationItems.length ? <CircleAlert size={13} /> : <CircleCheck size={13} />}>
-                诊断{controller.validationItems.length ? ` ${controller.validationItems.length}` : ""}
-              </Tabs.Tab>
-              <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
-            </Tabs.List>
+        {!emptyWorkspace && focusMode !== "editor" && <aside className={`workspace-panel inspector-panel${effectiveInspectorCollapsed ? " is-collapsed" : ""}`} aria-label="文档检查器">
+          {effectiveInspectorCollapsed ? (
+            <div className="inspector-collapsed-rail">
+              <Tooltip label="展开检查器" position="left">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  aria-label="展开检查器"
+                  onClick={() => {
+                    if (!current) return;
+                    setInspectorOverrides((overrides) => ({ ...overrides, [current.key]: false }));
+                    if (!currentHasPreviewProjection) setInspectorTab(currentDiagnostics.length ? "diagnostics" : "relationships");
+                  }}
+                >
+                  <PanelRightOpen size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <span>检查器</span>
+            </div>
+          ) : <Tabs value={inspectorTab} onChange={setInspectorTab} className="inspector-tabs" keepMounted={false}>
+            <div className="inspector-tabbar">
+              <Tabs.List grow>
+                <Tabs.Tab value="preview" leftSection={<Eye size={13} />}>预览</Tabs.Tab>
+                <Tabs.Tab value="relationships" leftSection={<Network size={13} />}>关系</Tabs.Tab>
+                <Tabs.Tab value="diagnostics" leftSection={controller.validationItems.length ? <CircleAlert size={13} /> : <CircleCheck size={13} />}>
+                  诊断{controller.validationItems.length ? ` ${controller.validationItems.length}` : ""}
+                </Tabs.Tab>
+                <Tabs.Tab value="formula" leftSection={<Braces size={13} />}>公式</Tabs.Tab>
+              </Tabs.List>
+              {focusMode === "split" && <Tooltip label="收起检查器" position="left">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  aria-label="收起检查器"
+                  onClick={() => {
+                    if (!current) return;
+                    setInspectorOverrides((overrides) => ({ ...overrides, [current.key]: true }));
+                  }}
+                >
+                  <PanelRightClose size={16} />
+                </ActionIcon>
+              </Tooltip>}
+            </div>
             <Tabs.Panel value="preview" className="inspector-content">
               {current ? <DocumentPreview controller={controller} document={current} source={currentText} activeSymbolId={activeSymbolId} onNavigateToSource={navigateToSource} /> : <EmptyState title="选择一个文档" description="结果和图表会从当前文档源码按需出现。" />}
             </Tabs.Panel>
@@ -827,7 +915,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 </Stack>
               </ScrollArea>
             </Tabs.Panel>
-          </Tabs>
+          </Tabs>}
         </aside>}
       </div>
 
@@ -875,13 +963,13 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
 
       <Modal
         opened={documentLifecycleAction !== null}
-        onClose={() => setDocumentLifecycleAction(null)}
-        title={documentLifecycleAction === "move" ? "移动文档文件" : documentLifecycleAction === "duplicate" ? "复制为新文档" : "移到恢复区"}
+        onClose={() => { setDocumentLifecycleAction(null); setDocumentLifecycleDocument(null); }}
+        title={documentLifecycleAction === "move" ? "重命名或移动真实文件" : documentLifecycleAction === "duplicate" ? "复制为新文档" : "移到恢复区"}
         centered
       >
-        {current && <Stack gap="md">
+        {documentLifecycleDocument && <Stack gap="md">
           <Box>
-            <Text fz="sm" fw={650}>{current.path}</Text>
+            <Text fz="sm" fw={650}>{documentLifecycleDocument.path}</Text>
             <Text c="dimmed" fz="xs" mt={4}>
               {documentLifecycleAction === "move" && "只改变 entries/ 下的文件路径，不会修改源码中的 @entry ID、别名或任何数学语义。"}
               {documentLifecycleAction === "duplicate" && "复制会生成新的 @entry ID，并把对原文档自身的正式引用改为新 ID；结果先成为未保存草稿。"}
@@ -889,11 +977,15 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
             </Text>
           </Box>
           {documentLifecycleAction === "move" && <TextInput
-            label="目标文件路径"
-            description="必须位于 entries/ 内并以 .kirin 结尾。"
+            label="新的真实文件路径"
+            description="可只改文件名，也可移动子目录；必须位于 entries/ 内并以 .kirin 结尾。"
             value={documentLifecycleValue}
             onChange={(event) => setDocumentLifecycleValue(event.currentTarget.value)}
-            error={documentLifecycleValue && !validMovePath ? "请输入安全的 entries/.../*.kirin 路径" : null}
+            error={documentLifecycleValue && !safeMovePath
+              ? "请输入安全的 entries/.../*.kirin 路径"
+              : documentLifecycleValue.trim() === documentLifecycleDocument.path
+                ? "请输入不同的文件路径"
+                : null}
           />}
           {documentLifecycleAction === "duplicate" && <TextInput
             label="新文档 ID"
@@ -904,14 +996,14 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           />}
           <Divider />
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => setDocumentLifecycleAction(null)}>取消</Button>
+            <Button variant="default" onClick={() => { setDocumentLifecycleAction(null); setDocumentLifecycleDocument(null); }}>取消</Button>
             <Button
               className={documentLifecycleAction === "remove" ? "danger-button" : undefined}
               loading={documentLifecycleRunning}
               disabled={documentLifecycleAction === "move" ? !validMovePath : documentLifecycleAction === "duplicate" ? !validDuplicateId : false}
               onClick={() => { void handleDocumentLifecycle(); }}
             >
-              {documentLifecycleAction === "move" ? "移动文件" : documentLifecycleAction === "duplicate" ? "创建复制草稿" : "移到恢复区"}
+              {documentLifecycleAction === "move" ? "应用文件路径" : documentLifecycleAction === "duplicate" ? "创建复制草稿" : "移到恢复区"}
             </Button>
           </Group>
         </Stack>}

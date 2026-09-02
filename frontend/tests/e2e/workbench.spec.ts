@@ -44,7 +44,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(talentFrame.getByText(/验证后结果：2,420/)).toBeVisible();
 
     await page.locator(".plugin-document-switch .mantine-SegmentedControl-label").filter({ hasText: "通用" }).click();
-    await expect(page.getByText("DOCUMENT PROJECTION", { exact: true })).toBeVisible();
+    await expect(page.getByText("文档投影", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Build 大厅", exact: true }).click();
     const buildsFrame = page.frameLocator('iframe[title^="Build 大厅"]');
@@ -57,7 +57,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "关系图" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Build 大厅", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
     await page.getByText("Kirin Tor 默认", { exact: true }).click();
     await expect(page.getByRole("button", { name: "关系图" })).toBeVisible();
 
@@ -154,7 +154,16 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.setViewportSize({ width: 1120, height: 800 });
     await openWorkbench(page);
     await expect(page.getByRole("button", { name: "展开导航" })).toBeVisible();
+    await expect(page.locator(".workbench-navbar .mantine-NavLink-label")).toHaveText(["文档", "关系图", "语法参考"]);
     await expect(page.locator('[aria-label^="工作区状态："]')).toBeVisible();
+    await expect(page.getByRole("button", { name: "展开检查器" })).toBeVisible();
+    await openCombo(page);
+    const splitEditorWidth = (await page.getByRole("region", { name: "源码编辑器" }).boundingBox())?.width || 0;
+    await page.getByRole("button", { name: "收起检查器" }).click();
+    await expect(page.getByRole("button", { name: "展开检查器" })).toBeVisible();
+    expect((await page.getByRole("region", { name: "源码编辑器" }).boundingBox())?.width).toBeGreaterThan(splitEditorWidth + 200);
+    await page.getByRole("button", { name: "展开检查器" }).click();
+    await expect(page.getByRole("tab", { name: "预览", exact: true })).toBeVisible();
     const focusModes = page.getByRole("radiogroup", { name: "文档专注模式" });
     await expect(focusModes.getByRole("radio", { name: "分栏" })).toBeChecked();
     const focusChoice = (label: string) => page.locator(".document-focus-switch .mantine-SegmentedControl-label").filter({ hasText: label });
@@ -221,11 +230,72 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     expect(results.violations).toEqual([]);
 
     await page.getByLabel("语法参考", { exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" })).toBeVisible();
+    const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    await expect(reference).toBeVisible();
     await expect(page.locator(".syntax-example pre > code")).toHaveAttribute("tabindex", "0");
     await page.waitForTimeout(350);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(results.violations).toEqual([]);
+
+    await reference.getByRole("button", { name: "关闭工作区工具" }).click();
+    await page.getByRole("button", { name: "新建文档" }).click();
+    const createDialog = page.getByRole("dialog", { name: "新建文档" });
+    await expect(createDialog.getByRole("button", { name: "关闭对话框" })).toBeVisible();
+    await page.waitForTimeout(350);
+    results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("刷新后恢复当前页面与工作区文档", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    await page.getByLabel("关系图", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "关系图" })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "关系图" })).toBeVisible();
+    await page.getByLabel("文档", { exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" })).toBeVisible();
+  });
+
+  test("通知自动收起，Windows 快捷键与真实文件改名入口可用", async ({ page }) => {
+    await openWorkbench(page);
+
+    await page.keyboard.press("Control+k");
+    await expect(page.getByPlaceholder("搜索页面或命令…")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const documentButton = page.getByRole("button", { name: comboButtonName });
+    await documentButton.focus();
+    await page.keyboard.press("F2");
+    const moveDialog = page.getByRole("dialog", { name: "重命名或移动真实文件" });
+    const pathInput = moveDialog.getByRole("textbox", { name: "新的真实文件路径" });
+    await expect(pathInput).toHaveValue("entries/组合模型.kirin");
+    await expect(moveDialog.getByRole("button", { name: "应用文件路径" })).toBeDisabled();
+    await pathInput.fill("entries/renamed-combo.kirin");
+    await moveDialog.getByRole("button", { name: "应用文件路径" }).click();
+    await expect(access(resolve(".e2e-workspace", "entries", "renamed-combo.kirin"))).resolves.toBeUndefined();
+
+    const renamedButton = page.getByRole("button", { name: /^双技能组合（虚构） entries\/renamed-combo\.kirin/ });
+    await renamedButton.focus();
+    await page.keyboard.press("F2");
+    await moveDialog.getByRole("textbox", { name: "新的真实文件路径" }).fill("entries/组合模型.kirin");
+    await moveDialog.getByRole("button", { name: "应用文件路径" }).click();
+    await expect(documentButton).toBeVisible();
+
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await expect(page.getByText("Package 管理", { exact: true })).toBeVisible();
+    await expect(page.getByText("Workbench Plugins", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "工作区工具", exact: true }).click();
+    await expect(page.getByText("全文搜索与替换", { exact: true })).toBeVisible();
+    await expect(page.getByText("保存前变更审查", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.mouse.move(180, 700);
+    await page.keyboard.press("Control+s");
+    await expect(page.getByText("没有需要保存的草稿。", { exact: true })).toBeVisible();
+    await expect(page.getByText("没有需要保存的草稿。", { exact: true })).toBeHidden({ timeout: 6000 });
   });
 
   test("核心工作台布局保持视觉基线", async ({ page, browserName }) => {
@@ -243,7 +313,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
   test("工作区搜索生成可审查草稿，相关语法可从诊断直达", async ({ page }) => {
     await openWorkbench(page);
-    await page.getByRole("button", { name: "工作区" }).click();
+    await page.getByRole("button", { name: "工作区工具" }).click();
     await page.getByText("全文搜索与替换", { exact: true }).click();
     const searchDrawer = page.getByRole("dialog", { name: "工作区搜索与替换" });
     await searchDrawer.getByRole("textbox", { name: "工作区查找" }).fill("组合期望伤害");
@@ -297,8 +367,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   test("关系图提供可用键盘选择的节点列表", async ({ page }) => {
     await openWorkbench(page);
     await page.getByLabel("关系图", { exact: true }).click();
+    const inspector = page.locator(".graph-inspector");
+    await expect(inspector).toContainText("直接依赖");
     const fallback = page.locator(".graph-surface .canvas-data-fallback");
     await fallback.locator("summary").click();
+    await fallback.getByRole("button").filter({ hasText: "双技能组合（虚构）" }).click();
+    await expect(inspector.locator(".graph-neighbor-list").first()).toContainText("技能 A（虚构）");
+    await expect(inspector.locator(".graph-neighbor-list").first()).toContainText("技能 B（虚构）");
     const firstNode = fallback.locator(".relationship-node-list button").first();
     await firstNode.focus();
     await page.keyboard.press("Enter");
@@ -375,12 +450,12 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(cursorStatus).toHaveText("已选 11 字符");
     const selection = page.locator(".cm-selectionBackground").first();
     await expect(selection).toBeVisible();
-    await expect(selection).toHaveCSS("background-color", "rgb(112, 69, 54)");
+    await expect(selection).toHaveCSS("background-color", "rgba(207, 116, 85, 0.42)");
     await expect(page.locator(".cm-activeLine")).toHaveCSS("box-shadow", /rgb\(143, 84, 63\)/);
 
-    await page.getByRole("button", { name: "工作区" }).click();
+    await page.getByRole("button", { name: "工作区工具" }).click();
     await expect(selection).toBeVisible();
-    await expect(selection).toHaveCSS("background-color", "rgb(63, 53, 47)");
+    await expect(selection).toHaveCSS("background-color", "rgba(207, 116, 85, 0.24)");
     await page.keyboard.press("Escape");
 
     await editor.focus();
@@ -506,6 +581,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("combobox", { name: "参数方案" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "计算结果" })).toHaveCount(0);
     await expect(page.locator(".document-result-preview")).toContainText("2,420");
+    await expect(page.locator(".preview-input-identity strong")).toHaveText("暴击率");
+    await expect(page.locator(".preview-input-identity small")).toHaveText("combo.crit");
 
     await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
     await expect(page.getByRole("button", { name: "生成图表" })).toHaveCount(0);
@@ -688,8 +765,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       await page.getByRole("button", { name: "开始基础教程" }).click();
       const tutorial = page.getByRole("dialog", { name: "教程与示例" });
       await expect(tutorial.getByRole("heading", { name: "基础公式" })).toBeVisible();
+      await expect(tutorial.getByRole("button", { name: "关闭抽屉" })).toBeVisible();
       await expect(tutorial.locator(".tutorial-source pre")).toContainText("@entry tutorial_basic");
       await expect(tutorial).toContainText("只读 · 尚未进入当前工作区");
+      expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
 
       await tutorial.getByRole("textbox", { name: "文档 ID" }).fill("my_first_model");
       await tutorial.getByRole("button", { name: "复制为未保存草稿" }).click();

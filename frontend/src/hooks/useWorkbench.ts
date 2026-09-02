@@ -34,6 +34,10 @@ function externalConflictPath(error: ApiError): string | null {
   return typeof path === "string" ? path : null;
 }
 
+function rememberedDocumentKey(workspace: string): string {
+  return `kirin:current-document:${workspace}`;
+}
+
 export function useWorkbench() {
   const [bootstrapData, setBootstrapData] = useState<BootstrapPayload | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -101,7 +105,7 @@ export function useWorkbench() {
         setExternalConflict({ key, path: result.path, base: null, draft: recovered.text, disk: result.text, disk_sha256: result.source_sha256 });
       }
     } catch (error) {
-      notifications.show({ color: "red", title: "无法打开文档", message: errorMessage(error) });
+      notifications.show({ color: "red", title: "无法打开文档", message: errorMessage(error), autoClose: false });
     }
   }, [buffers]);
 
@@ -164,11 +168,14 @@ export function useWorkbench() {
       }
       setRecoveryReady(true);
       const availableDocuments = [...data.documents, ...recoveredNewDocuments];
+      const rememberedDocument = localStorage.getItem(rememberedDocumentKey(data.workspace));
       const desired = preserveCurrent && currentKey
         ? currentKey
         : initialDocument && availableDocuments.some((item) => item.key === initialDocument)
           ? initialDocument
-          : availableDocuments[0]?.key;
+          : rememberedDocument && availableDocuments.some((item) => item.key === rememberedDocument)
+            ? rememberedDocument
+            : availableDocuments[0]?.key;
       if (desired) {
         setCurrentKey(desired);
         if (!Object.prototype.hasOwnProperty.call(buffers, desired) && !Object.prototype.hasOwnProperty.call(restoredBuffers, desired)) {
@@ -219,7 +226,7 @@ export function useWorkbench() {
       return result;
     } catch (error) {
       if (sequence === validationSequence.current) {
-        notifications.show({ color: "red", title: "校验失败", message: errorMessage(error) });
+        notifications.show({ color: "red", title: "校验失败", message: errorMessage(error), autoClose: false });
       }
       return null;
     } finally {
@@ -521,11 +528,13 @@ export function useWorkbench() {
         ? { ...item, key: path, path, source_sha256: String(result.source_sha256) }
         : item));
       setBuffers((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, sourceKey)) return current;
         const next = { ...current, [path]: current[sourceKey] };
         delete next[sourceKey];
         return next;
       });
       setOriginals((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, sourceKey)) return current;
         const next = { ...current, [path]: current[sourceKey] };
         delete next[sourceKey];
         return next;
@@ -731,6 +740,11 @@ export function useWorkbench() {
     }, 800);
     return () => window.clearTimeout(timer);
   }, [bootstrapReady, dirtySignature, recoveryReady]);
+
+  useEffect(() => {
+    if (!bootstrapData?.workspace || !currentKey) return;
+    localStorage.setItem(rememberedDocumentKey(bootstrapData.workspace), currentKey);
+  }, [bootstrapData?.workspace, currentKey]);
 
   useEffect(() => {
     const preventLoss = (event: BeforeUnloadEvent) => {
