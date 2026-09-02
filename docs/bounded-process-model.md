@@ -275,6 +275,10 @@ output event 和引擎时间，不读 Process 私有 state。内核提供 `final
 可以选择多个 Objective 分别求解。优化器必须返回每个最优策略的全部 Measure，不能把未声明的偏好
 当作并列规则。
 
+两套参数或天赋由具名 Scenario input variant 表达。Variant 只能覆盖实例公开 input；它不复制或修改
+Process 私有状态、Measure 或 Objective。Analysis 为每个 variant 分别优化，返回 variant × objective
+结构，而不是先求一套策略再强制复用。
+
 搜索结果的证明等级只有三种：
 
 - `exact_global`：模型范围内的精确全局最优已经证明；

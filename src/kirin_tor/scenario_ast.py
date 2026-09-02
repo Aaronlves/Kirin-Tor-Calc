@@ -39,6 +39,22 @@ class ProcessInstanceAst:
 
 
 @dataclass(frozen=True)
+class VariantInputAst:
+    instance_id: str
+    input_id: str
+    value: ExpressionAst
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ScenarioVariantAst:
+    id: str
+    inputs: Tuple[VariantInputAst, ...]
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class EventEndpointAst:
     instance_id: str
     member_id: str
@@ -182,6 +198,7 @@ class ScenarioAst:
     label: Optional[str] = None
     phases: Tuple[ScenarioPhaseAst, ...] = ()
     instances: Tuple[ProcessInstanceAst, ...] = ()
+    variants: Tuple[ScenarioVariantAst, ...] = ()
     connections: Tuple[ConnectionAst, ...] = ()
     schedules: Tuple[ScenarioScheduleAst, ...] = ()
     actions: Tuple[CompositeActionAst, ...] = ()
@@ -210,6 +227,7 @@ class AnalysisAst:
     operation: str
     policy_ids: Tuple[str, ...] = ()
     objective_ids: Tuple[str, ...] = ()
+    variant_ids: Tuple[str, ...] = ()
     search_method: Optional[str] = None
     time_tolerance: Optional[ExpressionAst] = None
     maximum_evaluations: Optional[ExpressionAst] = None

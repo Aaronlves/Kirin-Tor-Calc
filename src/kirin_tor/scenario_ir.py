@@ -58,6 +58,21 @@ class ProcessInstanceIR:
 
 
 @dataclass(frozen=True)
+class VariantInputIR:
+    input: InstanceMemberRefIR
+    value: TypedExpressionIR
+
+
+@dataclass(frozen=True)
+class ScenarioVariantIR:
+    scenario_id: str
+    id: str
+    inputs: Tuple[VariantInputIR, ...]
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ConnectionIR:
     source: InstanceMemberRefIR
     target: InstanceMemberRefIR
@@ -217,6 +232,7 @@ class ScenarioIR:
     label: Optional[str]
     phases: Tuple[ScenarioPhaseIR, ...]
     instances: Tuple[ProcessInstanceIR, ...]
+    variants: Tuple[ScenarioVariantIR, ...]
     connections: Tuple[ConnectionIR, ...]
     schedules: Tuple[ScenarioScheduleIR, ...]
     actions: Tuple[CompositeActionIR, ...]
@@ -247,6 +263,7 @@ class AnalysisIR:
     operation: str
     policy_ids: Tuple[str, ...] = ()
     objective_ids: Tuple[str, ...] = ()
+    variant_ids: Tuple[str, ...] = ()
     search_method: Optional[str] = None
     time_tolerance: Optional[Fraction] = None
     maximum_evaluations: Optional[int] = None

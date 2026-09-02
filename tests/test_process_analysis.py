@@ -13,6 +13,7 @@ from kirin_tor.process_analysis import (
     RunAnalysisResult,
     SteadyAnalysisResult,
     execute_process_analysis,
+    process_analysis_result_data,
 )
 from kirin_tor.cli import app
 from kirin_tor.records import replay
@@ -167,13 +168,17 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         workspace.analyses["brew.latest_death"], scenario, workspace.units
     )
     assert isinstance(result, OptimizeAnalysisResult)
+    assert [variant.variant_id for variant in result.variants] == [
+        "standard_brew",
+        "deep_clean",
+    ]
     assert result.explored_branches <= scenario.bounds.maximum_branches
-    assert [item.objective_id for item in result.objectives] == [
+    assert [item.objective_id for item in result.variants[0].objectives] == [
         "smoothest_health",
         "most_purified",
         "longest_survival",
     ]
-    longest = result.objectives[-1]
+    longest = result.variants[0].objectives[-1]
     assert longest.best.elapsed >= 3
     assert longest.objective_values[0] == dict(longest.measures)["survival_time"]
     assert longest.proof.level == "best_found"
@@ -187,6 +192,26 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         "survival_time",
         "remaining_charges",
     }
+    by_variant = {variant.variant_id: variant for variant in result.variants}
+    standard_purified = dict(by_variant["standard_brew"].objectives[1].measures)[
+        "total_purified"
+    ]
+    deep_purified = dict(by_variant["deep_clean"].objectives[1].measures)[
+        "total_purified"
+    ]
+    assert deep_purified > standard_purified
+    assert dict(by_variant["deep_clean"].input_overrides) == {
+        "actor.clear_ratio": Fraction(13, 20),
+        "actor.healing_ratio": Fraction(1, 5),
+    }
+    projected = process_analysis_result_data(
+        result, workspace.analyses["brew.latest_death"], scenario
+    )
+    assert [item["variant"] for item in projected["variants"]] == [
+        "standard_brew",
+        "deep_clean",
+    ]
+    assert all(len(item["objectives"]) == 3 for item in projected["variants"])
 
 
 def test_named_objectives_apply_constraints_and_optimize_independently(
@@ -241,11 +266,16 @@ analysis optimize_both:
         workspace.units,
     )
     assert isinstance(result, OptimizeAnalysisResult)
-    by_id = {item.objective_id: item for item in result.objectives}
+    by_id = {
+        item.objective_id: item for item in result.variants[0].objectives
+    }
     assert dict(by_id["highest_bounded"].measures)["final_value"] == 1
     assert by_id["highest_bounded"].constraints == (True,)
     assert dict(by_id["fewest_additions"].measures)["final_value"] == 0
-    assert all(item.proof.level == "exact_global" for item in result.objectives)
+    assert all(
+        item.proof.level == "exact_global"
+        for item in result.variants[0].objectives
+    )
 
 
 def test_continuous_time_search_uses_exact_non_grid_runtime_times_and_is_labeled(
@@ -299,7 +329,7 @@ analysis search:
         workspace.units,
     )
     assert isinstance(result, OptimizeAnalysisResult)
-    optimum = result.objectives[0]
+    optimum = result.variants[0].objectives[0]
     assert optimum.best.decisions == ((Fraction(1, 4), "mark"),)
     assert dict(optimum.measures)["timing_error"] == 0
     assert optimum.proof.level == "best_found"

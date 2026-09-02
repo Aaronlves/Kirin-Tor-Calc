@@ -703,10 +703,17 @@ def process_analysis_command(
         )
         operation = result["analysis_operation"]
         if operation == "optimize":
-            objectives = result["objectives"]
+            variants = result["variants"]
+            proof_levels = sorted(
+                {
+                    objective["proof"]["level"]
+                    for variant in variants
+                    for objective in variant["objectives"]
+                }
+            )
             summary = (
-                f"已分别优化 {len(objectives)} 个目标；"
-                f"证明等级 {','.join(item['proof']['level'] for item in objectives)}；"
+                f"已分别优化 {len(variants)} 个方案；"
+                f"证明等级 {','.join(proof_levels)}；"
                 f"搜索分支 {result['explored_branches']}"
             )
         elif operation == "reach":

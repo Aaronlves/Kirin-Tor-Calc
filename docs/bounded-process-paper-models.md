@@ -85,6 +85,9 @@ scenario ID ["LABEL"]:
     INPUT = EXPRESSION
     phase PROCESS_PHASE = SCENARIO_PHASE
 
+  variant ID ["LABEL"]:
+    INSTANCE.INPUT = EXPRESSION
+
   connect INSTANCE.OUTPUT -> INSTANCE.INPUT
 
   at TIME phase PHASE:
@@ -157,6 +160,8 @@ analysis ID ["LABEL"]:
   [policy = POLICY]
   [objectives:]
     [- OBJECTIVE, ...]
+  [variants:]
+    [- VARIANT, ...]
   [search:]
     [method = adaptive_dyadic]
     [time_tolerance = DURATION]
@@ -180,6 +185,10 @@ Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回�
 `flow` 条件明确拒绝。`decide continuously` 把使用次数、动作和有序时点作为搜索变量；它不含 `wait`，
 少用一次就是省略一次 occurrence。当前一般连续搜索要求作者显式给出容差和评估预算，返回
 `best_found`；这些参数进入 Analysis 结果和可重放记录，且不会被描述成固定时间网格或全局证明。
+
+Scenario variant 只覆盖 Process 实例的公开 input，不复制 Scenario、Measure 或 Objective。Analysis 对
+每个选中 variant 独立搜索，因此两个方案可以得到不同的使用次数和动作时点；结构化结果以
+variant × objective 分组，并在每格保留实际 input override、策略、全部 Measure、约束与证明等级。
 
 ## 2. 多资源、冷却与顺序充能
 
@@ -344,6 +353,14 @@ scenario brewmaster_survival "活血时机":
     recharge = 8 second
     phase readiness = readiness
 
+  variant standard_brew:
+    actor.clear_ratio = 50%
+    actor.healing_ratio = 25%
+
+  variant deep_clean:
+    actor.clear_ratio = 65%
+    actor.healing_ratio = 20%
+
   action purifying_brew when actor.alive and brew.ready:
     send actor.purify() phase decision
     send brew.consume() phase decision
@@ -357,7 +374,7 @@ scenario brewmaster_survival "活血时机":
   every 3 second from 3 second phase incoming:
     send actor.incoming_damage(amount = 200 health)
 
-  decide continuously up to 2 times from 0 second until 8 second phase decision:
+  decide continuously up to 2 times from 0 second until 4 second phase decision:
     - purifying_brew
 
   measure minimum_health: health = minimum_over_time(actor.remaining_health)
@@ -393,10 +410,13 @@ analysis latest_death "最晚死亡":
     - smoothest_health
     - most_purified
     - longest_survival
+  variants:
+    - standard_brew
+    - deep_clean
   search:
     method = adaptive_dyadic
     time_tolerance = 1/4 second
-    maximum_evaluations = 1000
+    maximum_evaluations = 200
 ```
 
 同一时间先结算旧的周期伤害，再加入两种来袭伤害，恢复充能，最后作决策。两个 incoming 事件通过

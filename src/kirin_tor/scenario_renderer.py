@@ -44,6 +44,16 @@ def render_scenario_ast(scenario: ScenarioAst) -> List[str]:
             f"    phase {binding.process_phase_id} = {binding.scenario_phase_id}"
             for binding in instance.phases
         )
+    for variant in scenario.variants:
+        line = f"  variant {variant.id}"
+        if variant.label is not None:
+            line += " " + _quoted(variant.label)
+        lines.append(line + ":")
+        lines.extend(
+            f"    {binding.instance_id}.{binding.input_id} = "
+            f"{_expression(binding.value)}"
+            for binding in variant.inputs
+        )
     for connection in scenario.connections:
         lines.append(
             f"  connect {connection.source.instance_id}.{connection.source.member_id} -> "
@@ -173,6 +183,9 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
         lines.extend(
             f"    - {objective_id}" for objective_id in analysis.objective_ids
         )
+    if analysis.variant_ids:
+        lines.append("  variants:")
+        lines.extend(f"    - {variant_id}" for variant_id in analysis.variant_ids)
     if analysis.search_method is not None:
         lines.append("  search:")
         lines.append(f"    method = {analysis.search_method}")

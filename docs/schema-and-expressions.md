@@ -162,6 +162,10 @@ Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射�
 搜索必须在 Analysis 中声明 `adaptive_dyadic`、`time_tolerance` 和 `maximum_evaluations`，结果记录为
 `best_found` 并回写全部三项设置及预算是否耗尽；它不会暗中转换成一秒或十分之一秒网格。
 
+具名 Scenario variant 是一组经过原 Process input 类型与值域检查的常量覆盖。`optimize` 可列出多个
+variant；执行器分别初始化实例、分别搜索并输出 variant × objective 结果，包含生效的覆盖值和每个
+最优策略的完整 trace。Variant 不提供私有 state 写入口。
+
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/

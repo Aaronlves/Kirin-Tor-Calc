@@ -227,6 +227,7 @@ class DeterministicProcessExecutor:
         initial_state_overrides: Optional[
             Mapping[Tuple[str, str], ProcessValue]
         ] = None,
+        input_overrides: Optional[Mapping[Tuple[str, str], ProcessValue]] = None,
         maximum_batches: Optional[int] = None,
         include_trace: bool = True,
         continuous_choices: Sequence[ContinuousDecisionChoice] = (),
@@ -237,6 +238,7 @@ class DeterministicProcessExecutor:
         self.branch_selector = branch_selector
         self.reach_target = reach_target
         self.initial_state_overrides = dict(initial_state_overrides or {})
+        self.input_overrides = dict(input_overrides or {})
         self.maximum_batches = maximum_batches
         self.include_trace = include_trace
         self.continuous_choices = tuple(continuous_choices)
@@ -359,6 +361,18 @@ class DeterministicProcessExecutor:
                     remaining[0].location,
                 )
             pending = remaining
+        for (instance_id, input_id), value in self.input_overrides.items():
+            if instance_id != instance.id:
+                continue
+            declaration = declarations.get(input_id)
+            if declaration is None:
+                raise ProcessExecutionError(
+                    f"input override references unknown input {instance_id}.{input_id}"
+                )
+            validate_process_value(
+                value, declaration.value_type, self.registry, declaration.location
+            )
+            inputs[_input_symbol(process, declaration)] = value
         for declaration in process.inputs:
             value = inputs[_input_symbol(process, declaration)]
             self._check_bound(value, declaration.bound, inputs, declaration.location)
@@ -388,6 +402,18 @@ class DeterministicProcessExecutor:
                 raise DomainError("Process value is above its declared maximum", location)
 
     def _initialize(self) -> None:
+        declared_instance_ids = {item.id for item in self.scenario.instances}
+        unknown_input_instances = sorted(
+            {
+                instance_id
+                for instance_id, _input_id in self.input_overrides
+                if instance_id not in declared_instance_ids
+            }
+        )
+        if unknown_input_instances:
+            raise ProcessExecutionError(
+                f"input override references unknown instance {unknown_input_instances[0]!r}"
+            )
         self.instances = {
             item.id: self._initialize_instance(item) for item in self.scenario.instances
         }
@@ -1561,6 +1587,7 @@ def run_process_scenario(
     branch_selector: Optional[BranchSelector] = None,
     reach_target=None,
     initial_state_overrides: Optional[Mapping[Tuple[str, str], ProcessValue]] = None,
+    input_overrides: Optional[Mapping[Tuple[str, str], ProcessValue]] = None,
     maximum_batches: Optional[int] = None,
     include_trace: bool = True,
     continuous_choices: Sequence[ContinuousDecisionChoice] = (),
@@ -1572,6 +1599,7 @@ def run_process_scenario(
         branch_selector=branch_selector,
         reach_target=reach_target,
         initial_state_overrides=initial_state_overrides,
+        input_overrides=input_overrides,
         maximum_batches=maximum_batches,
         include_trace=include_trace,
         continuous_choices=continuous_choices,

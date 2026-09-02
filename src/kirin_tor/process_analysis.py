@@ -92,10 +92,18 @@ class ObjectiveOptimizationResult:
 
 
 @dataclass(frozen=True)
+class VariantOptimizationResult:
+    variant_id: str
+    input_overrides: Tuple[Tuple[str, ProcessValue], ...]
+    objectives: Tuple[ObjectiveOptimizationResult, ...]
+    explored_branches: int
+
+
+@dataclass(frozen=True)
 class OptimizeAnalysisResult:
     analysis_id: str
     operation: str
-    objectives: Tuple[ObjectiveOptimizationResult, ...]
+    variants: Tuple[VariantOptimizationResult, ...]
     explored_branches: int
 
 
@@ -279,9 +287,8 @@ def _select_objectives(
     complete: Sequence[
         Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
     ],
-    explored: int,
     proof: SolverProof,
-) -> OptimizeAnalysisResult:
+) -> Tuple[ObjectiveOptimizationResult, ...]:
     if not complete:
         raise ProcessExecutionError("optimization produced no feasible policy", analysis.location)
     declarations = {item.id: item for item in scenario.objectives}
@@ -330,17 +337,15 @@ def _select_objectives(
                 len(best),
             )
         )
-    return OptimizeAnalysisResult(
-        analysis.qualified_id,
-        analysis.operation,
-        tuple(optimized),
-        max(explored, 1),
-    )
+    return tuple(optimized)
 
 
 def _optimize_finite(
-    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
-) -> OptimizeAnalysisResult:
+    analysis: AnalysisIR,
+    scenario: ScenarioIR,
+    registry: UnitRegistry,
+    input_overrides: Mapping[Tuple[str, str], ProcessValue],
+) -> Tuple[Tuple[ObjectiveOptimizationResult, ...], int]:
     pending: List[Tuple[str, ...]] = [()]
     complete: List[
         Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
@@ -356,7 +361,11 @@ def _optimize_finite(
 
         try:
             result = run_process_scenario(
-                scenario, registry, selector=choose, include_trace=True
+                scenario,
+                registry,
+                selector=choose,
+                include_trace=True,
+                input_overrides=input_overrides,
             )
         except _NeedDecision as need:
             explored += len(need.available)
@@ -369,17 +378,19 @@ def _optimize_finite(
             pending.extend(prefix + (choice,) for choice in reversed(need.available))
             continue
         complete.append((evaluate_process_measures(scenario, result, registry), result))
-    return _select_objectives(
-        analysis,
-        scenario,
-        registry,
-        complete,
-        explored,
-        SolverProof(
-            "exact_global",
-            "exhaustive_finite_policy_enumeration",
-            search_budget=scenario.bounds.maximum_branches,
+    return (
+        _select_objectives(
+            analysis,
+            scenario,
+            registry,
+            complete,
+            SolverProof(
+                "exact_global",
+                "exhaustive_finite_policy_enumeration",
+                search_budget=scenario.bounds.maximum_branches,
+            ),
         ),
+        max(explored, 1),
     )
 
 
@@ -461,8 +472,11 @@ def _combined_continuous_plans(
 
 
 def _optimize_continuous(
-    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
-) -> OptimizeAnalysisResult:
+    analysis: AnalysisIR,
+    scenario: ScenarioIR,
+    registry: UnitRegistry,
+    input_overrides: Mapping[Tuple[str, str], ProcessValue],
+) -> Tuple[Tuple[ObjectiveOptimizationResult, ...], int]:
     if analysis.search_method != "adaptive_dyadic":
         raise UnsupportedError(
             "continuous-time optimization requires adaptive_dyadic search settings",
@@ -515,6 +529,7 @@ def _optimize_continuous(
                     registry,
                     include_trace=True,
                     continuous_choices=plan,
+                    input_overrides=input_overrides,
                 )
             except ProcessExecutionError as exc:
                 if "unavailable action" in exc.message or "is unavailable" in exc.message:
@@ -550,19 +565,21 @@ def _optimize_continuous(
         if level == "exact_global"
         else "adaptive_dyadic_candidate_search"
     )
-    return _select_objectives(
-        analysis,
-        scenario,
-        registry,
-        complete,
-        evaluated,
-        SolverProof(
-            level,
-            method,
-            tolerance=analysis.time_tolerance,
-            search_budget=analysis.maximum_evaluations,
-            budget_exhausted=budget_exhausted,
+    return (
+        _select_objectives(
+            analysis,
+            scenario,
+            registry,
+            complete,
+            SolverProof(
+                level,
+                method,
+                tolerance=analysis.time_tolerance,
+                search_budget=analysis.maximum_evaluations,
+                budget_exhausted=budget_exhausted,
+            ),
         ),
+        max(evaluated, 1),
     )
 
 
@@ -574,9 +591,51 @@ def _optimize(
             "optimize currently requires a deterministic Process scenario; use compare/reach for exact random policies",
             analysis.location,
         )
-    if scenario.continuous_decisions:
-        return _optimize_continuous(analysis, scenario, registry)
-    return _optimize_finite(analysis, scenario, registry)
+    declarations = {variant.id: variant for variant in scenario.variants}
+    selected = analysis.variant_ids or ("base",)
+    variants = []
+    total_explored = 0
+    for variant_id in selected:
+        if variant_id == "base":
+            input_overrides = {}
+            rendered_overrides = ()
+        else:
+            variant = declarations[variant_id]
+            input_overrides = {
+                (binding.input.instance_id, binding.input.member.member_id):
+                evaluate_process_expression(binding.value, {}, registry)
+                for binding in variant.inputs
+            }
+            rendered_overrides = tuple(
+                (
+                    f"{binding.input.instance_id}.{binding.input.member.member_id}",
+                    input_overrides[(
+                        binding.input.instance_id,
+                        binding.input.member.member_id,
+                    )],
+                )
+                for binding in variant.inputs
+            )
+        if scenario.continuous_decisions:
+            objectives, explored = _optimize_continuous(
+                analysis, scenario, registry, input_overrides
+            )
+        else:
+            objectives, explored = _optimize_finite(
+                analysis, scenario, registry, input_overrides
+            )
+        total_explored += explored
+        variants.append(
+            VariantOptimizationResult(
+                variant_id, rendered_overrides, objectives, explored
+            )
+        )
+    return OptimizeAnalysisResult(
+        analysis.qualified_id,
+        analysis.operation,
+        tuple(variants),
+        total_explored,
+    )
 
 
 def _finite_states(
@@ -1045,36 +1104,48 @@ def process_analysis_result_data(
         base.update(
             {
                 "explored_branches": result.explored_branches,
-                "objectives": [
+                "variants": [
                     {
-                        "objective": item.objective_id,
-                        "proof": {
-                            "level": item.proof.level,
-                            "method": item.proof.method,
-                            "error_bound": _value_data(item.proof.error_bound)
-                            if item.proof.error_bound is not None
-                            else None,
-                            "tolerance": _value_data(item.proof.tolerance)
-                            if item.proof.tolerance is not None
-                            else None,
-                            "time_grid": _value_data(item.proof.time_grid)
-                            if item.proof.time_grid is not None
-                            else None,
-                            "search_budget": item.proof.search_budget,
-                            "budget_exhausted": item.proof.budget_exhausted,
-                        },
-                        "tied_optima": item.tied_optima,
-                        "objective_values": [
-                            _value_data(value) for value in item.objective_values
-                        ],
-                        "constraints": list(item.constraints),
-                        "measures": {
+                        "variant": variant.variant_id,
+                        "input_overrides": {
                             name: _value_data(value)
-                            for name, value in item.measures
+                            for name, value in variant.input_overrides
                         },
-                        "best": _run_data(item.best),
+                        "explored_branches": variant.explored_branches,
+                        "objectives": [
+                            {
+                                "objective": item.objective_id,
+                                "proof": {
+                                    "level": item.proof.level,
+                                    "method": item.proof.method,
+                                    "error_bound": _value_data(item.proof.error_bound)
+                                    if item.proof.error_bound is not None
+                                    else None,
+                                    "tolerance": _value_data(item.proof.tolerance)
+                                    if item.proof.tolerance is not None
+                                    else None,
+                                    "time_grid": _value_data(item.proof.time_grid)
+                                    if item.proof.time_grid is not None
+                                    else None,
+                                    "search_budget": item.proof.search_budget,
+                                    "budget_exhausted": item.proof.budget_exhausted,
+                                },
+                                "tied_optima": item.tied_optima,
+                                "objective_values": [
+                                    _value_data(value)
+                                    for value in item.objective_values
+                                ],
+                                "constraints": list(item.constraints),
+                                "measures": {
+                                    name: _value_data(value)
+                                    for name, value in item.measures
+                                },
+                                "best": _run_data(item.best),
+                            }
+                            for item in variant.objectives
+                        ],
                     }
-                    for item in result.objectives
+                    for variant in result.variants
                 ],
             }
         )

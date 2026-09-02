@@ -54,7 +54,9 @@ from .scenario_ir import (
     ScenarioCallIR,
     ScenarioIR,
     ScenarioPhaseIR,
+    ScenarioVariantIR,
     TrajectoryMeasureExpressionIR,
+    VariantInputIR,
 )
 from .schema import require_identifier
 from .scenario_validation import validate_scenario_ir
@@ -663,6 +665,63 @@ class ScenarioLowerer:
                 f"scenario exceeds {MAX_SCENARIO_INSTANCES} instances", source.location
             )
 
+        variants = []
+        variant_ids = set()
+        for item in source.variants:
+            require_identifier(item.id, "scenario variant id", item.location)
+            if item.id == "base":
+                raise SchemaError("scenario variant id 'base' is reserved", item.location)
+            if item.id in variant_ids:
+                raise SchemaError(f"duplicate scenario variant {item.id!r}", item.location)
+            variant_ids.add(item.id)
+            bindings = []
+            seen_bindings = set()
+            for binding in item.inputs:
+                instance = instances.get(binding.instance_id)
+                if instance is None:
+                    raise ReferenceError(
+                        f"variant references unknown instance {binding.instance_id!r}",
+                        binding.location,
+                    )
+                declaration = next(
+                    (
+                        declaration
+                        for declaration in instance.process.inputs
+                        if declaration.ref.member_id == binding.input_id
+                    ),
+                    None,
+                )
+                if declaration is None:
+                    raise ReferenceError(
+                        f"variant references unknown input {binding.instance_id}.{binding.input_id}",
+                        binding.location,
+                    )
+                key = (binding.instance_id, binding.input_id)
+                if key in seen_bindings:
+                    raise SchemaError(
+                        f"variant assigns input {binding.instance_id}.{binding.input_id} more than once",
+                        binding.location,
+                    )
+                seen_bindings.add(key)
+                expression, _value = _compile_constant(
+                    binding.value,
+                    declaration.value_type,
+                    self.static_symbols,
+                    self.registry,
+                )
+                bindings.append(
+                    VariantInputIR(_member(instance, declaration.ref), expression)
+                )
+            variants.append(
+                ScenarioVariantIR(
+                    scenario_id,
+                    item.id,
+                    tuple(bindings),
+                    item.label,
+                    item.location,
+                )
+            )
+
         observation_symbols: Dict[str, SymbolRefIR] = {}
         for instance in instances.values():
             for observation in instance.process.observations:
@@ -990,6 +1049,7 @@ class ScenarioLowerer:
             source.label,
             tuple(phases.values()),
             tuple(instances.values()),
+            tuple(variants),
             tuple(connections),
             tuple(schedules),
             tuple(actions.values()),
@@ -1060,6 +1120,21 @@ def lower_analysis_asts(
         if source.operation != "optimize" and objective_ids:
             raise SchemaError(
                 "objectives are only valid for optimize analysis", source.location
+            )
+        variant_ids = source.variant_ids
+        available_variants = {variant.id for variant in scenario.variants}
+        unknown_variants = sorted(set(variant_ids) - available_variants)
+        if unknown_variants:
+            raise ReferenceError(
+                f"analysis references unknown variant {unknown_variants[0]!r}",
+                source.location,
+            )
+        if len(set(variant_ids)) != len(variant_ids):
+            raise SchemaError("analysis variant ids must be unique", source.location)
+        if source.operation != "optimize" and variant_ids:
+            raise SchemaError(
+                "variants are currently valid only for optimize analysis",
+                source.location,
             )
         policy_ids = source.policy_ids
         available_policies = {policy.id for policy in scenario.policies}
@@ -1155,6 +1230,7 @@ def lower_analysis_asts(
                 source.operation,
                 policy_ids,
                 objective_ids,
+                variant_ids,
                 search_method,
                 time_tolerance,
                 maximum_evaluations,

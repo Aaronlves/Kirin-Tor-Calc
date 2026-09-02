@@ -40,6 +40,8 @@ from .scenario_ast import (
     ScenarioBoundsAst,
     ScenarioPhaseAst,
     ScenarioSendAst,
+    ScenarioVariantAst,
+    VariantInputAst,
 )
 
 
@@ -213,6 +215,7 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     label = _decode(header.group("label"), path, node.line) if header.group("label") else None
     phases: List[ScenarioPhaseAst] = []
     instances: List[ProcessInstanceAst] = []
+    variants: List[ScenarioVariantAst] = []
     connections: List[ConnectionAst] = []
     schedules: List[object] = []
     actions: List[CompositeActionAst] = []
@@ -282,6 +285,48 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
             )
             if len(instances) > MAX_SCENARIO_INSTANCES:
                 _fail(path, owner_id, child, f"scenario exceeds {MAX_SCENARIO_INSTANCES} instances", field)
+            continue
+        variant = re.fullmatch(
+            rf"variant\s+({IDENTIFIER})(?:\s+({QUOTED}))?:", text
+        )
+        if variant:
+            inputs = []
+            for binding in child.children:
+                match = re.fullmatch(
+                    rf"({IDENTIFIER})\.({IDENTIFIER})\s*=\s*(.+)",
+                    binding.line.text,
+                )
+                if not match or binding.children:
+                    _fail(
+                        path,
+                        owner_id,
+                        binding,
+                        "variant input must use INSTANCE.INPUT = VALUE",
+                        field,
+                    )
+                inputs.append(
+                    VariantInputAst(
+                        match.group(1),
+                        match.group(2),
+                        ExpressionAst(
+                            match.group(3),
+                            _location(path, owner_id, binding, field),
+                        ),
+                        _location(path, owner_id, binding, field),
+                    )
+                )
+            if not inputs:
+                _fail(path, owner_id, child, "variant may not be empty", field)
+            variants.append(
+                ScenarioVariantAst(
+                    variant.group(1),
+                    tuple(inputs),
+                    _decode(variant.group(2), path, child.line)
+                    if variant.group(2)
+                    else None,
+                    _location(path, owner_id, child, field),
+                )
+            )
             continue
         connect = re.fullmatch(r"connect\s+(.+?)\s*->\s*(.+)", text)
         if connect:
@@ -607,6 +652,7 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
         label=label,
         phases=tuple(phases),
         instances=tuple(instances),
+        variants=tuple(variants),
         connections=tuple(connections),
         schedules=tuple(schedules),
         actions=tuple(actions),
@@ -657,6 +703,19 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
             if not objective_ids:
                 _fail(path, owner_id, child, "analysis objectives may not be empty", base)
             values["objectives"] = tuple(objective_ids)
+            continue
+        if text == "variants:":
+            if "variants" in values:
+                _fail(path, owner_id, child, "analysis variants may be declared only once", base)
+            variant_ids = []
+            for variant in child.children:
+                match = re.fullmatch(rf"-\s+({IDENTIFIER})", variant.line.text)
+                if not match or variant.children:
+                    _fail(path, owner_id, variant, "analysis variant must use - VARIANT", base)
+                variant_ids.append(match.group(1))
+            if not variant_ids:
+                _fail(path, owner_id, child, "analysis variants may not be empty", base)
+            values["variants"] = tuple(variant_ids)
             continue
         if text == "search:":
             if "search" in values:
@@ -721,6 +780,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
             else tuple(values.get("policies", ()))
         ),
         tuple(values.get("objectives", ())),
+        tuple(values.get("variants", ())),
         str(search["method"]) if "method" in search else None,
         search.get("time_tolerance")
         if isinstance(search.get("time_tolerance"), ExpressionAst)
