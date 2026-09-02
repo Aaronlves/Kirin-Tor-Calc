@@ -54,7 +54,7 @@ function chartOption(chart: ProcessChart): EChartsOption {
     const names = Array.isArray(chart.series) ? chart.series.map(String) : [];
     const groups = new Map<string, Row[]>();
     sourceRows.forEach((row) => {
-      const key = `${String(row.variant)}/${String(row.objective)}`;
+      const key = `${String(row.variant)}/${String(row.objective)}/${String(row.strategy)}`;
       groups.set(key, [...(groups.get(key) ?? []), row]);
     });
     const markerTimes = Array.isArray(chart.markers)
@@ -111,7 +111,7 @@ function chartOption(chart: ProcessChart): EChartsOption {
     };
   }
   const names = Array.isArray(chart.series) ? chart.series.map(String) : [];
-  const categories = sourceRows.map((row) => `${String(row.variant)}/${String(row.objective)}`);
+  const categories = sourceRows.map((row) => `${String(row.variant)}/${String(row.objective)}/${String(row.strategy)}`);
   return {
     ...common,
     xAxis: { type: "category", data: categories, axisLabel: { color: "#817d74", rotate: 25 } },

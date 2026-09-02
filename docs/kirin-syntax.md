@@ -298,8 +298,9 @@ choices requires an explicit selector; random branches are rejected by this dete
 `run`, source-Policy `compare`, deterministic bounded `optimize`, exact random `reach`, finite-state
 `steady`, and exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
 can be saved/replayed with embedded source snapshots. The finite optimizer returns every Measure for
-each selected Objective and labels exhaustive finite policy enumeration as `exact_global`; it uses
-no hidden time grid or numerical tolerance. The browser workbench exposes the same named Analysis,
+every tied optimal strategy of each selected Objective and labels exhaustive finite policy enumeration
+as `exact_global`; stable result ordering is not a hidden tie breaker, and it uses no hidden time grid
+or numerical tolerance. The browser workbench exposes the same named Analysis,
 variant/objective table, proof labels, traces, and multi-chart projections in the document flow. The
 full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
@@ -309,7 +310,9 @@ Besides `decide every`, a Scenario may use `decide after INSTANCE.PUBLIC_EVENT`,
 CONDITION`, or `decide continuously up to COUNT times from START until END`. Exact affine flow
 crossings use rational roots. General free-time search requires an Analysis `search:` block with
 `method = adaptive_dyadic`, an explicit `time_tolerance`, and `maximum_evaluations`; its proof level
-is `best_found`, not global optimality.
+is `best_found`, not global optimality. Effective method, tolerance, search budget, explicit absence
+of a fixed time grid or pruning approximation, Scenario bounds, and proof metadata are retained in
+the request/result/run-record chain so replay does not depend on hidden solver settings.
 
 For a finite random Process, Analysis evaluates every complete path Measure before combining exact
 numeric `measure_expectations`, and labels the result `strict_finite_output_expectation`. A source
@@ -338,9 +341,12 @@ unless the caller deliberately opts out.
 
 This one-chart limit applies only to the static scan chart above. A Process `analysis` may contain up
 to 64 chart blocks with `kind = trajectory|decision_surface|pareto|variant_comparison`. Trajectory
-series read public observations and may mark `event INSTANCE.PUBLIC_EVENT` or `decision ACTION`;
-Pareto axes require explicit `x_direction` and `y_direction`. Their structured rows are derived from
-optimal runs and bounded search candidates. `kt analyze ENTRY.ANALYSIS --export-charts` writes each
+charts apply to `run`, `compare`, `optimize`, `reach`, and `cycle`, read public observations, and may
+mark `event INSTANCE.PUBLIC_EVENT` or `decision ACTION`; a `steady` result has no time trajectory.
+The three search-result chart kinds require `optimize`. Pareto axes require explicit `x_direction`
+and `y_direction`, and the projection returns both all candidates and the explicit nondominated
+`frontier`. Their structured rows are derived from runs and bounded search candidates.
+`kt analyze ENTRY.ANALYSIS --export-charts` writes each
 configured SVG/CSV explicitly; preview data itself never becomes editable authority.
 
 ## Authoring boundary

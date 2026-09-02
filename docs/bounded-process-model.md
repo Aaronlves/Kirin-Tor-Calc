@@ -275,16 +275,17 @@ output event 和引擎时间，不读 Process 私有 state。内核提供 `final
 
 具名 Objective 可以最大化或最小化一个 Measure，提供任意有限层的字典序次级目标和 Measure 约束。
 例如“最大化死亡时间，其次最大化剩余充能”。同一 Scenario 可以声明多个 Objective；同一 Analysis
-可以选择多个 Objective 分别求解。优化器必须返回每个最优策略的全部 Measure，不能把未声明的偏好
-当作并列规则。
+可以选择多个 Objective 分别求解。优化器必须返回每个并列最优策略及其全部 Measure；稳定排序只影响
+投影顺序，不能选出一个 `best` 把未声明的偏好当作并列规则。
 
 两套参数或天赋由具名 Scenario input variant 表达。Variant 只能覆盖实例公开 input；它不复制或修改
 Process 私有状态、Measure 或 Objective。Analysis 为每个 variant 分别优化，返回 variant × objective
 结构，而不是先求一套策略再强制复用。
 
-一个 Analysis 可以声明多张派生图。轨迹图叠加 variant/objective 最优运行的公开 observation，并可
-标记公开事件和 action；搜索图读取有界候选的动作时点与 Measure，形成两时点 surface、作者显式方向
-的 Pareto 散点或方案对照。图表数据、SVG 与 CSV 都是 Analysis 结果的投影，不是新的数学权威；导出
+一个 Analysis 可以声明多张派生图。轨迹图可投影 `run`、`compare`、`optimize`、`reach` 或 `cycle`
+运行的公开 observation，并可标记公开事件和 action；搜索图读取有界候选的动作时点与 Measure，形成
+两时点 surface、作者显式方向的 Pareto 散点和非支配 frontier，或方案对照。图表数据、SVG 与 CSV
+都是 Analysis 结果的投影，不是新的数学权威；导出
 必须是显式动作并继续执行工作区路径与覆盖保护。
 
 搜索结果的证明等级只有三种：
@@ -293,8 +294,9 @@ Process 私有状态、Measure 或 Objective。Analysis 为每个 variant 分别
 - `global_with_error_bound`：全局数值结果带显式误差界；
 - `best_found`：只报告声明预算内的最佳候选，不声称全局最优。
 
-当前有限决策穷举只在完整遍历所有可用 action 分支后返回 `exact_global`。未来的数值容差、作者选择的
-时间网格、搜索预算和近似剪枝必须同时进入请求、结构化结果和运行记录。
+当前有限决策穷举只在完整遍历所有可用 action 分支后返回 `exact_global`。有效方法、数值容差、作者
+选择的时间网格、搜索预算和近似剪枝同时进入请求、结构化结果和运行记录；未使用的时间网格与剪枝
+近似也以 `null` 明示，不能只把这些信息留在当前源码或进程内存里。
 
 当前自由时点搜索使用作者显式声明的 `adaptive_dyadic` 时间容差和最大评估次数，并只返回
 `best_found`。语义事件时刻作为首批候选，随后对间隔自适应二分；候选仍以精确有理时间交给同一个

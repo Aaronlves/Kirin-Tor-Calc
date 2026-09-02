@@ -1237,11 +1237,6 @@ def lower_analysis_asts(
             if chart.id in chart_ids:
                 raise SchemaError(f"duplicate analysis chart {chart.id!r}", chart.location)
             chart_ids.add(chart.id)
-            if source.operation != "optimize":
-                raise SchemaError(
-                    "Process charts currently require an optimize analysis",
-                    chart.location,
-                )
             if chart.kind not in {
                 "trajectory",
                 "pareto",
@@ -1250,6 +1245,16 @@ def lower_analysis_asts(
             }:
                 raise SchemaError(
                     f"unknown Process chart kind {chart.kind!r}", chart.location
+                )
+            if chart.kind == "trajectory" and source.operation == "steady":
+                raise SchemaError(
+                    "steady analysis has no time trajectory to chart",
+                    chart.location,
+                )
+            if chart.kind != "trajectory" and source.operation != "optimize":
+                raise SchemaError(
+                    f"{chart.kind} chart requires an optimize analysis",
+                    chart.location,
                 )
             series = []
             if chart.kind == "trajectory":

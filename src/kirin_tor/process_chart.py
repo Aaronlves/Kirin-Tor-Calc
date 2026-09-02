@@ -98,8 +98,40 @@ def _dominates(left: Mapping[str, object], right: Mapping[str, object], chart) -
     return all(comparisons) and strict
 
 
+def _trajectory_runs(result) -> list[tuple[str, str, str, object]]:
+    if hasattr(result, "variants"):
+        return [
+            (
+                variant.variant_id,
+                objective.objective_id,
+                f"optimum_{index + 1}",
+                optimum.run,
+            )
+            for variant in result.variants
+            for objective in variant.objectives
+            for index, optimum in enumerate(objective.optima)
+        ]
+    if hasattr(result, "policies"):
+        return [
+            (comparison.policy_id, "run", f"outcome_{index + 1}", outcome.result)
+            for comparison in result.policies
+            for index, outcome in enumerate(comparison.result.outcomes)
+        ]
+    if hasattr(result, "outcomes"):
+        return [
+            ("default", "run", f"outcome_{index + 1}", outcome.result)
+            for index, outcome in enumerate(result.outcomes)
+        ]
+    if hasattr(result, "runs"):
+        return [
+            ("cycle", "cycle", f"iteration_{index + 1}", run)
+            for index, run in enumerate(result.runs)
+        ]
+    return []
+
+
 def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> list[dict]:
-    """Project optimized runs/candidates without creating a second authority."""
+    """Project Analysis runs/candidates without creating a second authority."""
 
     measure_units = _measure_units(scenario)
     observation_units = _observation_units(scenario)
@@ -116,30 +148,31 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
             series = [symbol.id for symbol in chart.series]
             rows = []
             markers = []
-            for variant in result.variants:
-                for objective in variant.objectives:
-                    for sample in objective.best.observation_samples:
-                        values = dict(sample.values)
-                        rows.append(
-                            {
-                                "variant": variant.variant_id,
-                                "objective": objective.objective_id,
-                                "time": _exact(sample.time),
-                                "time_approximate": float(sample.time),
-                                "phase": sample.phase,
-                                "values": {
-                                    name: _number(values[name]) for name in series
-                                },
-                            }
-                        )
-                    markers.extend(
+            for variant_id, objective_id, strategy_id, run in _trajectory_runs(result):
+                for sample in run.observation_samples:
+                    values = dict(sample.values)
+                    rows.append(
                         {
-                            **item,
-                            "variant": variant.variant_id,
-                            "objective": objective.objective_id,
+                            "variant": variant_id,
+                            "objective": objective_id,
+                            "strategy": strategy_id,
+                            "time": _exact(sample.time),
+                            "time_approximate": float(sample.time),
+                            "phase": sample.phase,
+                            "values": {
+                                name: _number(values[name]) for name in series
+                            },
                         }
-                        for item in _run_markers(chart, objective.best)
                     )
+                markers.extend(
+                    {
+                        **item,
+                        "variant": variant_id,
+                        "objective": objective_id,
+                        "strategy": strategy_id,
+                    }
+                    for item in _run_markers(chart, run)
+                )
             projection.update(
                 {
                     "series": series,
@@ -158,13 +191,15 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
                         {
                             "variant": variant.variant_id,
                             "objective": objective.objective_id,
+                            "strategy": f"optimum_{index + 1}",
                             "values": {
-                                name: _number(dict(objective.measures)[name])
+                                name: _number(dict(optimum.measures)[name])
                                 for name in series
                             },
                         }
                         for variant in result.variants
                         for objective in variant.objectives
+                        for index, optimum in enumerate(objective.optima)
                     ],
                 }
             )
@@ -229,6 +264,7 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
                         ],
                     }
                 )
+            frontier = [row for row in rows if row["nondominated"]]
             projection.update(
                 {
                     "x_measure": chart.x_measure_id,
@@ -238,6 +274,7 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
                     "y_direction": chart.y_direction,
                     "y_unit": measure_units[chart.y_measure_id],
                     "rows": rows,
+                    "frontier": frontier,
                 }
             )
         charts.append(projection)
@@ -271,7 +308,7 @@ def write_process_chart_csv(chart: dict, path: Path, overwrite: bool = False) ->
         value_names = chart["series"]
     else:
         value_names = ()
-    headers = ["variant", "objective", "time", "phase", "x", "y", "value", "nondominated", "decisions"]
+    headers = ["variant", "objective", "strategy", "time", "phase", "x", "y", "value", "nondominated", "decisions"]
     headers.extend(value_names)
     try:
         with temporary.open("x", encoding="utf-8", newline="") as handle:
@@ -279,7 +316,7 @@ def write_process_chart_csv(chart: dict, path: Path, overwrite: bool = False) ->
             writer.writeheader()
             for source in chart["rows"]:
                 row = {name: "" for name in headers}
-                for name in ("variant", "objective", "time", "phase", "x", "y", "nondominated"):
+                for name in ("variant", "objective", "strategy", "time", "phase", "x", "y", "nondominated"):
                     value = source.get(name)
                     if isinstance(value, dict):
                         value = value.get("exact")
@@ -319,13 +356,15 @@ def render_process_chart_svg(chart: dict, path: Path, overwrite: bool = False) -
         if chart["kind"] == "trajectory":
             groups: Dict[tuple, list] = {}
             for row in chart["rows"]:
-                groups.setdefault((row["variant"], row["objective"]), []).append(row)
-            for (variant, objective), rows in groups.items():
+                groups.setdefault(
+                    (row["variant"], row["objective"], row["strategy"]), []
+                ).append(row)
+            for (variant, objective, strategy), rows in groups.items():
                 for series in chart["series"]:
                     axis.plot(
                         [row["time_approximate"] for row in rows],
                         [row["values"][series]["approximate"] for row in rows],
-                        label=f"{variant}/{objective}/{series}",
+                        label=f"{variant}/{objective}/{strategy}/{series}",
                     )
             for marker in chart["markers"]:
                 axis.axvline(marker["time_approximate"], alpha=0.12, color="black")
@@ -352,7 +391,10 @@ def render_process_chart_svg(chart: dict, path: Path, overwrite: bool = False) -
             axis.set_ylabel(chart["y_measure"])
         else:
             rows = chart["rows"]
-            labels = [f"{row['variant']}/{row['objective']}" for row in rows]
+            labels = [
+                f"{row['variant']}/{row['objective']}/{row['strategy']}"
+                for row in rows
+            ]
             for series in chart["series"]:
                 axis.plot(
                     range(len(rows)),

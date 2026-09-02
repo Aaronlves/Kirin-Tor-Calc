@@ -19,8 +19,10 @@ from kirin_tor.process_chart import (
     render_process_chart_svg,
     write_process_chart_csv,
 )
+from kirin_tor.application import record_operation
 from kirin_tor.cli import app
-from kirin_tor.records import replay
+from kirin_tor.operations import analyze_process, process_analysis_request
+from kirin_tor.records import load_run, replay
 from kirin_tor.workspace import Workspace, initialize
 from kirin_tor.workbench import Workbench
 from conftest import make_cli_runner
@@ -138,6 +140,10 @@ analysis add_run:
   using = choice
   operation = run
   policy = add_once
+  chart value_trace:
+    kind = trajectory
+    series:
+      - actor.current
 
 analysis comparison:
   using = choice
@@ -153,6 +159,13 @@ analysis comparison:
     )
     assert isinstance(run, RunAnalysisResult)
     assert dict(run.outcomes[0].result.observations)["actor.current"] == 1
+    run_projection = process_analysis_result_data(
+        run, workspace.analyses["policies.add_run"], scenario
+    )
+    assert run_projection["charts"][0]["kind"] == "trajectory"
+    assert run_projection["charts"][0]["rows"][-1]["values"]["actor.current"][
+        "exact"
+    ] == "1"
 
     comparison = execute_process_analysis(
         workspace.analyses["policies.comparison"], scenario, workspace.units
@@ -194,13 +207,19 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         "longest_survival",
     ]
     longest = result.variants[0].objectives[-1]
-    assert longest.best.elapsed >= 3
-    assert longest.objective_values[0] == dict(longest.measures)["survival_time"]
+    longest_strategy = longest.optima[0]
+    assert longest_strategy.run.elapsed >= 3
+    assert longest_strategy.objective_values[0] == dict(longest_strategy.measures)[
+        "survival_time"
+    ]
     assert longest.proof.level == "best_found"
     assert longest.proof.tolerance == Fraction(1, 4)
     assert longest.proof.time_grid is None
-    assert any(time.denominator != 1 for time, _choice in longest.best.decisions)
-    assert set(dict(longest.measures)) == {
+    assert any(
+        time.denominator != 1
+        for time, _choice in longest_strategy.run.decisions
+    )
+    assert set(dict(longest_strategy.measures)) == {
         "minimum_health",
         "health_variation",
         "total_purified",
@@ -208,12 +227,12 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         "remaining_charges",
     }
     by_variant = {variant.variant_id: variant for variant in result.variants}
-    standard_purified = dict(by_variant["standard_brew"].objectives[1].measures)[
-        "total_purified"
-    ]
-    deep_purified = dict(by_variant["deep_clean"].objectives[1].measures)[
-        "total_purified"
-    ]
+    standard_purified = dict(
+        by_variant["standard_brew"].objectives[1].optima[0].measures
+    )["total_purified"]
+    deep_purified = dict(
+        by_variant["deep_clean"].objectives[1].optima[0].measures
+    )["total_purified"]
     assert deep_purified > standard_purified
     assert dict(by_variant["deep_clean"].input_overrides) == {
         "actor.clear_ratio": Fraction(13, 20),
@@ -238,6 +257,9 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
     health_chart = projected["charts"][0]
     assert health_chart["rows"]
     assert any(marker["kind"] == "decision" for marker in health_chart["markers"])
+    pareto_chart = next(chart for chart in projected["charts"] if chart["kind"] == "pareto")
+    assert pareto_chart["frontier"]
+    assert all(item["nondominated"] for item in pareto_chart["frontier"])
     surface = projected["charts"][3]
     assert surface["rows"]
     tradeoff = projected["charts"][4]
@@ -248,7 +270,9 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
     svg_path = render_process_chart_svg(
         tradeoff, tmp_path / "tradeoff.svg"
     )
-    assert csv_path.read_text(encoding="utf-8").startswith("variant,objective,time")
+    assert csv_path.read_text(encoding="utf-8").startswith(
+        "variant,objective,strategy,time"
+    )
     assert "<svg" in svg_path.read_text(encoding="utf-8")
 
 
@@ -307,9 +331,26 @@ analysis optimize_both:
     by_id = {
         item.objective_id: item for item in result.variants[0].objectives
     }
-    assert dict(by_id["highest_bounded"].measures)["final_value"] == 1
-    assert by_id["highest_bounded"].constraints == (True,)
-    assert dict(by_id["fewest_additions"].measures)["final_value"] == 0
+    highest = by_id["highest_bounded"]
+    assert len(highest.optima) == 2
+    assert {
+        optimum.run.decisions for optimum in highest.optima
+    } == {
+        ((Fraction(0), "add"), (Fraction(1), "wait")),
+        ((Fraction(0), "wait"), (Fraction(1), "add")),
+    }
+    assert all(dict(item.measures)["final_value"] == 1 for item in highest.optima)
+    assert all(item.constraints == (True,) for item in highest.optima)
+    assert dict(by_id["fewest_additions"].optima[0].measures)["final_value"] == 0
+    projection = process_analysis_result_data(
+        result,
+        workspace.analyses["objectives.optimize_both"],
+        workspace.scenarios["objectives.choice"],
+    )
+    highest_projection = projection["variants"][0]["objectives"][0]
+    assert highest_projection["tied_optima"] == 2
+    assert len(highest_projection["optimal_strategies"]) == 2
+    assert "best" not in highest_projection
     assert all(
         item.proof.level == "exact_global"
         for item in result.variants[0].objectives
@@ -368,13 +409,39 @@ analysis search:
     )
     assert isinstance(result, OptimizeAnalysisResult)
     optimum = result.variants[0].objectives[0]
-    assert optimum.best.decisions == ((Fraction(1, 4), "mark"),)
-    assert dict(optimum.measures)["timing_error"] == 0
+    assert optimum.optima[0].run.decisions == ((Fraction(1, 4), "mark"),)
+    assert dict(optimum.optima[0].measures)["timing_error"] == 0
     assert optimum.proof.level == "best_found"
     assert optimum.proof.tolerance == Fraction(1, 16)
     assert optimum.proof.time_grid is None
     assert optimum.proof.search_budget == 20
     assert optimum.proof.budget_exhausted is False
+    request = process_analysis_request(
+        workspace,
+        "continuous_search.search",
+        timeout_seconds=10,
+    )
+    assert request["search"] == {
+        "method": "adaptive_dyadic",
+        "time_tolerance": "1/16",
+        "time_grid": None,
+        "search_budget": 20,
+        "pruning_approximation": None,
+    }
+    record_operation(
+        workspace,
+        "continuous-search",
+        "process_analysis",
+        request,
+        lambda: analyze_process(
+            workspace, "continuous_search.search", timeout_seconds=10
+        ),
+    )
+    record = load_run(workspace, "continuous-search")
+    assert record["request"]["search"] == request["search"]
+    assert replay(workspace.root, "continuous-search")[
+        "matches_recorded_result"
+    ] is True
 
 
 def test_steady_proves_a_unique_finite_process_distribution(tmp_path: Path) -> None:
@@ -462,17 +529,22 @@ analysis period:
     assert result.period == 2
 
 
-def test_process_analysis_cli_records_and_replays_source_snapshots(
+def test_process_analysis_cli_records_and_replays_exact_random_paths(
     tmp_path: Path, monkeypatch
 ) -> None:
     source = """@kirin 2
 @entry run
 
 process counter:
+  input chance: probability = 1/4
   state value: count = 0
   event input add()
   on add():
-    next value = value + 1
+    branch result independent:
+      probability chance:
+        next value = value + 1
+      probability 1 - chance:
+        next value = value
   observe current: count = value
 
 scenario once:
@@ -485,7 +557,7 @@ scenario once:
     horizon = 1 second
     maximum_events = 1
     maximum_decisions = 1
-    maximum_branches = 1
+    maximum_branches = 4
     maximum_entities = 1
 
 analysis execute:
@@ -500,7 +572,11 @@ analysis execute:
     )
     assert completed.exit_code == 0, completed.output
     payload = json.loads(completed.stdout)
-    assert payload["outcomes"][0]["run"]["observations"]["actor.current"] == "1"
+    assert sorted(
+        (item["probability"], item["run"]["observations"]["actor.current"])
+        for item in payload["outcomes"]
+    ) == [("1/4", "1"), ("3/4", "0")]
+    assert payload["random_semantics"] == "strict_finite_output_expectation"
     assert payload["phases"] == ["event"]
     record = workspace.root / "runs" / "process-run.json"
     assert record.is_file()

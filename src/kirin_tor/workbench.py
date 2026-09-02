@@ -39,6 +39,7 @@ from .errors import KTError, ParameterError, ReferenceError, SourceLocation, Val
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     analyze_process,
+    process_analysis_request,
     differentiate,
     evaluate,
     explain,
@@ -1040,11 +1041,12 @@ class Workbench:
                 )
 
             if operation == "process_analysis":
-                request = {
-                    "target": str(payload.get("target", "")),
-                    "include_trace": True,
-                    "timeout_seconds": timeout,
-                }
+                request = process_analysis_request(
+                    workspace,
+                    str(payload.get("target", "")),
+                    include_trace=True,
+                    timeout_seconds=timeout,
+                )
                 return record_operation(
                     workspace,
                     save_run_id,

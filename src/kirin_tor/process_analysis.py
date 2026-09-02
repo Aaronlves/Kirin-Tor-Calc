@@ -83,14 +83,18 @@ class SolverProof:
 
 
 @dataclass(frozen=True)
-class ObjectiveOptimizationResult:
-    objective_id: str
-    best: ProcessRunResult
+class OptimalStrategyResult:
+    run: ProcessRunResult
     measures: Tuple[Tuple[str, ProcessValue], ...]
     objective_values: Tuple[ProcessValue, ...]
     constraints: Tuple[bool, ...]
+
+
+@dataclass(frozen=True)
+class ObjectiveOptimizationResult:
+    objective_id: str
+    optima: Tuple[OptimalStrategyResult, ...]
     proof: SolverProof
-    tied_optima: int
 
 
 @dataclass(frozen=True)
@@ -367,19 +371,17 @@ def _select_objectives(
             for item in feasible
             if _objective_key(objective, item[0]) == best_key
         ]
-        # Decision sequences are a stable presentation tie breaker. Semantic
-        # equality is entirely determined by the author's lexicographic terms.
+        # Sorting makes the projection reproducible, but every semantic tie is
+        # returned. Enumeration order is never promoted to an author preference.
         best.sort(key=lambda item: item[3].decisions)
-        values, measures, constraints, run = best[0]
         optimized.append(
             ObjectiveOptimizationResult(
                 objective_id,
-                run,
-                measures,
-                values,
-                constraints,
+                tuple(
+                    OptimalStrategyResult(run, measures, values, constraints)
+                    for values, measures, constraints, run in best
+                ),
                 proof,
-                len(best),
             )
         )
     return tuple(optimized)
@@ -390,6 +392,7 @@ def _optimize_finite(
     scenario: ScenarioIR,
     registry: UnitRegistry,
     input_overrides: Mapping[Tuple[str, str], ProcessValue],
+    include_trace: bool,
 ) -> Tuple[
     Tuple[ObjectiveOptimizationResult, ...],
     int,
@@ -413,7 +416,7 @@ def _optimize_finite(
                 scenario,
                 registry,
                 selector=choose,
-                include_trace=True,
+                include_trace=include_trace,
                 input_overrides=input_overrides,
             )
         except _NeedDecision as need:
@@ -529,6 +532,7 @@ def _optimize_continuous(
     scenario: ScenarioIR,
     registry: UnitRegistry,
     input_overrides: Mapping[Tuple[str, str], ProcessValue],
+    include_trace: bool,
 ) -> Tuple[
     Tuple[ObjectiveOptimizationResult, ...],
     int,
@@ -584,7 +588,7 @@ def _optimize_continuous(
                 run = run_process_scenario(
                     scenario,
                     registry,
-                    include_trace=True,
+                    include_trace=include_trace,
                     continuous_choices=plan,
                     input_overrides=input_overrides,
                 )
@@ -645,7 +649,10 @@ def _optimize_continuous(
 
 
 def _optimize(
-    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
+    analysis: AnalysisIR,
+    scenario: ScenarioIR,
+    registry: UnitRegistry,
+    include_trace: bool,
 ) -> OptimizeAnalysisResult:
     if _has_random(scenario):
         raise UnsupportedError(
@@ -679,11 +686,11 @@ def _optimize(
             )
         if scenario.continuous_decisions:
             objectives, explored, candidates = _optimize_continuous(
-                analysis, scenario, registry, input_overrides
+                analysis, scenario, registry, input_overrides, include_trace
             )
         else:
             objectives, explored, candidates = _optimize_finite(
-                analysis, scenario, registry, input_overrides
+                analysis, scenario, registry, input_overrides, include_trace
             )
         total_explored += explored
         variants.append(
@@ -884,7 +891,10 @@ def _steady(
 
 
 def _cycle(
-    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
+    analysis: AnalysisIR,
+    scenario: ScenarioIR,
+    registry: UnitRegistry,
+    include_trace: bool,
 ) -> CycleAnalysisResult:
     if _has_random(scenario):
         raise UnsupportedError("cycle requires a deterministic scenario", analysis.location)
@@ -914,7 +924,7 @@ def _cycle(
             registry,
             selector=selector,
             initial_state_overrides=overrides,
-            include_trace=True,
+            include_trace=include_trace,
         )
         if result.pending_schedule_count:
             raise UnsupportedError(
@@ -954,7 +964,7 @@ def execute_process_analysis(
     if analysis.scenario_id != scenario.qualified_id:
         raise ProcessExecutionError("analysis/scenario identity mismatch", analysis.location)
     if analysis.operation == "optimize":
-        return _optimize(analysis, scenario, registry)
+        return _optimize(analysis, scenario, registry, include_trace)
     if analysis.operation == "compare":
         comparisons = []
         for policy_id in analysis.policy_ids:
@@ -1024,7 +1034,7 @@ def execute_process_analysis(
     if analysis.operation == "steady":
         return _steady(analysis, scenario, registry)
     if analysis.operation == "cycle":
-        return _cycle(analysis, scenario, registry)
+        return _cycle(analysis, scenario, registry, include_trace)
     raise UnsupportedError(
         f"unsupported Process analysis operation {analysis.operation!r}",
         analysis.location,
@@ -1194,8 +1204,6 @@ def process_analysis_result_data(
             for item in result.policies
         ]
     elif isinstance(result, OptimizeAnalysisResult):
-        from .process_chart import process_charts_data
-
         base.update(
             {
                 "explored_branches": result.explored_branches,
@@ -1225,24 +1233,28 @@ def process_analysis_result_data(
                                     "search_budget": item.proof.search_budget,
                                     "budget_exhausted": item.proof.budget_exhausted,
                                 },
-                                "tied_optima": item.tied_optima,
-                                "objective_values": [
-                                    _value_data(value)
-                                    for value in item.objective_values
+                                "tied_optima": len(item.optima),
+                                "optimal_strategies": [
+                                    {
+                                        "objective_values": [
+                                            _value_data(value)
+                                            for value in optimum.objective_values
+                                        ],
+                                        "constraints": list(optimum.constraints),
+                                        "measures": {
+                                            name: _value_data(value)
+                                            for name, value in optimum.measures
+                                        },
+                                        "run": _run_data(optimum.run),
+                                    }
+                                    for optimum in item.optima
                                 ],
-                                "constraints": list(item.constraints),
-                                "measures": {
-                                    name: _value_data(value)
-                                    for name, value in item.measures
-                                },
-                                "best": _run_data(item.best),
                             }
                             for item in variant.objectives
                         ],
                     }
                     for variant in result.variants
                 ],
-                "charts": process_charts_data(result, analysis, scenario),
             }
         )
     elif isinstance(result, ReachAnalysisResult):
@@ -1302,4 +1314,8 @@ def process_analysis_result_data(
         )
     else:
         raise TypeError(f"unsupported Process analysis result {type(result).__name__}")
+    if analysis.charts:
+        from .process_chart import process_charts_data
+
+        base["charts"] = process_charts_data(result, analysis, scenario)
     return base

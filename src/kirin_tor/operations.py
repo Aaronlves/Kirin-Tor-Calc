@@ -152,6 +152,71 @@ def evaluate(
     )
 
 
+def _resolve_process_analysis(workspace: Workspace, target: str):
+    parts = target.split(".")
+    if len(parts) != 2 or parts[0] not in workspace.entries:
+        raise ParameterError("Process analysis target must use ENTRY.ANALYSIS")
+    analysis = workspace.entries[parts[0]].analyses.get(parts[1])
+    if analysis is None:
+        raise ParameterError(f"entry {parts[0]!r} has no analysis {parts[1]!r}")
+    scenario = workspace.scenarios[analysis.scenario_id]
+    return analysis, scenario
+
+
+def _request_exact(value) -> Optional[str]:
+    if value is None:
+        return None
+    return (
+        str(value.numerator)
+        if value.denominator == 1
+        else f"{value.numerator}/{value.denominator}"
+    )
+
+
+def process_analysis_request(
+    workspace: Workspace,
+    target: str,
+    *,
+    include_trace: bool = True,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Build the replayable request, including every effective search control."""
+
+    analysis, scenario = _resolve_process_analysis(workspace, target)
+    request = {
+        "target": target,
+        "include_trace": include_trace,
+        "timeout_seconds": timeout_seconds,
+        "analysis_operation": analysis.operation,
+        "scenario": scenario.qualified_id,
+        "bounds": {
+            "horizon": _request_exact(scenario.bounds.horizon),
+            "maximum_events": scenario.bounds.maximum_events,
+            "maximum_decisions": scenario.bounds.maximum_decisions,
+            "maximum_branches": scenario.bounds.maximum_branches,
+            "maximum_entities": scenario.bounds.maximum_entities,
+        },
+    }
+    if analysis.operation == "optimize":
+        continuous = bool(scenario.continuous_decisions)
+        request["search"] = {
+            "method": (
+                analysis.search_method
+                if continuous
+                else "exhaustive_finite_policy_enumeration"
+            ),
+            "time_tolerance": _request_exact(analysis.time_tolerance),
+            "time_grid": None,
+            "search_budget": (
+                analysis.maximum_evaluations
+                if continuous
+                else scenario.bounds.maximum_branches
+            ),
+            "pruning_approximation": None,
+        }
+    return request
+
+
 def _process_analysis_core(
     workspace: Workspace, target: str, include_trace: bool
 ) -> dict:
@@ -160,13 +225,7 @@ def _process_analysis_core(
         process_analysis_result_data,
     )
 
-    parts = target.split(".")
-    if len(parts) != 2 or parts[0] not in workspace.entries:
-        raise ParameterError("Process analysis target must use ENTRY.ANALYSIS")
-    analysis = workspace.entries[parts[0]].analyses.get(parts[1])
-    if analysis is None:
-        raise ParameterError(f"entry {parts[0]!r} has no analysis {parts[1]!r}")
-    scenario = workspace.scenarios[analysis.scenario_id]
+    analysis, scenario = _resolve_process_analysis(workspace, target)
     result = execute_process_analysis(
         analysis, scenario, workspace.units, include_trace=include_trace
     )

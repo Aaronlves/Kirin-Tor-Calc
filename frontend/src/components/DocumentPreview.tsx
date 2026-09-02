@@ -252,6 +252,16 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const processVariants = result && Array.isArray(result.variants)
     ? result.variants as Array<Record<string, unknown>>
     : [];
+  const processOperation = String(result?.analysis_operation ?? "—");
+  const processCountLabel = (() => {
+    if (!result) return "0 个结果";
+    if (processOperation === "optimize") return `${processVariants.length} 个方案`;
+    if (processOperation === "compare" && Array.isArray(result.policies)) return `${result.policies.length} 个策略`;
+    if ((processOperation === "run" || processOperation === "reach") && Array.isArray(result.outcomes)) return `${result.outcomes.length} 条路径`;
+    if (processOperation === "cycle" && Array.isArray(result.runs)) return `${result.runs.length} 次迭代`;
+    if (processOperation === "steady" && Array.isArray(result.states)) return `${result.states.length} 个状态`;
+    return "1 个结果";
+  })();
 
   if (!entryId) return <EmptyState title="文档声明无效" description="修复 @entry 文档头后，结果和图表投影会在这里出现。" />;
   if (!entryTargets.length && !hasChart && !entryAnalyses.length && !matchingRenderers.length) return <EmptyState title="这个文档没有可预览投影" description="定义 output、chart 或 analysis 后，相应投影会出现在这里。" />;
@@ -307,19 +317,22 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
           {result && mode === "result" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
           {result && mode === "process" && <Stack gap="md" className={`document-result-preview${activeSymbolId === analysisTarget ? " is-source-linked" : ""}`}>
             <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">PROCESS ANALYSIS</Text><Text fw={650}>{selectedAnalysis?.label || analysisTarget}</Text></Box><Group gap={4}>{selectedAnalysis?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column)}>定位分析源码</Button>}<Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportProcessCharts(); }}>导出全部图表</Button></Group></Group>
-            <Group gap={6}><Badge variant="light" color="green">{processVariants.length} 个方案</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge><Badge variant="outline" color="gray">搜索 {String(result.explored_branches ?? "—")}</Badge></Group>
-            <SimpleGrid cols={{ base: 1, lg: Math.min(2, Math.max(1, processVariants.length)) }}>
+            <Group gap={6}><Badge variant="light" color="green">{processCountLabel}</Badge><Badge variant="outline" color="gray">{processOperation}</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge>{result.explored_branches !== undefined && <Badge variant="outline" color="gray">搜索 {String(result.explored_branches)}</Badge>}</Group>
+            {processOperation === "optimize" && <SimpleGrid cols={{ base: 1, lg: Math.min(2, Math.max(1, processVariants.length)) }}>
               {processVariants.map((variant) => {
                 const objectives = Array.isArray(variant.objectives) ? variant.objectives as Array<Record<string, unknown>> : [];
                 return <Box key={String(variant.variant)} className="preview-inputs"><Text className="result-label">{String(variant.variant)}</Text>{objectives.map((objective) => {
                   const proof = objective.proof && typeof objective.proof === "object" ? objective.proof as Record<string, unknown> : {};
-                  const best = objective.best && typeof objective.best === "object" ? objective.best as Record<string, unknown> : {};
-                  const decisions = Array.isArray(best.decisions) ? best.decisions as Array<Record<string, unknown>> : [];
-                  const measures = objective.measures && typeof objective.measures === "object" ? objective.measures as Record<string, unknown> : {};
-                  return <Box key={String(objective.objective)} mt="sm"><Group justify="space-between"><Text fw={650} fz="sm">{String(objective.objective)}</Text><Badge color={proof.level === "exact_global" ? "green" : proof.level === "global_with_error_bound" ? "blue" : "yellow"}>{String(proof.level ?? "—")}</Badge></Group><Text c="dimmed" fz="xs" mt={4}>释放：{decisions.length ? decisions.map((item) => `${String(item.time)} ${String(item.choice)}`).join("；") : "不释放"}</Text><Group gap={4} mt={6}>{Object.entries(measures).map(([name, value]) => <Code key={name}>{name}={String(value)}</Code>)}</Group></Box>;
+                  const strategies = Array.isArray(objective.optimal_strategies) ? objective.optimal_strategies as Array<Record<string, unknown>> : [];
+                  return <Box key={String(objective.objective)} mt="sm"><Group justify="space-between"><Text fw={650} fz="sm">{String(objective.objective)}</Text><Group gap={4}><Badge variant="outline" color="gray">{strategies.length} 个并列最优</Badge><Badge color={proof.level === "exact_global" ? "green" : proof.level === "global_with_error_bound" ? "blue" : "yellow"}>{String(proof.level ?? "—")}</Badge></Group></Group>{strategies.map((strategy, index) => {
+                    const run = strategy.run && typeof strategy.run === "object" ? strategy.run as Record<string, unknown> : {};
+                    const decisions = Array.isArray(run.decisions) ? run.decisions as Array<Record<string, unknown>> : [];
+                    const measures = strategy.measures && typeof strategy.measures === "object" ? strategy.measures as Record<string, unknown> : {};
+                    return <Box key={`${String(objective.objective)}-${index}`} mt="xs"><Text c="dimmed" fz="xs">策略 {index + 1} · 释放：{decisions.length ? decisions.map((item) => `${String(item.time)} ${String(item.choice)}`).join("；") : "不释放"}</Text><Group gap={4} mt={6}>{Object.entries(measures).map(([name, value]) => <Code key={name}>{name}={String(value)}</Code>)}</Group></Box>;
+                  })}</Box>;
                 })}</Box>;
               })}
-            </SimpleGrid>
+            </SimpleGrid>}
             {processCharts.length > 0 && <Box className="document-chart-preview"><Group justify="space-between" mb="sm"><Select label="分析图表" value={String(selectedProcessChart?.id ?? "")} onChange={setProcessChartId} data={processCharts.map((item) => ({ value: String(item.id), label: String(item.label ?? item.id) }))} /><Badge variant="outline" color="gray">{String(selectedProcessChart?.kind ?? "—")}</Badge></Group>{selectedProcessChart && <ProcessChartCanvas chart={selectedProcessChart} />}</Box>}
             <TechnicalResult result={result} />
           </Stack>}

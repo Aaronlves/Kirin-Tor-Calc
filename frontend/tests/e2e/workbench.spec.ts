@@ -186,7 +186,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
-    await expect(reference.getByText("11 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByText("10 个匹配主题", { exact: true })).toBeVisible();
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
@@ -469,31 +469,27 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".formula-result")).toContainText("2200*combo.crit + 2200");
   });
 
-  test("固定技能循环自动报告首次等待与每分钟等待时间", async ({ page }) => {
+  test("固定策略由 Process 重放并证明边界周期", async ({ page }) => {
     await openWorkbench(page);
-    await page.getByRole("button", { name: "循环可行性（虚构） entries/循环分析.kirin", exact: true }).click();
+    await page.getByRole("button", { name: "过程周期证明（虚构） entries/循环分析.kirin", exact: true }).click();
     await page.getByRole("tab", { name: "预览", exact: true }).click();
 
     const preview = page.locator(".document-result-preview");
-    await expect(preview).toContainText("需要等待，可持续循环");
-    await expect(preview).toContainText("资源：charge / focus / mana");
-    await expect(preview).toContainText("首次等待：第 4 步");
-    await expect(preview).toContainText("受限：资源 focus");
-    await expect(preview).toContainText("每分钟等待：75/2 秒");
+    await expect(preview).toContainText("证明边界周期");
+    await expect(preview).toContainText("2 次迭代");
+    await expect(preview).toContainText("cycle");
+    await preview.locator(".technical-result summary").click();
+    await expect(preview.locator(".technical-result")).toContainText('"preperiod": 1');
+    await expect(preview.locator(".technical-result")).toContainText('"period": 1');
 
-    await page.getByRole("button", { name: "定位循环源码" }).click();
-    await expect(page.locator(".cm-activeLine")).toContainText('cycle main_rotation "多资源奥术循环"');
+    await page.getByRole("button", { name: "定位分析源码" }).click();
+    await expect(page.locator(".cm-activeLine")).toContainText('analysis prove_rotation "证明边界周期"');
 
-    await page.getByRole("combobox", { name: "分析循环" }).click();
-    await page.getByRole("option", { name: "冷却循环" }).click();
-    await expect(preview).toContainText("首次等待：第 3 步");
-    await expect(preview).toContainText("受限：冷却 evocation");
-    await expect(preview).toContainText("每分钟等待：24 秒");
-
-    await page.getByRole("combobox", { name: "分析循环" }).click();
-    await page.getByRole("option", { name: "充能循环" }).click();
-    await expect(preview).toContainText("首次等待：第 3 步");
-    await expect(preview).toContainText("受限：充能 arcane_orb");
+    await page.getByRole("combobox", { name: "过程分析" }).click();
+    await page.getByRole("option", { name: "重放固定策略" }).click();
+    await expect(preview).toContainText("重放固定策略");
+    await expect(preview).toContainText("1 条路径");
+    await expect(preview).toContainText("run");
   });
 
   test("结果、图表、公式与局部关系都能返回源码位置", async ({ page }) => {

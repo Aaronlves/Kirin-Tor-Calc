@@ -26,8 +26,8 @@ Scenario 中组合状态、精确时间、事件、动作、flow、约束、Meas
 | 连续释放时点 | 有界连续 decision occurrence | 当前一般搜索只给 `best_found` |
 | 有限随机路径 | Process branch | 完整枚举后计算逐路径 Measure 与严格输出期望 |
 | 可达、稳态、周期 | Process `reach` / `steady` / `cycle` Analysis | 只接受满足相应证明前提的有界模型 |
-| 多方案与多目标 | Scenario variant、Measure、Objective | 每个 variant × objective 独立优化 |
-| 轨迹与策略权衡图 | Analysis 多 chart | 图是 trace/求解结果的只读投影 |
+| 多方案与多目标 | Scenario variant、Measure、Objective | 每个 variant × objective 独立优化并返回全部并列最优 |
+| 轨迹与策略权衡图 | Analysis 多 chart | run/compare/optimize/reach/cycle 轨迹和搜索图都是只读投影 |
 | 多层静态属性 | 封闭 `type` 对象 | 未知或缺失属性失败 |
 | 查表、扫描与符号计算 | table、scan、grid、solve 等 | 继续使用静态数学引擎 |
 
@@ -41,7 +41,8 @@ Scenario 中组合状态、精确时间、事件、动作、flow、约束、Meas
   不替作者选择。
 - `decide every` 是作者主动声明的时间网格。自由时点搜索不会静默取整或套用隐藏步长。
 - `exact_global` 只用于已完整证明的模型范围；当前一般连续搜索记录容差与预算并标记
-  `best_found`。当前没有会产出 `global_with_error_bound` 的一般求解器。
+  `best_found`。方法、容差、预算和未使用的近似项贯穿请求、结果与运行记录。当前没有会产出
+  `global_with_error_bound` 的一般求解器。
 - `steady` 需要有限可枚举状态；`cycle` 需要确定场景并实际发现精确重复状态；否则明确拒绝。
 
 ## 明确非目标

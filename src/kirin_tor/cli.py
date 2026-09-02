@@ -20,6 +20,7 @@ from .errors import KTError, ParameterError, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     analyze_process,
+    process_analysis_request,
     differentiate,
     evaluate,
     explain,
@@ -623,11 +624,12 @@ def process_analysis_command(
 
     def action():
         workspace = Workspace.discover()
-        request = {
-            "target": target,
-            "include_trace": not no_trace,
-            "timeout_seconds": timeout,
-        }
+        request = process_analysis_request(
+            workspace,
+            target,
+            include_trace=not no_trace,
+            timeout_seconds=timeout,
+        )
         result = _recorded_compute(
             workspace,
             save_run_id,
