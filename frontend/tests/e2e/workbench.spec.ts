@@ -222,6 +222,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await page.getByLabel("语法参考", { exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" })).toBeVisible();
+    await expect(page.locator(".syntax-example pre > code")).toHaveAttribute("tabindex", "0");
     await page.waitForTimeout(350);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(results.violations).toEqual([]);

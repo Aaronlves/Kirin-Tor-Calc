@@ -164,7 +164,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                       {copiedId === selected.id ? "已复制" : "复制示例"}
                     </Button>
                   </Group>
-                  <pre><Code component="code">{selected.code}</Code></pre>
+                  <pre><Code component="code" tabIndex={0}>{selected.code}</Code></pre>
                   <Text c={copyFailed ? "red" : "dimmed"} fz="xs" className="syntax-example-note">
                     {copyFailed
                       ? "浏览器拒绝了剪贴板访问；可以直接选择上方源码复制。"
