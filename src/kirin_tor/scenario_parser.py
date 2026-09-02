@@ -21,10 +21,13 @@ from .scenario_ast import (
     AnalysisAst,
     AtScheduleAst,
     CompositeActionAst,
+    ConditionDecisionAst,
     ConnectionAst,
+    ContinuousDecisionAst,
     DecisionScheduleAst,
     EventEndpointAst,
     EveryScheduleAst,
+    EventDecisionAst,
     InstanceInputAst,
     InstancePhaseAst,
     MeasureAst,
@@ -53,6 +56,18 @@ _EVERY = re.compile(
 _DECIDE = re.compile(
     rf"^decide\s+every\s+(?P<interval>.+?)\s+from\s+(?P<start>.+?)"
     rf"(?:\s+until\s+(?P<end>.+?))?\s+phase\s+(?P<phase>{IDENTIFIER}):$"
+)
+_DECIDE_AFTER = re.compile(
+    rf"^decide\s+after\s+(?P<event>{IDENTIFIER}\.{IDENTIFIER})\s+"
+    rf"phase\s+(?P<phase>{IDENTIFIER}):$"
+)
+_DECIDE_WHEN = re.compile(
+    rf"^decide\s+when\s+(?P<condition>.+)\s+phase\s+(?P<phase>{IDENTIFIER}):$"
+)
+_DECIDE_CONTINUOUS = re.compile(
+    rf"^decide\s+continuously\s+up\s+to\s+(?P<count>[0-9]+)\s+times?\s+"
+    rf"from\s+(?P<start>.+?)\s+until\s+(?P<end>.+?)\s+"
+    rf"phase\s+(?P<phase>{IDENTIFIER}):$"
 )
 
 
@@ -169,6 +184,26 @@ def _sends(
     )
 
 
+def _decision_options(
+    nodes: Tuple[_Node, ...], path: Path, owner_id: str, field: str
+) -> Tuple[str, ...]:
+    options = []
+    for option in nodes:
+        match = re.fullmatch(rf"-\s+({IDENTIFIER}|wait)", option.line.text)
+        if not match or option.children:
+            _fail(
+                path,
+                owner_id,
+                option,
+                "decision option must use - ACTION or - wait",
+                field,
+            )
+        options.append(match.group(1))
+    if not options:
+        raise SchemaError("decision must declare at least one option")
+    return tuple(options)
+
+
 def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     header = _SCENARIO_HEADER.fullmatch(node.line.text)
     if not header:
@@ -183,6 +218,9 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     actions: List[CompositeActionAst] = []
     policies: List[PolicyAst] = []
     decisions: List[DecisionScheduleAst] = []
+    event_decisions: List[EventDecisionAst] = []
+    condition_decisions: List[ConditionDecisionAst] = []
+    continuous_decisions: List[ContinuousDecisionAst] = []
     measures: List[MeasureAst] = []
     objectives: List[ObjectiveAst] = []
     stop = None
@@ -355,14 +393,6 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
             continue
         decide = _DECIDE.fullmatch(text)
         if decide:
-            options = []
-            for option in child.children:
-                match = re.fullmatch(rf"-\s+({IDENTIFIER}|wait)", option.line.text)
-                if not match or option.children:
-                    _fail(path, owner_id, option, "decision option must use - ACTION or - wait", field)
-                options.append(match.group(1))
-            if not options:
-                _fail(path, owner_id, child, "decision must declare at least one option", field)
             decisions.append(
                 DecisionScheduleAst(
                     ExpressionAst(decide.group("interval"), _location(path, owner_id, child, field)),
@@ -371,7 +401,66 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                     if decide.group("end")
                     else None,
                     decide.group("phase"),
-                    tuple(options),
+                    _decision_options(child.children, path, owner_id, field),
+                    _location(path, owner_id, child, field),
+                )
+            )
+            continue
+        decide_after = _DECIDE_AFTER.fullmatch(text)
+        if decide_after:
+            event_decisions.append(
+                EventDecisionAst(
+                    _endpoint(
+                        decide_after.group("event"),
+                        path,
+                        owner_id,
+                        child,
+                        field,
+                    ),
+                    decide_after.group("phase"),
+                    _decision_options(child.children, path, owner_id, field),
+                    _location(path, owner_id, child, field),
+                )
+            )
+            continue
+        decide_when = _DECIDE_WHEN.fullmatch(text)
+        if decide_when:
+            condition_decisions.append(
+                ConditionDecisionAst(
+                    ExpressionAst(
+                        decide_when.group("condition"),
+                        _location(path, owner_id, child, field),
+                    ),
+                    decide_when.group("phase"),
+                    _decision_options(child.children, path, owner_id, field),
+                    _location(path, owner_id, child, field),
+                )
+            )
+            continue
+        decide_continuous = _DECIDE_CONTINUOUS.fullmatch(text)
+        if decide_continuous:
+            options = _decision_options(child.children, path, owner_id, field)
+            if "wait" in options:
+                _fail(
+                    path,
+                    owner_id,
+                    child,
+                    "continuous decisions omit an occurrence instead of choosing wait",
+                    field,
+                )
+            continuous_decisions.append(
+                ContinuousDecisionAst(
+                    int(decide_continuous.group("count")),
+                    ExpressionAst(
+                        decide_continuous.group("start"),
+                        _location(path, owner_id, child, field),
+                    ),
+                    ExpressionAst(
+                        decide_continuous.group("end"),
+                        _location(path, owner_id, child, field),
+                    ),
+                    decide_continuous.group("phase"),
+                    options,
                     _location(path, owner_id, child, field),
                 )
             )
@@ -523,6 +612,9 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
         actions=tuple(actions),
         policies=tuple(policies),
         decisions=tuple(decisions),
+        event_decisions=tuple(event_decisions),
+        condition_decisions=tuple(condition_decisions),
+        continuous_decisions=tuple(continuous_decisions),
         measures=tuple(measures),
         objectives=tuple(objectives),
         stop=stop,
@@ -566,6 +658,32 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
                 _fail(path, owner_id, child, "analysis objectives may not be empty", base)
             values["objectives"] = tuple(objective_ids)
             continue
+        if text == "search:":
+            if "search" in values:
+                _fail(path, owner_id, child, "analysis search may be declared only once", base)
+            search = {}
+            for setting in child.children:
+                match = re.fullmatch(
+                    rf"(method|time_tolerance|maximum_evaluations)\s*=\s*(.+)",
+                    setting.line.text,
+                )
+                if not match or setting.children or match.group(1) in search:
+                    _fail(
+                        path,
+                        owner_id,
+                        setting,
+                        "search setting must uniquely assign method, time_tolerance, or maximum_evaluations",
+                        base,
+                    )
+                search[match.group(1)] = (
+                    match.group(2)
+                    if match.group(1) == "method"
+                    else ExpressionAst(
+                        match.group(2), _location(path, owner_id, setting, base)
+                    )
+                )
+            values["search"] = search
+            continue
         if child.children:
             _fail(path, owner_id, child, "analysis declaration cannot contain a block", base)
         target = re.fullmatch(r"target\s*=\s*(.+)", text)
@@ -589,6 +707,8 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
     operation = str(values["operation"])
     if operation not in {"run", "compare", "optimize", "reach", "steady", "cycle"}:
         _fail(path, owner_id, node, f"unknown analysis operation {operation!r}", base)
+    search = values.get("search", {})
+    assert isinstance(search, dict)
     return AnalysisAst(
         owner_id,
         analysis_id,
@@ -601,6 +721,13 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
             else tuple(values.get("policies", ()))
         ),
         tuple(values.get("objectives", ())),
+        str(search["method"]) if "method" in search else None,
+        search.get("time_tolerance")
+        if isinstance(search.get("time_tolerance"), ExpressionAst)
+        else None,
+        search.get("maximum_evaluations")
+        if isinstance(search.get("maximum_evaluations"), ExpressionAst)
+        else None,
         values.get("target") if isinstance(values.get("target"), ExpressionAst) else None,
         _location(path, owner_id, node, base),
     )

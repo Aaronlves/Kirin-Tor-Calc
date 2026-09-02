@@ -115,6 +115,32 @@ class DecisionScheduleAst:
 
 
 @dataclass(frozen=True)
+class EventDecisionAst:
+    source: EventEndpointAst
+    phase_id: str
+    options: Tuple[str, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ConditionDecisionAst:
+    condition: ExpressionAst
+    phase_id: str
+    options: Tuple[str, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ContinuousDecisionAst:
+    maximum_occurrences: int
+    start: ExpressionAst
+    end: ExpressionAst
+    phase_id: str
+    options: Tuple[str, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class MeasureAst:
     id: str
     value_type: TypeAst
@@ -161,6 +187,9 @@ class ScenarioAst:
     actions: Tuple[CompositeActionAst, ...] = ()
     policies: Tuple[PolicyAst, ...] = ()
     decisions: Tuple[DecisionScheduleAst, ...] = ()
+    event_decisions: Tuple[EventDecisionAst, ...] = ()
+    condition_decisions: Tuple[ConditionDecisionAst, ...] = ()
+    continuous_decisions: Tuple[ContinuousDecisionAst, ...] = ()
     measures: Tuple[MeasureAst, ...] = ()
     objectives: Tuple[ObjectiveAst, ...] = ()
     stop: Optional[ExpressionAst] = None
@@ -181,6 +210,9 @@ class AnalysisAst:
     operation: str
     policy_ids: Tuple[str, ...] = ()
     objective_ids: Tuple[str, ...] = ()
+    search_method: Optional[str] = None
+    time_tolerance: Optional[ExpressionAst] = None
+    maximum_evaluations: Optional[ExpressionAst] = None
     target: Optional[ExpressionAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 

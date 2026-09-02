@@ -40,11 +40,15 @@ from .process_ir import (
     WhenEffectIR,
 )
 from .process_model import ExpressionSymbolKind, ProcessMemberKind, Reducer, ScheduleOperation
+from .process_crossing import affine_condition_gap
 from .scenario_ir import (
     AtScheduleIR,
     CompositeActionIR,
+    ConditionDecisionIR,
+    ContinuousDecisionIR,
     DecisionScheduleIR,
     EveryScheduleIR,
+    EventDecisionIR,
     InstanceMemberRefIR,
     ProcessInstanceIR,
     PolicyIR,
@@ -56,7 +60,7 @@ from .units import UnitRegistry
 
 
 DecisionSelector = Callable[[
-    int, Fraction, DecisionScheduleIR, Tuple[str, ...], Mapping[str, ProcessValue]
+    int, Fraction, object, Tuple[str, ...], Mapping[str, ProcessValue]
 ], str]
 BranchSelector = Callable[[
     int,
@@ -78,6 +82,13 @@ class RuntimeEvent:
     source_ids: Tuple[ProcessEventId, ...]
     fuel_reserved: bool = False
     schedule_slot: Optional[Tuple[str, Tuple[str, str]]] = None
+
+
+@dataclass(frozen=True)
+class ContinuousDecisionChoice:
+    schedule_index: int
+    time: Fraction
+    action_id: str
 
 
 @dataclass(frozen=True)
@@ -218,6 +229,7 @@ class DeterministicProcessExecutor:
         ] = None,
         maximum_batches: Optional[int] = None,
         include_trace: bool = True,
+        continuous_choices: Sequence[ContinuousDecisionChoice] = (),
     ) -> None:
         self.scenario = scenario
         self.registry = registry
@@ -227,9 +239,12 @@ class DeterministicProcessExecutor:
         self.initial_state_overrides = dict(initial_state_overrides or {})
         self.maximum_batches = maximum_batches
         self.include_trace = include_trace
+        self.continuous_choices = tuple(continuous_choices)
         self.instances: Dict[str, _InstanceState] = {}
         self.events: Dict[Tuple[Fraction, int], List[RuntimeEvent]] = defaultdict(list)
-        self.decision_points: Dict[Tuple[Fraction, int], DecisionScheduleIR] = {}
+        self.decision_points: Dict[
+            Tuple[Fraction, int], List[Tuple[object, Optional[str]]]
+        ] = defaultdict(list)
         self.heap: List[Tuple[Fraction, int]] = []
         self.queued_keys: set[Tuple[Fraction, int]] = set()
         self.canceled: set[ProcessEventId] = set()
@@ -246,6 +261,7 @@ class DeterministicProcessExecutor:
         self.stopped = False
         self.stop_reason = "horizon"
         self.target_reached = False
+        self.condition_truth: Dict[int, bool] = {}
         self.connections = defaultdict(list)
         for connection in scenario.connections:
             self.connections[
@@ -430,11 +446,54 @@ class DeterministicProcessExecutor:
             current = schedule.start
             while current <= end:
                 key = (current, schedule.phase.index)
-                self.decision_points[key] = schedule
+                self.decision_points[key].append((schedule, None))
                 self._queue_key(key)
                 current += schedule.interval
+        occurrence_counts: Dict[int, int] = defaultdict(int)
+        previous_choice = None
+        for choice in self.continuous_choices:
+            if previous_choice is not None and (
+                choice.time,
+                choice.schedule_index,
+            ) < previous_choice:
+                raise ProcessExecutionError(
+                    "continuous decision choices must be ordered by time and declaration"
+                )
+            previous_choice = (choice.time, choice.schedule_index)
+            if not 0 <= choice.schedule_index < len(self.scenario.continuous_decisions):
+                raise ProcessExecutionError(
+                    f"unknown continuous decision declaration {choice.schedule_index}"
+                )
+            schedule = self.scenario.continuous_decisions[choice.schedule_index]
+            if not schedule.start <= choice.time <= schedule.end:
+                raise ProcessExecutionError(
+                    "continuous decision time is outside its declared interval",
+                    schedule.location,
+                )
+            if choice.action_id not in schedule.action_ids:
+                raise ProcessExecutionError(
+                    f"continuous decision selected unknown action {choice.action_id!r}",
+                    schedule.location,
+                )
+            occurrence_counts[choice.schedule_index] += 1
+            if occurrence_counts[choice.schedule_index] > schedule.maximum_occurrences:
+                raise ProcessExecutionError(
+                    "continuous decision exceeds its maximum occurrence count",
+                    schedule.location,
+                )
+            key = (choice.time, schedule.phase.index)
+            self.decision_points[key].append((schedule, choice.action_id))
+            self._queue_key(key)
         self._record(Fraction(0), "initial", "initialized")
         self._sample("initial")
+        for index, schedule in enumerate(self.scenario.condition_decisions):
+            value = evaluate_process_expression(
+                schedule.condition, self._scenario_values(), self.registry
+            )
+            assert isinstance(value, bool)
+            self.condition_truth[index] = value
+            if value:
+                self._queue_condition_decision(index, schedule, -1, "initial")
 
     def _scenario_values(self) -> Dict[SymbolRefIR, ProcessValue]:
         result: Dict[SymbolRefIR, ProcessValue] = {}
@@ -452,6 +511,106 @@ class DeterministicProcessExecutor:
         result[symbols["horizon"]] = self.scenario.bounds.horizon
         return result
 
+    def _scenario_values_after(
+        self, elapsed: Fraction
+    ) -> Dict[SymbolRefIR, ProcessValue]:
+        future_states = {
+            instance_id: dict(runtime.states)
+            for instance_id, runtime in self.instances.items()
+        }
+        for instance_id, runtime in self.instances.items():
+            environment = {**runtime.inputs, **runtime.states}
+            for flow in runtime.declaration.process.flows:
+                state = next(
+                    item
+                    for item in runtime.declaration.process.states
+                    if item.ref == flow.state
+                )
+                state_symbol = _state_symbol(runtime.declaration.process, state)
+                future_states[instance_id][state_symbol] = evaluate_process_expression(
+                    flow.value,
+                    {
+                        **environment,
+                        flow.current_symbol: runtime.states[state_symbol],
+                        flow.elapsed_symbol: elapsed,
+                    },
+                    self.registry,
+                )
+        result: Dict[SymbolRefIR, ProcessValue] = {}
+        symbols = {item.id: item for item in self.scenario.observation_symbols}
+        for instance_id, runtime in self.instances.items():
+            environment = {**runtime.inputs, **future_states[instance_id]}
+            for observation in runtime.declaration.process.observations:
+                name = f"{instance_id}.{observation.ref.member_id}"
+                result[symbols[name]] = evaluate_process_expression(
+                    observation.value, environment, self.registry
+                )
+        result[symbols["elapsed"]] = self.current_time + elapsed
+        result[symbols["event_count"]] = Fraction(self.event_count)
+        result[symbols["decision_count"]] = Fraction(self.decision_count)
+        result[symbols["horizon"]] = self.scenario.bounds.horizon
+        return result
+
+    def _next_affine_crossing(
+        self, limit: Fraction
+    ) -> Optional[Tuple[Fraction, int, ConditionDecisionIR]]:
+        span = limit - self.current_time
+        if span <= 0:
+            return None
+        current_values = self._scenario_values()
+        future_values = self._scenario_values_after(span)
+        candidates = []
+        for index, schedule in enumerate(self.scenario.condition_decisions):
+            if self.condition_truth[index] or not schedule.continuous_crossing:
+                continue
+            start_gap = affine_condition_gap(
+                schedule.condition, current_values, self.registry
+            )
+            end_gap = affine_condition_gap(
+                schedule.condition, future_values, self.registry
+            )
+            if start_gap < 0 <= end_gap and end_gap != start_gap:
+                offset = span * (-start_gap) / (end_gap - start_gap)
+                if 0 < offset <= span:
+                    candidates.append((self.current_time + offset, index, schedule))
+        return min(candidates, default=None, key=lambda item: (item[0], item[1]))
+
+    def _queue_affine_crossing(
+        self, time: Fraction, index: int, schedule: ConditionDecisionIR
+    ) -> None:
+        key = (time, schedule.phase.index)
+        self.decision_points[key].append((schedule, None))
+        self._queue_key(key)
+        self.condition_truth[index] = True
+        self._record(
+            time,
+            "flow",
+            "condition_crossing",
+            details=(("condition", index), ("target_phase", schedule.phase.id)),
+        )
+
+    def _synchronize_flow_conditions(self) -> None:
+        values = self._scenario_values()
+        for index, schedule in enumerate(self.scenario.condition_decisions):
+            current = evaluate_process_expression(
+                schedule.condition, values, self.registry
+            )
+            assert isinstance(current, bool)
+            previous = self.condition_truth[index]
+            if current == previous:
+                continue
+            if not schedule.continuous_crossing:
+                raise UnsupportedError(
+                    "condition changed between events under a flow that is not proven affine",
+                    schedule.location,
+                )
+            if current and not previous:
+                raise ProcessExecutionError(
+                    "affine condition crossing was not scheduled at its exact root",
+                    schedule.location,
+                )
+            self.condition_truth[index] = current
+
     def _sample(self, phase: str) -> None:
         values = self._scenario_values()
         self.observation_samples.append(
@@ -467,6 +626,66 @@ class DeterministicProcessExecutor:
                 ),
             )
         )
+
+    def _queue_dynamic_decision(
+        self,
+        schedule: object,
+        source_phase_index: int,
+        source_phase: str,
+        kind: str,
+    ) -> None:
+        target_phase = schedule.phase
+        if target_phase.index <= source_phase_index:
+            raise ProcessExecutionError(
+                f"{kind} decision phase {target_phase.id!r} must follow triggering phase {source_phase!r}",
+                schedule.location,
+            )
+        key = (self.current_time, target_phase.index)
+        self.decision_points[key].append((schedule, None))
+        self._queue_key(key)
+        self._record(
+            self.current_time,
+            source_phase,
+            "decision_trigger",
+            details=(("source", kind), ("target_phase", target_phase.id)),
+        )
+
+    def _queue_condition_decision(
+        self,
+        index: int,
+        schedule: ConditionDecisionIR,
+        source_phase_index: int,
+        source_phase: str,
+    ) -> None:
+        self._queue_dynamic_decision(
+            schedule, source_phase_index, source_phase, f"condition[{index}]"
+        )
+
+    def _update_condition_decisions(
+        self, source_phase_index: int, source_phase: str
+    ) -> None:
+        values = self._scenario_values()
+        for index, schedule in enumerate(self.scenario.condition_decisions):
+            current = evaluate_process_expression(
+                schedule.condition, values, self.registry
+            )
+            assert isinstance(current, bool)
+            previous = self.condition_truth[index]
+            self.condition_truth[index] = current
+            if current and not previous:
+                self._queue_condition_decision(
+                    index, schedule, source_phase_index, source_phase
+                )
+
+    def _trigger_event_decisions(self, event: RuntimeEvent) -> None:
+        for schedule in self.scenario.event_decisions:
+            if schedule.source == event.target:
+                self._queue_dynamic_decision(
+                    schedule,
+                    event.phase.index,
+                    event.phase.id,
+                    f"event:{event.target.instance_id}.{event.target.member.member_id}",
+                )
 
     def _scenario_event(
         self,
@@ -541,7 +760,7 @@ class DeterministicProcessExecutor:
         self._sample("flow")
 
     def _available_actions(
-        self, schedule: DecisionScheduleIR, values: Mapping[SymbolRefIR, ProcessValue]
+        self, schedule: object, values: Mapping[SymbolRefIR, ProcessValue]
     ) -> Tuple[str, ...]:
         declarations = {item.id: item for item in self.scenario.actions}
         result = []
@@ -553,7 +772,7 @@ class DeterministicProcessExecutor:
                 is True
             ) and self._process_action_guards_hold(action, values):
                 result.append(action_id)
-        if schedule.allow_wait:
+        if getattr(schedule, "allow_wait", False):
             result.append("wait")
         return tuple(result)
 
@@ -595,14 +814,16 @@ class DeterministicProcessExecutor:
         return True
 
     def _choose(
-        self, time: Fraction, schedule: DecisionScheduleIR
+        self, time: Fraction, schedule: object, forced_choice: Optional[str] = None
     ) -> Tuple[str, Tuple[RuntimeEvent, ...]]:
         self._consume_decision(schedule.location)
         values = self._scenario_values()
         available = self._available_actions(schedule, values)
         if not available:
             raise ProcessExecutionError("decision has no available action", schedule.location)
-        if self.selector is None:
+        if forced_choice is not None:
+            choice = forced_choice
+        elif self.selector is None:
             if len(available) != 1:
                 raise ProcessExecutionError(
                     "run requires an explicit policy when a decision has multiple available choices",
@@ -1157,6 +1378,7 @@ class DeterministicProcessExecutor:
                         event.arguments,
                     )
                 )
+                self._trigger_event_decisions(event)
                 targets = self.connections.get(
                     (pending.instance_id, declaration.ref), ()
                 )
@@ -1207,13 +1429,21 @@ class DeterministicProcessExecutor:
             self.stop_reason = "batch_limit"
             return self._result()
         processed_batches = 0
-        while self.heap and not self.stopped:
+        while not self.stopped:
+            limit = self.heap[0][0] if self.heap else self.scenario.bounds.horizon
+            crossing = self._next_affine_crossing(limit)
+            if crossing is not None:
+                self._queue_affine_crossing(*crossing)
+                continue
+            if not self.heap:
+                break
             time, phase_index = heapq.heappop(self.heap)
             key = (time, phase_index)
             self.queued_keys.discard(key)
             if time > self.scenario.bounds.horizon:
                 break
             self._advance(time)
+            self._synchronize_flow_conditions()
             phase = self.scenario.phases[phase_index]
             events = [
                 event
@@ -1227,20 +1457,26 @@ class DeterministicProcessExecutor:
                     del self.schedule_slots[event.schedule_slot]
                 if not event.fuel_reserved:
                     self._consume_event(event.target.member)
-            decision = self.decision_points.get(key)
-            if decision is not None:
-                _choice, action_events = self._choose(time, decision)
+            decisions = self.decision_points.pop(key, ())
+            for decision, forced_choice in decisions:
+                _choice, action_events = self._choose(
+                    time, decision, forced_choice
+                )
                 events.extend(action_events)
             if events:
                 writes = {}
                 schedules: List[object] = []
                 emits: List[_PendingEmit] = []
-                for event in self._reduce(events):
+                reduced_events = self._reduce(events)
+                for event in reduced_events:
                     self._process_event(event, writes, schedules, emits)
                 self._apply_writes(writes, time, phase)
                 self._apply_schedules(schedules, phase)
                 self._apply_emits(emits)
+                for event in reduced_events:
+                    self._trigger_event_decisions(event)
             self._sample(phase.id)
+            self._update_condition_decisions(phase.index, phase.id)
             if self._check_stop(phase.id):
                 break
             processed_batches += 1
@@ -1256,6 +1492,7 @@ class DeterministicProcessExecutor:
             and self.current_time < self.scenario.bounds.horizon
         ):
             self._advance(self.scenario.bounds.horizon)
+            self._synchronize_flow_conditions()
             self._check_stop("horizon")
         return self._result()
 
@@ -1326,6 +1563,7 @@ def run_process_scenario(
     initial_state_overrides: Optional[Mapping[Tuple[str, str], ProcessValue]] = None,
     maximum_batches: Optional[int] = None,
     include_trace: bool = True,
+    continuous_choices: Sequence[ContinuousDecisionChoice] = (),
 ) -> ProcessRunResult:
     return DeterministicProcessExecutor(
         scenario,
@@ -1336,6 +1574,7 @@ def run_process_scenario(
         initial_state_overrides=initial_state_overrides,
         maximum_batches=maximum_batches,
         include_trace=include_trace,
+        continuous_choices=continuous_choices,
     ).run()
 
 
@@ -1345,7 +1584,7 @@ def selector_for_policy(policy: PolicyIR, registry: UnitRegistry) -> DecisionSel
     def select(
         index: int,
         _time: Fraction,
-        _schedule: DecisionScheduleIR,
+        _schedule: object,
         _available: Tuple[str, ...],
         values: Mapping[str, ProcessValue],
     ) -> str:

@@ -157,6 +157,11 @@ Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射�
 组成普通安全表达式。具名 Objective 仅引用数值 Measure，支持任意有限层字典序目标和布尔约束。有限
 策略空间被完整枚举时结果标记为 `exact_global`，并返回最优策略的全部 Measure。
 
+决策来源可以是作者选择的固定周期、公开事件结算后、条件从假到真，或有限个有界连续动作时点。
+连续条件只对已证明的仿射非严格比较求精确有理根；其他事件间变化会报 `unsupported`。一般自由时点
+搜索必须在 Analysis 中声明 `adaptive_dyadic`、`time_tolerance` 和 `maximum_evaluations`，结果记录为
+`best_found` 并回写全部三项设置及预算是否耗尽；它不会暗中转换成一秒或十分之一秒网格。
+
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/

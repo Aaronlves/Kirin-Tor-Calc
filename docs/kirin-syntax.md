@@ -462,6 +462,12 @@ full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
 
+Besides `decide every`, a Scenario may use `decide after INSTANCE.PUBLIC_EVENT`, `decide when
+CONDITION`, or `decide continuously up to COUNT times from START until END`. Exact affine flow
+crossings use rational roots. General free-time search requires an Analysis `search:` block with
+`method = adaptive_dyadic`, an explicit `time_tolerance`, and `maximum_evaluations`; its proof level
+is `best_found`, not global optimality.
+
 ## Chart projection
 
 ```text

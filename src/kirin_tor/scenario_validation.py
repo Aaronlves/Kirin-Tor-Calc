@@ -223,9 +223,26 @@ def validate_scenario_ir(scenario: ScenarioIR) -> None:
                     f"action {action.id!r} send phases must match its decision phase",
                     action.location,
                 )
-    if decisions > scenario.bounds.maximum_decisions:
+    for schedule in (
+        *scenario.event_decisions,
+        *scenario.condition_decisions,
+        *scenario.continuous_decisions,
+    ):
+        for action_id in schedule.action_ids:
+            action = actions[action_id]
+            if any(call.phase != schedule.phase for call in action.sends):
+                raise SchemaError(
+                    f"action {action.id!r} send phases must match its decision phase",
+                    action.location,
+                )
+    maximum_static_decisions = decisions + sum(
+        schedule.maximum_occurrences
+        for schedule in scenario.continuous_decisions
+    )
+    if maximum_static_decisions > scenario.bounds.maximum_decisions:
         raise SchemaError(
-            "decision schedules exceed scenario maximum_decisions", scenario.location
+            "fixed and continuous decision declarations exceed scenario maximum_decisions",
+            scenario.location,
         )
     for key, schedules in decision_batches.items():
         if len(schedules) > 1:

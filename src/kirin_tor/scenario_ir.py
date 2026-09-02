@@ -130,6 +130,35 @@ class DecisionScheduleIR:
 
 
 @dataclass(frozen=True)
+class EventDecisionIR:
+    source: InstanceMemberRefIR
+    phase: ScenarioPhaseIR
+    action_ids: Tuple[str, ...]
+    allow_wait: bool
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ConditionDecisionIR:
+    condition: TypedExpressionIR
+    phase: ScenarioPhaseIR
+    action_ids: Tuple[str, ...]
+    allow_wait: bool
+    continuous_crossing: bool
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ContinuousDecisionIR:
+    maximum_occurrences: int
+    start: Fraction
+    end: Fraction
+    phase: ScenarioPhaseIR
+    action_ids: Tuple[str, ...]
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ScenarioBoundsIR:
     horizon: Fraction
     maximum_events: int
@@ -193,6 +222,9 @@ class ScenarioIR:
     actions: Tuple[CompositeActionIR, ...]
     policies: Tuple[PolicyIR, ...]
     decisions: Tuple[DecisionScheduleIR, ...]
+    event_decisions: Tuple[EventDecisionIR, ...]
+    condition_decisions: Tuple[ConditionDecisionIR, ...]
+    continuous_decisions: Tuple[ContinuousDecisionIR, ...]
     observation_symbols: Tuple[SymbolRefIR, ...]
     measures: Tuple[MeasureIR, ...]
     objectives: Tuple[ObjectiveIR, ...]
@@ -215,6 +247,9 @@ class AnalysisIR:
     operation: str
     policy_ids: Tuple[str, ...] = ()
     objective_ids: Tuple[str, ...] = ()
+    search_method: Optional[str] = None
+    time_tolerance: Optional[Fraction] = None
+    maximum_evaluations: Optional[int] = None
     target: Optional[TypedExpressionIR] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 

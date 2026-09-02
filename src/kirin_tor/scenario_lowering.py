@@ -27,15 +27,19 @@ from .process_ir import (
     TypedExpressionIR,
 )
 from .process_model import EventDirection, ExpressionSymbolKind
+from .process_crossing import supports_exact_affine_crossing
 from .process_lowering import ProcessLowerer
 from .scenario_ast import AnalysisAst, AtScheduleAst, EveryScheduleAst, ScenarioAst, ScenarioSendAst
 from .scenario_ir import (
     AnalysisIR,
     AtScheduleIR,
     CompositeActionIR,
+    ConditionDecisionIR,
     ConnectionIR,
+    ContinuousDecisionIR,
     DecisionScheduleIR,
     EveryScheduleIR,
+    EventDecisionIR,
     DerivedMeasureExpressionIR,
     InstanceInputIR,
     InstanceMemberRefIR,
@@ -282,6 +286,18 @@ class ScenarioLowerer:
                     location,
                 )
         return _member(instance, event.ref), parameter
+
+    @staticmethod
+    def _decision_actions(options: Sequence[str], actions: Mapping[str, object], location):
+        action_ids = tuple(option for option in options if option != "wait")
+        unknown = sorted(set(action_ids) - set(actions))
+        if unknown:
+            raise ReferenceError(
+                f"decision references unknown action {unknown[0]!r}", location
+            )
+        if len(set(options)) != len(options):
+            raise SchemaError("decision options must be unique", location)
+        return action_ids, "wait" in options
 
     @staticmethod
     def _require_compatible_type(actual, expected, message: str, location) -> None:
@@ -817,10 +833,9 @@ class ScenarioLowerer:
             phase = phases.get(item.phase_id)
             if phase is None:
                 raise ReferenceError(f"unknown scenario phase {item.phase_id!r}", item.location)
-            action_ids = tuple(option for option in item.options if option != "wait")
-            unknown = sorted(set(action_ids) - set(actions))
-            if unknown:
-                raise ReferenceError(f"decision references unknown action {unknown[0]!r}", item.location)
+            action_ids, allow_wait = self._decision_actions(
+                item.options, actions, item.location
+            )
             decisions.append(
                 DecisionScheduleIR(
                     interval,
@@ -828,7 +843,118 @@ class ScenarioLowerer:
                     end,
                     phase,
                     action_ids,
-                    "wait" in item.options,
+                    allow_wait,
+                    item.location,
+                )
+            )
+
+        event_decisions = []
+        for item in source.event_decisions:
+            instance = instances.get(item.source.instance_id)
+            if instance is None:
+                raise ReferenceError(
+                    f"event decision references unknown instance {item.source.instance_id!r}",
+                    item.location,
+                )
+            event = next(
+                (
+                    event
+                    for event in instance.process.events
+                    if event.ref.member_id == item.source.member_id
+                    and event.direction is not EventDirection.INTERNAL
+                ),
+                None,
+            )
+            if event is None:
+                raise ReferenceError(
+                    "event decision requires a public input or output event",
+                    item.location,
+                )
+            phase = phases.get(item.phase_id)
+            if phase is None:
+                raise ReferenceError(
+                    f"unknown scenario phase {item.phase_id!r}", item.location
+                )
+            action_ids, allow_wait = self._decision_actions(
+                item.options, actions, item.location
+            )
+            event_decisions.append(
+                EventDecisionIR(
+                    _member(instance, event.ref),
+                    phase,
+                    action_ids,
+                    allow_wait,
+                    item.location,
+                )
+            )
+
+        condition_decisions = []
+        for item in source.condition_decisions:
+            phase = phases.get(item.phase_id)
+            if phase is None:
+                raise ReferenceError(
+                    f"unknown scenario phase {item.phase_id!r}", item.location
+                )
+            action_ids, allow_wait = self._decision_actions(
+                item.options, actions, item.location
+            )
+            condition = compile_process_expression(
+                item.condition,
+                self.boolean,
+                dynamic_symbols,
+                self.registry,
+            )
+            has_flow = any(
+                instance.process.flows for instance in instances.values()
+            )
+            condition_decisions.append(
+                ConditionDecisionIR(
+                    condition,
+                    phase,
+                    action_ids,
+                    allow_wait,
+                    has_flow
+                    and supports_exact_affine_crossing(
+                        condition, tuple(instances.values())
+                    ),
+                    item.location,
+                )
+            )
+
+        continuous_decisions = []
+        for item in source.continuous_decisions:
+            if item.maximum_occurrences <= 0:
+                raise SchemaError(
+                    "continuous decision maximum occurrences must be positive",
+                    item.location,
+                )
+            _start_expression, start = _compile_constant(
+                item.start, self.time, self.static_symbols, self.registry
+            )
+            _end_expression, end = _compile_constant(
+                item.end, self.time, self.static_symbols, self.registry
+            )
+            assert isinstance(start, Fraction) and isinstance(end, Fraction)
+            if start < 0 or end < start:
+                raise DomainError(
+                    "continuous decision requires 0 <= start <= end", item.location
+                )
+            phase = phases.get(item.phase_id)
+            if phase is None:
+                raise ReferenceError(
+                    f"unknown scenario phase {item.phase_id!r}", item.location
+                )
+            action_ids, allow_wait = self._decision_actions(
+                item.options, actions, item.location
+            )
+            assert not allow_wait
+            continuous_decisions.append(
+                ContinuousDecisionIR(
+                    item.maximum_occurrences,
+                    start,
+                    end,
+                    phase,
+                    action_ids,
                     item.location,
                 )
             )
@@ -847,6 +973,10 @@ class ScenarioLowerer:
         )
         if len(instances) > bounds.maximum_entities:
             raise SchemaError("scenario instances exceed maximum_entities", source.bounds.maximum_entities.location)
+        if any(item.end > horizon for item in continuous_decisions):
+            raise SchemaError(
+                "continuous decision interval exceeds scenario horizon", source.location
+            )
         stop = (
             compile_process_expression(source.stop, self.boolean, dynamic_symbols, self.registry)
             if source.stop is not None
@@ -865,6 +995,9 @@ class ScenarioLowerer:
             tuple(actions.values()),
             tuple(policies.values()),
             tuple(decisions),
+            tuple(event_decisions),
+            tuple(condition_decisions),
+            tuple(continuous_decisions),
             tuple(observation_symbols.values()) + tuple(runtime_symbols.values()),
             measures,
             objectives,
@@ -957,6 +1090,62 @@ def lower_analysis_asts(
                 "reach analysis requires target or a scenario stop condition",
                 source.location,
             )
+        search_method = source.search_method
+        time_tolerance = None
+        maximum_evaluations = None
+        search_fields = (
+            search_method,
+            source.time_tolerance,
+            source.maximum_evaluations,
+        )
+        if any(item is not None for item in search_fields) and not all(
+            item is not None for item in search_fields
+        ):
+            raise SchemaError(
+                "analysis search requires method, time_tolerance, and maximum_evaluations",
+                source.location,
+            )
+        if search_method is not None:
+            if source.operation != "optimize":
+                raise SchemaError("search is only valid for optimize analysis", source.location)
+            if search_method != "adaptive_dyadic":
+                raise SchemaError(
+                    f"unknown Process search method {search_method!r}", source.location
+                )
+            assert source.time_tolerance is not None
+            assert source.maximum_evaluations is not None
+            static_symbols = scenario_static_symbols(registry)
+            _tolerance_expression, time_tolerance = _compile_constant(
+                source.time_tolerance,
+                NumberTypeIR("second", registry.parse_unit("second")),
+                static_symbols,
+                registry,
+            )
+            assert isinstance(time_tolerance, Fraction)
+            if time_tolerance <= 0:
+                raise DomainError("time_tolerance must be positive", source.location)
+            maximum_evaluations = _positive_integer(
+                source.maximum_evaluations,
+                "maximum_evaluations",
+                static_symbols,
+                registry,
+                MAX_SCENARIO_BRANCHES,
+            )
+            if maximum_evaluations > scenario.bounds.maximum_branches:
+                raise SchemaError(
+                    "maximum_evaluations cannot exceed scenario maximum_branches",
+                    source.location,
+                )
+        if scenario.continuous_decisions and source.operation == "optimize" and search_method is None:
+            raise SchemaError(
+                "continuous-time optimize requires explicit search settings",
+                source.location,
+            )
+        if search_method is not None and not scenario.continuous_decisions:
+            raise SchemaError(
+                "search settings require a continuous decision declaration",
+                source.location,
+            )
         result.append(
             AnalysisIR(
                 source.owner_id,
@@ -966,6 +1155,9 @@ def lower_analysis_asts(
                 source.operation,
                 policy_ids,
                 objective_ids,
+                search_method,
+                time_tolerance,
+                maximum_evaluations,
                 target,
                 source.location,
             )

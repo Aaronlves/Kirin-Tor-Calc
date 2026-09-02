@@ -176,8 +176,10 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
     longest = result.objectives[-1]
     assert longest.best.elapsed >= 3
     assert longest.objective_values[0] == dict(longest.measures)["survival_time"]
-    assert longest.proof.level == "exact_global"
+    assert longest.proof.level == "best_found"
+    assert longest.proof.tolerance == Fraction(1, 4)
     assert longest.proof.time_grid is None
+    assert any(time.denominator != 1 for time, _choice in longest.best.decisions)
     assert set(dict(longest.measures)) == {
         "minimum_health",
         "health_variation",
@@ -244,6 +246,67 @@ analysis optimize_both:
     assert by_id["highest_bounded"].constraints == (True,)
     assert dict(by_id["fewest_additions"].measures)["final_value"] == 0
     assert all(item.proof.level == "exact_global" for item in result.objectives)
+
+
+def test_continuous_time_search_uses_exact_non_grid_runtime_times_and_is_labeled(
+    tmp_path: Path,
+) -> None:
+    source = """@kirin 2
+@entry continuous_search
+
+process marker:
+  state marked: boolean = false
+  state marked_at: time = 0 second
+  event input mark()
+  on mark() when not marked:
+    next marked = true
+    next marked_at = event.time
+  observe time: time = marked_at
+
+scenario trial:
+  phases:
+    - decision
+  use actor = marker:
+  action mark:
+    send actor.mark() phase decision
+  decide continuously up to 1 time from 0 second until 1 second phase decision:
+    - mark
+  measure mark_time: time = final(actor.time)
+  measure timing_error: time = abs(mark_time - 1/4 second)
+  objective closest:
+    minimize timing_error
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 32
+    maximum_entities = 1
+
+analysis search:
+  using = trial
+  operation = optimize
+  objectives:
+    - closest
+  search:
+    method = adaptive_dyadic
+    time_tolerance = 1/16 second
+    maximum_evaluations = 20
+"""
+    workspace = _workspace(tmp_path, source)
+    result = execute_process_analysis(
+        workspace.analyses["continuous_search.search"],
+        workspace.scenarios["continuous_search.trial"],
+        workspace.units,
+    )
+    assert isinstance(result, OptimizeAnalysisResult)
+    optimum = result.objectives[0]
+    assert optimum.best.decisions == ((Fraction(1, 4), "mark"),)
+    assert dict(optimum.measures)["timing_error"] == 0
+    assert optimum.proof.level == "best_found"
+    assert optimum.proof.tolerance == Fraction(1, 16)
+    assert optimum.proof.time_grid is None
+    assert optimum.proof.search_budget == 20
+    assert optimum.proof.budget_exhausted is False
 
 
 def test_steady_proves_a_unique_finite_process_distribution(tmp_path: Path) -> None:

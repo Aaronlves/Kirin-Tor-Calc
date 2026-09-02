@@ -2,8 +2,8 @@
 
 状态：目标语义与执行验证。本文的 Process、Scenario、Policy、Measure、Objective 和 Analysis 声明
 已经可解析、完整检查表达式类型、lower、验证静态批次冲突并无损往返；精确 runtime、有限随机路径、
-具名 Analysis 分派、有限策略优化、CLI 与运行记录重放已经实现。连续时间自由决策和工作台投影仍待
-后续里程碑。
+具名 Analysis 分派、有限策略优化、带诚实证明标签的连续自由时点搜索、CLI 与运行记录重放已经实现。
+一般连续全局证明和工作台投影仍待后续里程碑。
 
 本文使用[有界 Process 模型](bounded-process-model.md)中的同一组游戏中立原语，检验六类差异较大的
 游戏机制能否在不增加机制专用内核关键字的情况下完整表达。示例数值都是验证数据，不代表任何真实
@@ -108,6 +108,15 @@ scenario ID ["LABEL"]:
     - ACTION
     - wait
 
+  decide after INSTANCE.PUBLIC_EVENT phase PHASE:
+    - ACTION_OR_WAIT
+
+  decide when OBSERVATION_CONDITION phase PHASE:
+    - ACTION_OR_WAIT
+
+  decide continuously up to COUNT times from START until END phase PHASE:
+    - ACTION
+
   measure ID ["LABEL"]: TYPE = final(VALUE)
   measure ID: TYPE = minimum_over_time(VALUE)
   measure ID: TYPE = maximum_over_time(VALUE)
@@ -148,6 +157,10 @@ analysis ID ["LABEL"]:
   [policy = POLICY]
   [objectives:]
     [- OBJECTIVE, ...]
+  [search:]
+    [method = adaptive_dyadic]
+    [time_tolerance = DURATION]
+    [maximum_evaluations = INTEGER]
   [target = OBSERVATION_CONDITION]
 ```
 
@@ -161,6 +174,12 @@ Measure 只能读取公开 observation 快照、公开 output event 和 `elapsed
 读取实例私有 state。`first_time` 必须声明未发生时的默认时间。当前事件驱动轨迹聚合是精确的；若任意
 Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回撤、总变化量和方差会明确拒绝，而不会把
 端点采样误报成精确连续轨迹。有限决策穷举返回 `exact_global` 证明记录和全部 Measure。
+
+`decide after` 在公开 input/output event 已结算后，于作者指定的后续 phase 决策；`decide when` 在条件
+从假变真时决策。若变化发生在事件之间，只有静态证明为仿射的非严格比较才会求精确有理根，其他
+`flow` 条件明确拒绝。`decide continuously` 把使用次数、动作和有序时点作为搜索变量；它不含 `wait`，
+少用一次就是省略一次 occurrence。当前一般连续搜索要求作者显式给出容差和评估预算，返回
+`best_found`；这些参数进入 Analysis 结果和可重放记录，且不会被描述成固定时间网格或全局证明。
 
 ## 2. 多资源、冷却与顺序充能
 
@@ -338,9 +357,8 @@ scenario brewmaster_survival "活血时机":
   every 3 second from 3 second phase incoming:
     send actor.incoming_damage(amount = 200 health)
 
-  decide every 1/2 second from 0 second phase decision:
+  decide continuously up to 2 times from 0 second until 8 second phase decision:
     - purifying_brew
-    - wait
 
   measure minimum_health: health = minimum_over_time(actor.remaining_health)
   measure health_variation: health = total_variation(actor.remaining_health)
@@ -364,7 +382,7 @@ scenario brewmaster_survival "活血时机":
   bounds:
     horizon = 60 second
     maximum_events = 1000
-    maximum_decisions = 121
+    maximum_decisions = 2
     maximum_branches = 10000
     maximum_entities = 2
 
@@ -375,6 +393,10 @@ analysis latest_death "最晚死亡":
     - smoothest_health
     - most_purified
     - longest_survival
+  search:
+    method = adaptive_dyadic
+    time_tolerance = 1/4 second
+    maximum_evaluations = 1000
 ```
 
 同一时间先结算旧的周期伤害，再加入两种来袭伤害，恢复充能，最后作决策。两个 incoming 事件通过

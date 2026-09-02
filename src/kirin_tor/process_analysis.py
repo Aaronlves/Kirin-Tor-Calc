@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+from itertools import combinations_with_replacement, product
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import sympy as sp
@@ -13,12 +14,21 @@ from .process_expression import ProcessValue, evaluate_process_expression
 from .process_expression import FrozenMapValue, ProcessEventId
 from .process_ir import BranchEffectIR, EffectIR, WhenEffectIR
 from .process_runtime import (
+    ContinuousDecisionChoice,
     ProcessRunResult,
     run_process_scenario,
     selector_for_policy,
 )
 from .process_measure import evaluate_process_measures
-from .scenario_ir import AnalysisIR, ObjectiveIR, PolicyIR, ScenarioIR
+from .scenario_ir import (
+    AnalysisIR,
+    AtScheduleIR,
+    ContinuousDecisionIR,
+    EveryScheduleIR,
+    ObjectiveIR,
+    PolicyIR,
+    ScenarioIR,
+)
 from .units import UnitRegistry
 
 
@@ -57,6 +67,17 @@ class SolverProof:
     tolerance: Optional[Fraction] = None
     time_grid: Optional[Fraction] = None
     search_budget: Optional[int] = None
+    budget_exhausted: bool = False
+
+    def __post_init__(self) -> None:
+        if self.level not in {
+            "exact_global",
+            "global_with_error_bound",
+            "best_found",
+        }:
+            raise ValueError(f"unknown solver proof level {self.level!r}")
+        if self.level == "global_with_error_bound" and self.error_bound is None:
+            raise ValueError("global_with_error_bound requires an error bound")
 
 
 @dataclass(frozen=True)
@@ -251,44 +272,18 @@ def _constraints_hold(
     return tuple(result)
 
 
-def _optimize(
-    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
-) -> OptimizeAnalysisResult:
-    if _has_random(scenario):
-        raise UnsupportedError(
-            "optimize currently requires a deterministic Process scenario; use compare/reach for exact random policies",
-            analysis.location,
-        )
-    pending: List[Tuple[str, ...]] = [()]
-    complete: List[
+def _select_objectives(
+    analysis: AnalysisIR,
+    scenario: ScenarioIR,
+    registry: UnitRegistry,
+    complete: Sequence[
         Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
-    ] = []
-    explored = 0
-    while pending:
-        prefix = pending.pop()
-
-        def choose(index, _time, _schedule, available, _values):
-            if index >= len(prefix):
-                raise _NeedDecision(available)
-            return prefix[index]
-
-        try:
-            result = run_process_scenario(
-                scenario, registry, selector=choose, include_trace=True
-            )
-        except _NeedDecision as need:
-            explored += len(need.available)
-            if explored > scenario.bounds.maximum_branches:
-                raise ProcessFuelError(
-                    "maximum_branches exhausted while expanding policy choices: "
-                    f"{explored}/{scenario.bounds.maximum_branches}",
-                    analysis.location,
-                )
-            pending.extend(prefix + (choice,) for choice in reversed(need.available))
-            continue
-        complete.append((evaluate_process_measures(scenario, result, registry), result))
+    ],
+    explored: int,
+    proof: SolverProof,
+) -> OptimizeAnalysisResult:
     if not complete:
-        raise ProcessExecutionError("optimization produced no complete policy", analysis.location)
+        raise ProcessExecutionError("optimization produced no feasible policy", analysis.location)
     declarations = {item.id: item for item in scenario.objectives}
     optimized = []
     for objective_id in analysis.objective_ids:
@@ -331,11 +326,7 @@ def _optimize(
                 measures,
                 values,
                 constraints,
-                SolverProof(
-                    "exact_global",
-                    "exhaustive_finite_policy_enumeration",
-                    search_budget=scenario.bounds.maximum_branches,
-                ),
+                proof,
                 len(best),
             )
         )
@@ -345,6 +336,247 @@ def _optimize(
         tuple(optimized),
         max(explored, 1),
     )
+
+
+def _optimize_finite(
+    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
+) -> OptimizeAnalysisResult:
+    pending: List[Tuple[str, ...]] = [()]
+    complete: List[
+        Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
+    ] = []
+    explored = 0
+    while pending:
+        prefix = pending.pop()
+
+        def choose(index, _time, _schedule, available, _values):
+            if index >= len(prefix):
+                raise _NeedDecision(available)
+            return prefix[index]
+
+        try:
+            result = run_process_scenario(
+                scenario, registry, selector=choose, include_trace=True
+            )
+        except _NeedDecision as need:
+            explored += len(need.available)
+            if explored > scenario.bounds.maximum_branches:
+                raise ProcessFuelError(
+                    "maximum_branches exhausted while expanding policy choices: "
+                    f"{explored}/{scenario.bounds.maximum_branches}",
+                    analysis.location,
+                )
+            pending.extend(prefix + (choice,) for choice in reversed(need.available))
+            continue
+        complete.append((evaluate_process_measures(scenario, result, registry), result))
+    return _select_objectives(
+        analysis,
+        scenario,
+        registry,
+        complete,
+        explored,
+        SolverProof(
+            "exact_global",
+            "exhaustive_finite_policy_enumeration",
+            search_budget=scenario.bounds.maximum_branches,
+        ),
+    )
+
+
+def _scheduled_times(scenario: ScenarioIR) -> Tuple[Fraction, ...]:
+    result = set()
+    for schedule in scenario.schedules:
+        if isinstance(schedule, AtScheduleIR):
+            result.add(schedule.time)
+            continue
+        assert isinstance(schedule, EveryScheduleIR)
+        end = min(
+            scenario.bounds.horizon,
+            schedule.end if schedule.end is not None else scenario.bounds.horizon,
+        )
+        current = schedule.start
+        while current <= end:
+            result.add(current)
+            current += schedule.interval
+    return tuple(sorted(result))
+
+
+def _refined_times(
+    schedule: ContinuousDecisionIR,
+    semantic_times: Sequence[Fraction],
+    depth: int,
+) -> Tuple[Fraction, ...]:
+    points = {
+        schedule.start,
+        schedule.end,
+        (schedule.start + schedule.end) / 2,
+        *(
+            time
+            for time in semantic_times
+            if schedule.start <= time <= schedule.end
+        ),
+    }
+    for _ in range(depth):
+        ordered = sorted(points)
+        points.update(
+            (left + right) / 2
+            for left, right in zip(ordered, ordered[1:])
+        )
+    return tuple(sorted(points))
+
+
+def _schedule_candidate_plans(
+    schedule_index: int,
+    schedule: ContinuousDecisionIR,
+    times: Sequence[Fraction],
+):
+    yield ()
+    for count in range(1, schedule.maximum_occurrences + 1):
+        for selected_times in combinations_with_replacement(times, count):
+            for selected_actions in product(schedule.action_ids, repeat=count):
+                yield tuple(
+                    ContinuousDecisionChoice(schedule_index, time, action)
+                    for time, action in zip(selected_times, selected_actions)
+                )
+
+
+def _combined_continuous_plans(
+    schedules: Sequence[ContinuousDecisionIR],
+    points: Sequence[Sequence[Fraction]],
+    index: int = 0,
+    prefix: Tuple[ContinuousDecisionChoice, ...] = (),
+):
+    if index == len(schedules):
+        yield tuple(
+            sorted(
+                prefix,
+                key=lambda item: (item.time, item.schedule_index),
+            )
+        )
+        return
+    for local in _schedule_candidate_plans(index, schedules[index], points[index]):
+        yield from _combined_continuous_plans(
+            schedules, points, index + 1, prefix + local
+        )
+
+
+def _optimize_continuous(
+    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
+) -> OptimizeAnalysisResult:
+    if analysis.search_method != "adaptive_dyadic":
+        raise UnsupportedError(
+            "continuous-time optimization requires adaptive_dyadic search settings",
+            analysis.location,
+        )
+    assert analysis.time_tolerance is not None
+    assert analysis.maximum_evaluations is not None
+    choice_sources = (
+        *scenario.decisions,
+        *scenario.event_decisions,
+        *scenario.condition_decisions,
+    )
+    if any(
+        len(schedule.action_ids) + int(getattr(schedule, "allow_wait", False)) > 1
+        for schedule in choice_sources
+    ):
+        raise UnsupportedError(
+            "continuous-time optimization cannot yet mix free times with another branching decision source",
+            analysis.location,
+        )
+    semantic_times = _scheduled_times(scenario)
+    seen = set()
+    complete = []
+    evaluated = 0
+    depth = 0
+    budget_exhausted = False
+    while evaluated < analysis.maximum_evaluations:
+        points = tuple(
+            _refined_times(schedule, semantic_times, depth)
+            for schedule in scenario.continuous_decisions
+        )
+        found_new = False
+        for plan in _combined_continuous_plans(
+            scenario.continuous_decisions, points
+        ):
+            canonical = tuple(
+                (item.schedule_index, item.time, item.action_id) for item in plan
+            )
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            found_new = True
+            if evaluated >= analysis.maximum_evaluations:
+                budget_exhausted = True
+                break
+            evaluated += 1
+            try:
+                run = run_process_scenario(
+                    scenario,
+                    registry,
+                    include_trace=True,
+                    continuous_choices=plan,
+                )
+            except ProcessExecutionError as exc:
+                if "unavailable action" in exc.message or "is unavailable" in exc.message:
+                    continue
+                raise
+            complete.append(
+                (evaluate_process_measures(scenario, run, registry), run)
+            )
+        maximum_gap = max(
+            (
+                max(
+                    (right - left for left, right in zip(items, items[1:])),
+                    default=Fraction(0),
+                )
+                for items in points
+            ),
+            default=Fraction(0),
+        )
+        if maximum_gap <= analysis.time_tolerance:
+            break
+        if not found_new:
+            break
+        depth += 1
+    if evaluated >= analysis.maximum_evaluations:
+        budget_exhausted = True
+    degenerate = all(
+        schedule.start == schedule.end
+        for schedule in scenario.continuous_decisions
+    )
+    level = "exact_global" if degenerate and not budget_exhausted else "best_found"
+    method = (
+        "exhaustive_degenerate_continuous_choices"
+        if level == "exact_global"
+        else "adaptive_dyadic_candidate_search"
+    )
+    return _select_objectives(
+        analysis,
+        scenario,
+        registry,
+        complete,
+        evaluated,
+        SolverProof(
+            level,
+            method,
+            tolerance=analysis.time_tolerance,
+            search_budget=analysis.maximum_evaluations,
+            budget_exhausted=budget_exhausted,
+        ),
+    )
+
+
+def _optimize(
+    analysis: AnalysisIR, scenario: ScenarioIR, registry: UnitRegistry
+) -> OptimizeAnalysisResult:
+    if _has_random(scenario):
+        raise UnsupportedError(
+            "optimize currently requires a deterministic Process scenario; use compare/reach for exact random policies",
+            analysis.location,
+        )
+    if scenario.continuous_decisions:
+        return _optimize_continuous(analysis, scenario, registry)
+    return _optimize_finite(analysis, scenario, registry)
 
 
 def _finite_states(
@@ -775,6 +1007,12 @@ def process_analysis_result_data(
             | {instance.process.owner_id for instance in scenario.instances}
         ),
     }
+    if analysis.search_method is not None:
+        base["search"] = {
+            "method": analysis.search_method,
+            "time_tolerance": _value_data(analysis.time_tolerance),
+            "maximum_evaluations": analysis.maximum_evaluations,
+        }
     if isinstance(result, RunAnalysisResult):
         base.update(
             {
@@ -823,6 +1061,7 @@ def process_analysis_result_data(
                             if item.proof.time_grid is not None
                             else None,
                             "search_budget": item.proof.search_budget,
+                            "budget_exhausted": item.proof.budget_exhausted,
                         },
                         "tied_optima": item.tied_optima,
                         "objective_values": [

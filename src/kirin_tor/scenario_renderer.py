@@ -99,6 +99,24 @@ def render_scenario_ast(scenario: ScenarioAst) -> List[str]:
             line += f" until {_expression(decision.end)}"
         lines.append(f"{line} phase {decision.phase_id}:")
         lines.extend(f"    - {option}" for option in decision.options)
+    for decision in scenario.event_decisions:
+        lines.append(
+            f"  decide after {decision.source.instance_id}.{decision.source.member_id} "
+            f"phase {decision.phase_id}:"
+        )
+        lines.extend(f"    - {option}" for option in decision.options)
+    for decision in scenario.condition_decisions:
+        lines.append(
+            f"  decide when {_expression(decision.condition)} phase {decision.phase_id}:"
+        )
+        lines.extend(f"    - {option}" for option in decision.options)
+    for decision in scenario.continuous_decisions:
+        lines.append(
+            f"  decide continuously up to {decision.maximum_occurrences} times from "
+            f"{_expression(decision.start)} until {_expression(decision.end)} "
+            f"phase {decision.phase_id}:"
+        )
+        lines.extend(f"    - {option}" for option in decision.options)
     for measure in scenario.measures:
         line = f"  measure {measure.id}"
         if measure.label is not None:
@@ -154,6 +172,18 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
         lines.append("  objectives:")
         lines.extend(
             f"    - {objective_id}" for objective_id in analysis.objective_ids
+        )
+    if analysis.search_method is not None:
+        lines.append("  search:")
+        lines.append(f"    method = {analysis.search_method}")
+        assert analysis.time_tolerance is not None
+        assert analysis.maximum_evaluations is not None
+        lines.append(
+            f"    time_tolerance = {_expression(analysis.time_tolerance)}"
+        )
+        lines.append(
+            "    maximum_evaluations = "
+            + _expression(analysis.maximum_evaluations)
         )
     if analysis.target is not None:
         lines.append(f"  target = {_expression(analysis.target)}")

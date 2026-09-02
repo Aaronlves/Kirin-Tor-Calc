@@ -703,10 +703,10 @@ def process_analysis_command(
         )
         operation = result["analysis_operation"]
         if operation == "optimize":
-            best = result["best"]
+            objectives = result["objectives"]
             summary = (
-                f"最优：elapsed={best['elapsed']}；"
-                f"决策 {len(best['decisions'])} 次；"
+                f"已分别优化 {len(objectives)} 个目标；"
+                f"证明等级 {','.join(item['proof']['level'] for item in objectives)}；"
                 f"搜索分支 {result['explored_branches']}"
             )
         elif operation == "reach":
