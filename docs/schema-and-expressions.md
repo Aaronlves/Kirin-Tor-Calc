@@ -171,6 +171,11 @@ Process Analysis 可以携带最多 64 张图，且不受普通静态 entry “�
 的候选；`pareto` 用作者声明的两个方向标记非支配点；`variant_comparison` 读取各最优解的同量纲
 Measure。结构化 chart rows 随 Analysis 结果生成，SVG/CSV 仅在显式导出请求下写入。
 
+有限随机 Analysis 的 outcome 同时携带路径概率、完整 run 和该路径全部 Measure；数值 Measure 的
+`measure_expectations` 在所有路径 Measure 求值完成后才以精确分数聚合。结果字段
+`random_semantics` 区分 `strict_finite_output_expectation` 与 `deterministic_scenario`，因此平均输入场景
+不会被误标成严格输出期望，也不会自动降级为 Monte Carlo。
+
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/

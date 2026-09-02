@@ -219,6 +219,10 @@ observation，发送的事件在指定 phase 作为一个批次处理，因此�
 随机分析可以返回精确分布、期望、达到概率或有界分位信息。若状态或分支规模超过预算，操作明确
 失败；除非作者选择并记录近似方法，否则不能自动改用抽样。
 
+使用平均伤害作为确定事件输入，只得到 `deterministic_scenario` 代表性场景。含有限随机 branch 的
+`strict_finite_output_expectation` 会先完整执行每条路径、逐路径计算 Measure，再按精确概率组合数值
+Measure 期望。两者不能互换，尤其是在 stop、死亡、阈值、封顶、`min/max` 或条件 action 存在时。
+
 ## 8. 组合规则
 
 Process 通过有方向的类型化事件端口、导出 observation 和动作接口组合。Scenario 用 `connect`

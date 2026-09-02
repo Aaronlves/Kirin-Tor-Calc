@@ -468,6 +468,11 @@ crossings use rational roots. General free-time search requires an Analysis `sea
 `method = adaptive_dyadic`, an explicit `time_tolerance`, and `maximum_evaluations`; its proof level
 is `best_found`, not global optimality.
 
+For a finite random Process, Analysis evaluates every complete path Measure before combining exact
+numeric `measure_expectations`, and labels the result `strict_finite_output_expectation`. A source
+that merely supplies average damage as deterministic events remains a `deterministic_scenario`;
+Kirin does not identify the two or silently substitute sampling.
+
 ## Chart projection
 
 ```text

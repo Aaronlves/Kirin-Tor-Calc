@@ -197,6 +197,10 @@ Scenario action。Pareto 图必须分别声明 x/y 的 maximize/minimize 方向�
 行随 Analysis 结果返回供实时预览；SVG/CSV 只有在 `kt analyze --export-charts` 或工作台的显式导出动作
 下写入，且仍服从工作区路径与覆盖保护。
 
+随机 Process 的 `run`、`compare` 与 `reach` 结果明确标记 `strict_finite_output_expectation`：先对每个
+有限随机分支执行完整轨迹并计算全部 Measure，再对数值 Measure 按精确路径概率取期望。把平均输入
+写成确定事件的模型只标记 `deterministic_scenario`。二者不会合并，且内核不会自动抽样。
+
 ## 2. 多资源、冷却与顺序充能
 
 这个模型同时验证连续回复、动作开始/结束、动作局部冷却、顺序恢复的充能和零回复资源。`mana` 与

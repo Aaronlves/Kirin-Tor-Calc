@@ -12,7 +12,7 @@ import sympy as sp
 from .errors import ProcessExecutionError, ProcessFuelError, UnsupportedError
 from .process_expression import ProcessValue, evaluate_process_expression
 from .process_expression import FrozenMapValue, ProcessEventId
-from .process_ir import BranchEffectIR, EffectIR, WhenEffectIR
+from .process_ir import BranchEffectIR, EffectIR, NumberTypeIR, WhenEffectIR
 from .process_runtime import (
     ContinuousDecisionChoice,
     ProcessRunResult,
@@ -36,6 +36,7 @@ from .units import UnitRegistry
 class WeightedProcessRun:
     probability: Fraction
     result: ProcessRunResult
+    measures: Tuple[Tuple[str, ProcessValue], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class RunAnalysisResult:
     operation: str
     outcomes: Tuple[WeightedProcessRun, ...]
     explored_branches: int
+    measure_expectations: Tuple[Tuple[str, Fraction], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -121,6 +123,7 @@ class ReachAnalysisResult:
     probability: Fraction
     outcomes: Tuple[WeightedProcessRun, ...]
     explored_branches: int
+    measure_expectations: Tuple[Tuple[str, Fraction], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,6 +195,7 @@ def _run_distribution(
         Mapping[Tuple[str, str], ProcessValue]
     ] = None,
     maximum_batches: Optional[int] = None,
+    evaluate_measures: bool = True,
 ) -> Tuple[Tuple[WeightedProcessRun, ...], int]:
     decision_selector = selector_for_policy(policy, registry) if policy else None
     if not _has_random(scenario):
@@ -204,7 +208,12 @@ def _run_distribution(
             initial_state_overrides=initial_state_overrides,
             maximum_batches=maximum_batches,
         )
-        return (WeightedProcessRun(Fraction(1), result),), 1
+        measures = (
+            evaluate_process_measures(scenario, result, registry)
+            if evaluate_measures
+            else ()
+        )
+        return (WeightedProcessRun(Fraction(1), result, measures),), 1
 
     pending: List[Tuple[Tuple[int, ...], Fraction]] = [((), Fraction(1))]
     outcomes: List[WeightedProcessRun] = []
@@ -246,7 +255,12 @@ def _run_distribution(
                 for index, probability in reversed(choices)
             )
             continue
-        outcomes.append(WeightedProcessRun(weight, result))
+        measures = (
+            evaluate_process_measures(scenario, result, registry)
+            if evaluate_measures
+            else ()
+        )
+        outcomes.append(WeightedProcessRun(weight, result, measures))
     total = sum((item.probability for item in outcomes), Fraction(0))
     if total != 1:
         raise ProcessExecutionError(
@@ -254,6 +268,30 @@ def _run_distribution(
             scenario.location,
         )
     return tuple(outcomes), max(explored, 1)
+
+
+def _measure_expectations(
+    scenario: ScenarioIR, outcomes: Sequence[WeightedProcessRun]
+) -> Tuple[Tuple[str, Fraction], ...]:
+    numeric_ids = {
+        measure.id
+        for measure in scenario.measures
+        if isinstance(measure.value_type, NumberTypeIR)
+    }
+    return tuple(
+        (
+            measure.id,
+            sum(
+                (
+                    outcome.probability * dict(outcome.measures)[measure.id]
+                    for outcome in outcomes
+                ),
+                Fraction(0),
+            ),
+        )
+        for measure in scenario.measures
+        if measure.id in numeric_ids
+    )
 
 
 def _objective_values(
@@ -783,6 +821,7 @@ def _steady(
             include_trace=False,
             initial_state_overrides=overrides,
             maximum_batches=1,
+            evaluate_measures=False,
         )
         for outcome in outcomes:
             final_states = dict(outcome.result.states)
@@ -934,6 +973,7 @@ def execute_process_analysis(
                         "run",
                         outcomes,
                         explored,
+                        _measure_expectations(scenario, outcomes),
                     ),
                 )
             )
@@ -964,6 +1004,7 @@ def execute_process_analysis(
             probability,
             outcomes,
             explored,
+            _measure_expectations(scenario, outcomes),
         )
     if analysis.operation == "run":
         policy = _policy(scenario, analysis.policy_ids)
@@ -974,7 +1015,11 @@ def execute_process_analysis(
             include_trace=include_trace,
         )
         return RunAnalysisResult(
-            analysis.qualified_id, analysis.operation, outcomes, explored
+            analysis.qualified_id,
+            analysis.operation,
+            outcomes,
+            explored,
+            _measure_expectations(scenario, outcomes),
         )
     if analysis.operation == "steady":
         return _steady(analysis, scenario, registry)
@@ -1080,6 +1125,11 @@ def process_analysis_result_data(
         "analysis": analysis.qualified_id,
         "analysis_operation": analysis.operation,
         "scenario": scenario.qualified_id,
+        "random_semantics": (
+            "strict_finite_output_expectation"
+            if _has_random(scenario)
+            else "deterministic_scenario"
+        ),
         "phases": [phase.id for phase in scenario.phases],
         "bounds": {
             "horizon": _value_data(scenario.bounds.horizon),
@@ -1106,10 +1156,18 @@ def process_analysis_result_data(
                 "outcomes": [
                     {
                         "probability": _value_data(item.probability),
+                        "measures": {
+                            name: _value_data(value)
+                            for name, value in item.measures
+                        },
                         "run": _run_data(item.result),
                     }
                     for item in result.outcomes
                 ],
+                "measure_expectations": {
+                    name: _value_data(value)
+                    for name, value in result.measure_expectations
+                },
             }
         )
     elif isinstance(result, CompareAnalysisResult):
@@ -1120,10 +1178,18 @@ def process_analysis_result_data(
                 "outcomes": [
                     {
                         "probability": _value_data(outcome.probability),
+                        "measures": {
+                            name: _value_data(value)
+                            for name, value in outcome.measures
+                        },
                         "run": _run_data(outcome.result),
                     }
                     for outcome in item.result.outcomes
                 ],
+                "measure_expectations": {
+                    name: _value_data(value)
+                    for name, value in item.result.measure_expectations
+                },
             }
             for item in result.policies
         ]
@@ -1187,10 +1253,18 @@ def process_analysis_result_data(
                 "outcomes": [
                     {
                         "probability": _value_data(item.probability),
+                        "measures": {
+                            name: _value_data(value)
+                            for name, value in item.measures
+                        },
                         "run": _run_data(item.result),
                     }
                     for item in result.outcomes
                 ],
+                "measure_expectations": {
+                    name: _value_data(value)
+                    for name, value in result.measure_expectations
+                },
             }
         )
     elif isinstance(result, SteadyAnalysisResult):

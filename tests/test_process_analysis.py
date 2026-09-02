@@ -56,6 +56,7 @@ scenario one_flip:
   use actor = coin:
   at 0 second phase event:
     send actor.flip()
+  measure hit_count: count = final(if_else(actor.did_hit, 1, 0))
   bounds:
     horizon = 1 second
     maximum_events = 1
@@ -83,6 +84,15 @@ analysis hit_chance:
         Fraction(3, 4),
     ]
     assert sum((item.probability for item in run.outcomes), Fraction(0)) == 1
+    assert run.measure_expectations == (("hit_count", Fraction(1, 4)),)
+    assert sorted(
+        dict(item.measures)["hit_count"] for item in run.outcomes
+    ) == [Fraction(0), Fraction(1)]
+    projection = process_analysis_result_data(
+        run, workspace.analyses["random.distribution"], scenario
+    )
+    assert projection["random_semantics"] == "strict_finite_output_expectation"
+    assert projection["measure_expectations"] == {"hit_count": "1/4"}
 
     reach = execute_process_analysis(
         workspace.analyses["random.hit_chance"], scenario, workspace.units
