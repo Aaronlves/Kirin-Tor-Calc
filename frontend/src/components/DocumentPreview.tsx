@@ -22,37 +22,6 @@ function displayedValue(result: OperationResult): string {
   return "—";
 }
 
-function cycleSummary(result: OperationResult): string {
-  if (result.cycle_status === "continuous") return "无需等待，可持续循环";
-  if (result.cycle_status === "waiting") return `需要等待，可持续循环`;
-  if (result.cycle_status === "blocked") return "无法继续循环";
-  return "循环分析未完成";
-}
-
-function cycleResourceIds(result: OperationResult): string[] {
-  const units = result.resource_units;
-  if (!units || typeof units !== "object" || Array.isArray(units)) return [];
-  return Object.keys(units as Record<string, unknown>);
-}
-
-function cycleLimitingConstraints(result: OperationResult): string[] {
-  const firstWait = result.first_wait;
-  if (!firstWait || typeof firstWait !== "object" || Array.isArray(firstWait)) return [];
-  const event = firstWait as Record<string, unknown>;
-  const declared = event.limiting_constraints;
-  const legacyResources = event.limiting_resources;
-  const constraints = Array.isArray(declared)
-    ? declared
-    : Array.isArray(legacyResources)
-      ? legacyResources.map((item) => `resource:${String(item)}`)
-      : [];
-  const labels: Record<string, string> = { resource: "资源", cooldown: "冷却", charge: "充能" };
-  return constraints.map((item) => {
-    const [kind, ...rest] = String(item).split(":");
-    return `${labels[kind] ?? kind} ${rest.join(":")}`;
-  });
-}
-
 interface DocumentPreviewProps {
   controller: WorkbenchController;
   document: DocumentItem;
@@ -79,8 +48,6 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const entryTargetSignature = entryTargets.map((item) => item.value).join("\u0000");
   const chart = entryId ? controller.workspaceIndex.charts.find((item) => item.value === entryId) : undefined;
   const hasChart = Boolean(chart);
-  const entryCycles = useMemo(() => entryId ? controller.workspaceIndex.cycles.filter((cycle) => cycle.value.startsWith(`${entryId}.`)) : [], [controller.workspaceIndex.cycles, entryId]);
-  const entryCycleSignature = entryCycles.map((item) => item.value).join("\u0000");
   const entryAnalyses = useMemo(() => entryId ? controller.workspaceIndex.analyses.filter((analysis) => analysis.value.startsWith(`${entryId}.`)) : [], [controller.workspaceIndex.analyses, entryId]);
   const entryAnalysisSignature = entryAnalyses.map((item) => item.value).join("\u0000");
   const matchingRenderers = useMemo(
@@ -95,9 +62,8 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const [projectionError, setProjectionError] = useState<string | null>(null);
   const [projectionLoading, setProjectionLoading] = useState(false);
   const presentationWasChosen = useRef(false);
-  const [mode, setMode] = useState<"result" | "chart" | "cycle" | "process">("result");
+  const [mode, setMode] = useState<"result" | "chart" | "process">("result");
   const [target, setTarget] = useState<string | null>(entryTargets[0]?.value ?? null);
-  const [cycleTarget, setCycleTarget] = useState<string | null>(entryCycles[0]?.value ?? null);
   const [analysisTarget, setAnalysisTarget] = useState<string | null>(entryAnalyses[0]?.value ?? null);
   const [processChartId, setProcessChartId] = useState<string | null>(null);
   const [result, setResult] = useState<OperationResult | null>(null);
@@ -116,10 +82,9 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   useEffect(() => {
     modeWasChosen.current = false;
     setTarget(entryTargets[0]?.value ?? null);
-    setCycleTarget(entryCycles[0]?.value ?? null);
     setAnalysisTarget(entryAnalyses[0]?.value ?? null);
     setProcessChartId(null);
-    setMode(entryTargets.length ? "result" : hasChart ? "chart" : entryAnalyses.length ? "process" : "cycle");
+    setMode(entryTargets.length ? "result" : hasChart ? "chart" : "process");
     setResult(null);
     setError(null);
     setExportResult(null);
@@ -170,29 +135,20 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
         if (entryTargets.length) return "result";
         if (hasChart) return "chart";
         if (entryAnalyses.length) return "process";
-        if (entryCycles.length) return "cycle";
       }
       if (selected === "chart" && !hasChart && entryTargets.length) return "result";
       if (selected === "result" && !entryTargets.length && hasChart) return "chart";
-      if (selected === "cycle" && !entryCycles.length && entryTargets.length) return "result";
       if (selected === "process" && !entryAnalyses.length && entryTargets.length) return "result";
       return selected;
     });
-    setCycleTarget((selected) => entryCycles.some((item) => item.value === selected) ? selected : entryCycles[0]?.value ?? null);
     setAnalysisTarget((selected) => entryAnalyses.some((item) => item.value === selected) ? selected : entryAnalyses[0]?.value ?? null);
-  }, [entryTargetSignature, entryCycleSignature, entryAnalysisSignature, entryAnalyses, hasChart]);
+  }, [entryTargetSignature, entryAnalysisSignature, entryAnalyses, hasChart]);
 
   useEffect(() => {
     if (!activeSymbolId || !entryTargets.some((item) => item.value === activeSymbolId)) return;
     setTarget(activeSymbolId);
     setMode("result");
   }, [activeSymbolId, entryTargetSignature]);
-
-  useEffect(() => {
-    if (!activeSymbolId || !entryCycles.some((item) => item.value === activeSymbolId)) return;
-    setCycleTarget(activeSymbolId);
-    setMode("cycle");
-  }, [activeSymbolId, entryCycleSignature]);
 
   useEffect(() => {
     if (!activeSymbolId || !entryAnalyses.some((item) => item.value === activeSymbolId)) return;
@@ -208,7 +164,6 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   }, [source]);
 
   const selectedTarget = entryTargets.find((item) => item.value === target);
-  const selectedCycle = entryCycles.find((item) => item.value === cycleTarget);
   const selectedAnalysis = entryAnalyses.find((item) => item.value === analysisTarget);
   const relevantInputs = controller.workspaceIndex.inputs.filter((input) => selectedTarget?.inputs?.includes(input.value));
 
@@ -216,7 +171,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
     const canPreview = Boolean(
       entryId
       && controller.validation?.status === "ok"
-      && (mode === "chart" ? hasChart : mode === "cycle" ? cycleTarget : mode === "process" ? analysisTarget : target),
+      && (mode === "chart" ? hasChart : mode === "process" ? analysisTarget : target),
     );
     if (!canPreview) {
       setRunning(false);
@@ -231,9 +186,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
         try {
           const nextResult = mode === "chart"
             ? await controller.operation("preview_plot", { config: entryId, precision: 30, display_digits: 12, timeout: 10 })
-            : mode === "cycle"
-              ? await controller.operation("cycle", { target: cycleTarget, timeout: 10 })
-              : mode === "process"
+            : mode === "process"
                 ? await controller.operation("process_analysis", { target: analysisTarget, timeout: 30 })
               : await controller.operation("eval", { target, precision: 30, display_digits: 12, timeout: 10 });
           if (active) {
@@ -258,7 +211,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
       active = false;
       window.clearTimeout(timer);
     };
-  }, [analysisTarget, controller.operation, controller.validation?.status, cycleTarget, entryId, hasChart, mode, source, target]);
+  }, [analysisTarget, controller.operation, controller.validation?.status, entryId, hasChart, mode, source, target]);
 
   const exportChart = async () => {
     if (!entryId) return;
@@ -301,7 +254,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
     : [];
 
   if (!entryId) return <EmptyState title="文档声明无效" description="修复 @entry 文档头后，结果和图表投影会在这里出现。" />;
-  if (!entryTargets.length && !hasChart && !entryCycles.length && !entryAnalyses.length && !matchingRenderers.length) return <EmptyState title="这个文档没有可预览投影" description="定义 output、chart、analysis 或 cycle 后，相应投影会出现在这里。" />;
+  if (!entryTargets.length && !hasChart && !entryAnalyses.length && !matchingRenderers.length) return <EmptyState title="这个文档没有可预览投影" description="定义 output、chart 或 analysis 后，相应投影会出现在这里。" />;
 
   const presentationSwitch = matchingRenderers.length > 0 ? (
     <SegmentedControl
@@ -310,7 +263,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
       value={presentation}
       onChange={(value) => { presentationWasChosen.current = true; setPresentation(value); }}
       data={[
-        ...(entryTargets.length || hasChart || entryCycles.length || entryAnalyses.length ? [{ value: "generic", label: "通用" }] : []),
+        ...(entryTargets.length || hasChart || entryAnalyses.length ? [{ value: "generic", label: "通用" }] : []),
         ...matchingRenderers.map((item) => ({ value: item.id, label: item.title })),
       ]}
     />
@@ -345,15 +298,13 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
         <Stack p="md" gap="md">
           {presentationSwitch}
           <Box><Text className="result-label">DOCUMENT PROJECTION</Text><Text fw={650} fz="sm" mt={4}>{entryId}</Text><Text c="dimmed" fz="xs" mt={3}>从当前源码草稿和源码默认值即时派生，不接受临时参数。</Text></Box>
-          {[entryTargets.length > 0, hasChart, entryAnalyses.length > 0, entryCycles.length > 0].filter(Boolean).length > 1 && <SegmentedControl fullWidth size="xs" value={mode} onChange={(value) => { modeWasChosen.current = true; setMode(value as "result" | "chart" | "cycle" | "process"); setResult(null); }} data={[...(entryTargets.length ? [{ value: "result", label: "结果" }] : []), ...(hasChart ? [{ value: "chart", label: "图表" }] : []), ...(entryAnalyses.length ? [{ value: "process", label: "过程" }] : []), ...(entryCycles.length ? [{ value: "cycle", label: "循环" }] : [])]} />}
+          {[entryTargets.length > 0, hasChart, entryAnalyses.length > 0].filter(Boolean).length > 1 && <SegmentedControl fullWidth size="xs" value={mode} onChange={(value) => { modeWasChosen.current = true; setMode(value as "result" | "chart" | "process"); setResult(null); }} data={[...(entryTargets.length ? [{ value: "result", label: "结果" }] : []), ...(hasChart ? [{ value: "chart", label: "图表" }] : []), ...(entryAnalyses.length ? [{ value: "process", label: "过程" }] : [])]} />}
           {mode === "result" && entryTargets.length > 1 && <Select label="查看结果" searchable value={target} onChange={(value) => { setTarget(value); setResult(null); }} data={entryTargets.map((item) => ({ value: item.value, label: `${item.group_label ? `${item.group_label} / ` : ""}${item.label}` }))} />}
-          {mode === "cycle" && entryCycles.length > 1 && <Select label="分析循环" searchable value={cycleTarget} onChange={(value) => { setCycleTarget(value); setResult(null); }} data={entryCycles.map((item) => ({ value: item.value, label: item.label }))} />}
           {mode === "process" && entryAnalyses.length > 1 && <Select label="过程分析" searchable value={analysisTarget} onChange={(value) => { setAnalysisTarget(value); setResult(null); }} data={entryAnalyses.map((item) => ({ value: item.value, label: item.label }))} />}
           {mode === "result" && relevantInputs.length > 0 && <Box className="preview-inputs"><Text className="result-label">相关输入</Text>{relevantInputs.map((input) => <Group key={input.value} justify="space-between" wrap="nowrap" mt={7}><span><strong>{input.label}</strong><small>{input.value}</small></span><Code>{String(input.default ?? "—")}</Code></Group>)}</Box>}
-          {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : mode === "cycle" ? "正在分析循环…" : mode === "process" ? "正在搜索过程策略…" : "正在计算结果…"} />}
+          {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : mode === "process" ? "正在搜索过程策略…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
           {result && mode === "result" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
-          {result && mode === "cycle" && <Stack gap="md" className={`document-result-preview${activeSymbolId === cycleTarget ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedCycle?.label || cycleTarget}</Text>{selectedCycle?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedCycle.line, selectedCycle.column)}>定位循环源码</Button>}</Group><Text className="document-result-value">{cycleSummary(result)}</Text><Group gap={6} mt="xs"><Badge variant="outline" color="gray">资源：{cycleResourceIds(result).join(" / ") || "—"}</Badge><Badge variant="outline" color="gray">首次等待：{result.first_wait ? `第 ${String((result.first_wait as Record<string, unknown>).step)} 步` : "无"}</Badge>{cycleLimitingConstraints(result).length > 0 && <Badge variant="outline" color="gray">受限：{cycleLimitingConstraints(result).join(" / ")}</Badge>}<Badge variant="outline" color="gray">每分钟等待：{String(result.wait_per_minute ?? "—")} 秒</Badge></Group></Box><TechnicalResult result={result} /></Stack>}
           {result && mode === "process" && <Stack gap="md" className={`document-result-preview${activeSymbolId === analysisTarget ? " is-source-linked" : ""}`}>
             <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">PROCESS ANALYSIS</Text><Text fw={650}>{selectedAnalysis?.label || analysisTarget}</Text></Box><Group gap={4}>{selectedAnalysis?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column)}>定位分析源码</Button>}<Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportProcessCharts(); }}>导出全部图表</Button></Group></Group>
             <Group gap={6}><Badge variant="light" color="green">{processVariants.length} 个方案</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge><Badge variant="outline" color="gray">搜索 {String(result.explored_branches ?? "—")}</Badge></Group>

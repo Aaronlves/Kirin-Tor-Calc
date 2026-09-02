@@ -63,12 +63,12 @@ _KIND_LABELS = {
     "functions": "函数",
     "tables": "查表",
     "distributions": "有限分布",
-    "recurrences": "有限递推",
-    "state_models": "有限状态模型",
     "outputs": "输出",
     "objects": "类型化对象",
     "object_fields": "对象属性",
-    "cycles": "固定循环",
+    "processes": "过程",
+    "scenarios": "场景",
+    "analyses": "分析",
     "types": "结构类型",
     "alias": "别名",
     "dimensions": "量纲",
@@ -87,13 +87,12 @@ _KIND_LABELS = {
 
 _AUTHORING_SECTIONS = {
     "aliases", "dimensions", "units", "domains", "inputs", "constraints", "fields",
-    "functions", "tables", "distributions", "recurrences", "state_models", "outputs",
+    "functions", "tables", "distributions", "outputs",
     "sources", "groups", "presets", "display", "y",
 }
 
 _MEMBER_SECTIONS = {
-    "inputs", "fields", "functions", "tables", "distributions", "recurrences",
-    "state_models", "outputs",
+    "inputs", "fields", "functions", "tables", "distributions", "outputs",
 }
 
 _SECTION_KIND = {
@@ -102,8 +101,6 @@ _SECTION_KIND = {
     "functions": "function",
     "tables": "table",
     "distributions": "distribution",
-    "recurrences": "recurrence",
-    "state_models": "state_model",
     "outputs": "output",
 }
 
@@ -113,10 +110,7 @@ _DECLARATION_KIND = {
     "function": "functions",
     "table": "tables",
     "distribution": "distributions",
-    "recurrence": "recurrences",
-    "state_model": "state_models",
     "output": "outputs",
-    "cycle": "cycles",
     "type": "types",
     "process": "processes",
     "scenario": "scenarios",
@@ -126,8 +120,8 @@ _DECLARATION_KIND = {
 _RESERVED_DECLARATIONS = {
     "dimension", "unit", "domain", "source", "alias", "input", "field",
     "require", "function", "output", "group", "preset", "table",
-    "distribution", "recurrence", "state_model", "display", "chart", "type",
-    "cycle", "process", "scenario", "analysis",
+    "distribution", "display", "chart", "type",
+    "process", "scenario", "analysis",
 }
 
 
@@ -167,20 +161,6 @@ SNIPPETS = (
         'distribution result_distribution "显示名": dimensionless:\n  outcomes:\n    - 0 @ 1 - probability_value\n    - 1 @ $0',
         14,
     ),
-    _snippet(
-        "有限递推声明",
-        "有限递推",
-        "recurrence",
-        'recurrence recurrence_name "显示名": dimensionless:\n  initial = 0\n  steps = bounded_count\n  next(current, index) = $0',
-        14,
-    ),
-    _snippet(
-        "有限状态模型声明",
-        "有限状态",
-        "state_model",
-        "state_model model_name:\n  states:\n    - first\n    - second\n  transitions:\n    - first -> second @ probability_value\n    - second -> first @ $0",
-        14,
-    ),
     _snippet("输出声明", "输出", "output", 'output result "显示名": dimensionless = $0', 14),
     _snippet("分组声明", "分组", "group", 'group group_id "显示名":\n  - result$0', 15),
     _snippet(
@@ -193,34 +173,6 @@ SNIPPETS = (
     _snippet("显示声明", "显示", "display", "display result = number digits $0", 17),
     _snippet("约束声明", "约束", "require", "require $0", 15),
     _snippet("来源声明", "来源", "source", 'source note:\n  citation = "$0"', 17),
-    _snippet(
-        "多资源循环步骤类型",
-        "多资源技能类型",
-        "cycle step spends gains cooldown",
-        "type skill:\n  mana_cost: mana = 0\n  charge_gain: charge = 0\n  occupies: time\n  cooldown: time = 0 second\n  cycle_step:\n    occupies = occupies\n    cooldown = cooldown\n    spends:\n      mana = mana_cost\n    gains:\n      charge = charge_gain$0",
-        15,
-    ),
-    _snippet(
-        "离散充能循环步骤类型",
-        "充能技能类型",
-        "cycle step sequential charges",
-        "type charged_skill:\n  occupies: time\n  maximum_charges: positive_integer\n  recharge: time\n  cycle_step:\n    occupies = occupies\n    charges:\n      maximum = maximum_charges\n      recharge = recharge$0",
-        15,
-    ),
-    _snippet(
-        "多资源循环角色接口",
-        "多资源角色",
-        "cycle profile resources",
-        "type profile:\n  mana_initial: mana\n  mana_maximum: mana\n  mana_regeneration: mana_per_time\n  cycle_profile:\n    resources:\n      mana:\n        initial = mana_initial\n        maximum = mana_maximum\n        regeneration = mana_regeneration$0",
-        15,
-    ),
-    _snippet(
-        "固定循环",
-        "循环",
-        "cycle",
-        "cycle rotation:\n  using = profile_name\n  sequence:\n    - skill_name$0",
-        16,
-    ),
     _snippet(
         "有界过程",
         "过程",
@@ -368,38 +320,6 @@ BUILTIN_COMPLETIONS = (
         "condition(distribution, value, $0)",
         "builtin",
         ("condition", "条件分布", "条件化"),
-        24,
-    ),
-    CompletionCandidate(
-        "稳态概率",
-        "状态模型函数 · steady_probability",
-        "steady_probability(model, $0)",
-        "builtin",
-        ("steady_probability", "稳态概率"),
-        24,
-    ),
-    CompletionCandidate(
-        "稳态奖励",
-        "状态模型函数 · steady_reward",
-        "steady_reward(model, $0)",
-        "builtin",
-        ("steady_reward", "稳态奖励", "长期期望"),
-        24,
-    ),
-    CompletionCandidate(
-        "到达概率",
-        "状态模型函数 · hitting_probability",
-        "hitting_probability(model, start, $0)",
-        "builtin",
-        ("hitting_probability", "到达概率", "吸收概率"),
-        24,
-    ),
-    CompletionCandidate(
-        "期望步数",
-        "状态模型函数 · expected_steps",
-        "expected_steps(model, start, $0)",
-        "builtin",
-        ("expected_steps", "期望步数", "到达步数"),
         24,
     ),
     CompletionCandidate("布尔真", "关键字 · true", "true", "keyword", ("true", "真"), 26),
@@ -600,7 +520,7 @@ def _index_source(
             semantics.append((name, kind))
         elif kind in {
             "inputs", "fields", "functions", "tables", "distributions",
-            "recurrences", "state_models", "outputs", "objects", "cycles",
+            "outputs", "objects", "processes", "scenarios", "analyses",
         }:
             members.append(_Member(entry_id, name, kind, declaration["label"]))
             if kind == "objects":
@@ -658,12 +578,12 @@ def _member_signature(line: str) -> str:
 
 def _member_unit(section: str, line: str) -> Optional[str]:
     stripped = line.strip()
-    if section in {"objects", "cycles", "types", "state_models"}:
+    if section in {"objects", "types"}:
         return None
     if ":" not in stripped:
         return None
     tail = stripped.split(":", 1)[1]
-    if section in {"distributions", "recurrences"}:
+    if section == "distributions":
         return tail.rstrip(":").strip() or None
     if "=" in tail:
         tail = tail.split("=", 1)[0]
@@ -787,10 +707,14 @@ def _scan_authoring_source(source: AuthoringSource) -> dict:
                 continue
             if section not in {
                 "inputs", "fields", "functions", "tables", "distributions",
-                "recurrences", "state_models", "outputs", "objects", "cycles", "types",
+                "outputs", "objects", "types", "processes", "scenarios", "analyses",
             }:
                 continue
-            kind = section[:-1] if section.endswith("s") else section
+            kind = {
+                "processes": "process",
+                "scenarios": "scenario",
+                "analyses": "analysis",
+            }.get(section, section[:-1] if section.endswith("s") else section)
             canonical = f"{entry_id}.{name}"
             parameters = declaration.get("parameters", [])
             symbol = {
@@ -806,7 +730,7 @@ def _scan_authoring_source(source: AuthoringSource) -> dict:
                 "definition": _location(source, line_number, start, end),
                 "renameable": section in {
                     "inputs", "fields", "functions", "tables", "distributions",
-                    "recurrences", "state_models", "outputs",
+                    "outputs",
                 } and not source.read_only,
                 "outline": True,
                 "outline_level": 1,
@@ -904,8 +828,8 @@ def build_authoring_index(sources: Sequence[AuthoringSource]) -> dict:
     for symbol in symbols:
         entry_id = symbol.get("entry_id")
         if entry_id and symbol["kind"] in {
-            "input", "field", "function", "table", "distribution", "recurrence",
-            "state_model", "output", "object", "object_field", "cycle",
+            "input", "field", "function", "table", "distribution", "output",
+            "object", "object_field", "process", "scenario", "analysis",
         }:
             local_members.setdefault(entry_id, {})[symbol["name"]] = symbol["id"]
         if symbol["kind"] == "input":

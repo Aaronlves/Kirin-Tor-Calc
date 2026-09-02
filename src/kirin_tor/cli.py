@@ -19,7 +19,6 @@ from .engine import Engine
 from .errors import KTError, ParameterError, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
-    analyze_cycle,
     analyze_process,
     differentiate,
     evaluate,
@@ -603,72 +602,6 @@ def eval_command(
             f"{result.get('formatted', result['approximate'])} [{result['unit']}]"
             f"\nexact: {result['exact']}",
         )
-
-    _execute(action, json_output)
-
-
-@app.command("cycle")
-def cycle_command(
-    target: str,
-    preset: Optional[str] = typer.Option(None, "--preset"),
-    set_values: List[str] = typer.Option([], "--set", help="Override NAME=VALUE; repeatable."),
-    timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
-    save_run_id: Optional[str] = typer.Option(None, "--save-run"),
-    json_output: bool = typer.Option(False, "--json"),
-) -> None:
-    """Analyze a deterministic fixed cycle for waits and sustainability."""
-
-    def action():
-        workspace = Workspace.discover()
-        overrides = _parse_sets(set_values)
-        request = {
-            "target": target,
-            "preset": preset,
-            "overrides": overrides,
-            "timeout_seconds": timeout,
-        }
-        result = _recorded_compute(
-            workspace,
-            save_run_id,
-            "cycle",
-            request,
-            lambda: analyze_cycle(
-                Engine(workspace), target, preset, overrides, timeout
-            ),
-            [preset] if preset else [],
-        )
-        if result["cycle_status"] == "continuous":
-            summary = "可持续：无需等待"
-        elif result["cycle_status"] == "waiting":
-            first = result.get("first_wait") or {}
-            constraint_labels = {
-                "resource": "资源",
-                "cooldown": "冷却",
-                "charge": "充能",
-            }
-            constraints = first.get("limiting_constraints") or [
-                f"resource:{item}"
-                for item in first.get("limiting_resources") or []
-            ]
-            limiting = ", ".join(
-                f"{constraint_labels.get(str(item).split(':', 1)[0], str(item).split(':', 1)[0])} "
-                f"{str(item).split(':', 1)[-1]}"
-                for item in constraints
-            )
-            summary = (
-                f"需要等待：首次在第 {first.get('step')} 步 {first.get('action')}；"
-                + (f"受限于 {limiting}；" if limiting else "")
-                + f"每分钟等待 {result.get('wait_per_minute')} 秒"
-            )
-        else:
-            blocked = result.get("blocked_at") or {}
-            resource_id = blocked.get("resource_id")
-            summary = (
-                f"无法继续：第 {blocked.get('step')} 步 {blocked.get('action')} "
-                + (f"资源 {resource_id} " if resource_id else "")
-                + f"({blocked.get('reason')})"
-            )
-        _emit(result, json_output, summary)
 
     _execute(action, json_output)
 

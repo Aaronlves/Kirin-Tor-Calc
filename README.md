@@ -88,7 +88,7 @@ kt eval basic_model.total
 
 - 在中央 CodeMirror 编辑器中完成全部源码编辑；`Ctrl+Space` 提供 Kirin Tor 补全和中文结构片段。
 - 同时保留多个未保存草稿，按完整工作区校验，并通过 Save All 原子写入。
-- 自动派生只读结果、图表、固定循环分析、公式、诊断和局部关系；检查器不提供临时计算参数或参数方案填写字段。
+- 自动派生只读结果、静态图表、Process Analysis 多图、公式、诊断和局部关系；检查器不提供临时计算参数或参数方案填写字段。
 - 提供定义跳转、引用查找、符号大纲、签名提示、安全重命名、查找替换和安全空白格式化。
 - 提供工作区全文搜索、草稿式批量替换、保存前变更审查、只读 Git 摘要和外部冲突三方合并。
 - 支持文档路径移动、复制为新草稿，以及依赖安全的可恢复删除；这些文件操作不会改写源码中的 `@entry` ID 或数学语义。
@@ -125,10 +125,10 @@ Kirin Tor source v2 使用一个 `entry` 文档模型和一致的逐项声明语
 - 用户声明的量纲、精确比例单位和可复用值域；
 - 字段、函数、输出、分组、参数方案、显示格式和版本化查表；
 - 封闭的可复用类型、具名对象和静态多层属性访问；
-- 多资源固定 sequence 的联合可持续性、技能资源产出、动作冷却、逐枚恢复充能、首次等待/阻塞步数和稳态等待占比分析；
+- 有界 Process 状态、精确时间、事件 phase、连续 flow、动作 guard、冷却/充能等作者定义组件与固定策略；
 - 条件、分段、有限求和与连乘；
 - 有限离散分布、显式独立组合、条件化和有限重复；
-- 有界纯递推和有限状态模型的解析查询；
+- Process 事件链形式的有界迭代，以及有限随机转移的 `reach` / `steady` / `cycle` 分析；
 - 化简、展开、因式分解、求导、单变量求解和最多八个变量的有限符号联立求解；
 - 一维扫描、双输入网格、SVG/PNG/CSV 图表以及可重放运行记录。
 
@@ -200,7 +200,7 @@ kt show ID
 kt explain TARGET
 kt check
 kt eval TARGET [--preset ENTRY.PRESET] [--set ENTRY.INPUT=VALUE]
-kt cycle ENTRY.CYCLE [--preset ENTRY.PRESET] [--set ENTRY.INPUT=VALUE]
+kt analyze ENTRY.ANALYSIS [--save-run ID] [--export-charts]
 kt simplify TARGET
 kt expand TARGET
 kt factor TARGET
@@ -230,18 +230,19 @@ kt simplify combo.total --keep combo.crit
 kt diff combo.total --var combo.crit
 kt solve combo.total --var combo.crit --equals "3000 damage" --range "0:1"
 kt plot --config combo --force
-kt cycle rotation.main_rotation
+kt analyze rotation.replay_rotation
+kt analyze rotation.prove_rotation
 ```
 
-关键结果包括 `2750 damage`、`2200*combo.crit + 2200`、导数 `2200 damage`、解 `4/11`，以及三资源循环首次在第 4 步因 `focus` 等待、稳态每分钟等待 `75/2` 秒。这些都是测试数据，不代表任何真实游戏技能。
+关键结果包括 `2750 damage`、`2200*combo.crit + 2200`、导数 `2200 damage`、解 `4/11`，以及固定 Process 策略的精确轨迹与边界周期证明。这些都是测试数据，不代表任何真实游戏技能。
 
 ## 能力边界
 
-Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推、有限状态解析模型、确定的多资源固定技能序列，以及有明确 phase 和 fuel 的有界 Process 场景。Process Analysis 已支持精确有限随机路径、作者声明的条件或固定序列策略，以及 `run`、`compare`、确定性有界 `optimize`、`reach`、有限状态 `steady` 和 `cycle`。它不会从技能说明自动推导完整战斗循环。当前没有：
+Kirin Tor 可以直接处理作者给出的有限公式、有限分布，以及有明确 phase 和 fuel 的有界 Process 场景。Process Analysis 已支持精确有限随机路径、作者声明的条件或固定序列策略，以及 `run`、`compare`、确定性有界 `optimize`、`reach`、有限状态 `steady` 和 `cycle`。它不会从技能说明自动推导完整战斗循环。当前没有：
 
 - 优先级 APL、完整战斗时间线或随机采样；
 - 一般连续时间搜索的全局证明或带误差界全局求解；
-- 通用联合分布、动态目标集合、列表、向量或矩阵语言；
+- 面向动态目标集合的公开建模承诺，或通用向量/矩阵语言；
 - 无界连续或离散全局优化器；
 - 积分、极限和完整通用数值根搜索。
 
@@ -251,9 +252,9 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限�
 
 | 文档 | 职责 |
 | --- | --- |
-| [Kirin Tor source syntax v2](docs/kirin-syntax.md) | 表面语法、类型化属性、多层访问与固定循环写法 |
+| [Kirin Tor source syntax v2](docs/kirin-syntax.md) | 表面语法、类型化属性、多层访问与 Process 写法 |
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
-| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制重构语义、统一 fuel、已实现分析器与剩余迁移边界 |
+| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制统一语义、fuel、分析器与证明边界 |
 | [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标验证、Policy/Analysis 声明与当前可执行边界 |
 | [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
 | [Kirin Tor community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |

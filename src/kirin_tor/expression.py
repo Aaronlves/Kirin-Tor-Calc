@@ -149,28 +149,6 @@ class FiniteDistribution:
         )
 
 
-@dataclass(frozen=True)
-class StateRewardValue:
-    id: str
-    dimension: Dimension
-    values: Mapping[str, MathValue]
-    conditions: tuple
-    inputs: Mapping[str, InputSpec]
-    dependencies: frozenset[str]
-
-
-@dataclass(frozen=True)
-class FiniteStateModel:
-    id: str
-    owner_id: str
-    states: tuple[str, ...]
-    transitions: tuple[tuple[MathValue, ...], ...]
-    rewards: Mapping[str, StateRewardValue]
-    conditions: tuple
-    inputs: Mapping[str, InputSpec]
-    dependencies: frozenset[str]
-
-
 ALLOWED_NODES = {
     ast.Expression,
     ast.BinOp,
@@ -360,16 +338,11 @@ class RestrictedCompiler:
                     dependencies={self.entry.id},
                     is_boolean=spec.value_type == "boolean",
                 )
-            if name in self.entry.fields or name in self.entry.recurrences or name in self.entry.outputs:
+            if name in self.entry.fields or name in self.entry.outputs:
                 return self.engine.resolve_member(self.entry.id, name)
             if name in self.entry.distributions:
                 raise ExpressionError(
                     f"distribution {name!r} must be observed with expectation, variance, or probability",
-                    self.location,
-                )
-            if name in self.entry.state_models:
-                raise ExpressionError(
-                    f"state model {name!r} must be queried with a state-model analytical function",
                     self.location,
                 )
             if name in self.entry.aliases:
@@ -506,13 +479,6 @@ class RestrictedCompiler:
             return self._table_call(node, interpolate=name == "interpolate")
         if name in {"expectation", "variance", "probability"}:
             return self._distribution_call(node, name)
-        if name in {
-            "steady_probability",
-            "steady_reward",
-            "hitting_probability",
-            "expected_steps",
-        }:
-            return self._state_model_call(node, name)
         if name in {"sum", "product"}:
             return self._finite_aggregate(node, name)
         if name in {"if_else", "piecewise"}:
@@ -520,63 +486,6 @@ class RestrictedCompiler:
             return self._piecewise(name, args)
         args = [self._build(arg) for arg in node.args]
         return self._builtin(name, args)
-
-    def _state_model_reference(self, node: ast.AST) -> FiniteStateModel:
-        if isinstance(node, ast.Name):
-            if self.entry is None:
-                raise ExpressionError(
-                    f"local state model {node.id!r} requires an entry context",
-                    self.location,
-                )
-            if node.id in self.entry.aliases:
-                entry_id, model_name = self.entry.aliases[node.id].split(".", 1)
-            else:
-                entry_id, model_name = self.entry.id, node.id
-        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            entry_id, model_name = node.value.id, node.attr
-        else:
-            raise ExpressionError(
-                "state model must be a local name or ENTRY.STATE_MODEL", self.location
-            )
-        return self.engine.resolve_state_model(entry_id, model_name)
-
-    def _state_model_identifier(
-        self, node: ast.AST, label: str, allowed: Iterable[str]
-    ) -> str:
-        if not isinstance(node, ast.Name):
-            raise ExpressionError(f"{label} must be a plain identifier", self.location)
-        if node.id not in set(allowed):
-            raise ExpressionError(f"unknown {label} {node.id!r}", self.location)
-        return node.id
-
-    def _state_model_call(self, node: ast.Call, operation: str) -> MathValue:
-        if node.keywords:
-            raise ExpressionError("keyword arguments are not allowed", self.location)
-        expected = 2 if operation in {"steady_probability", "steady_reward"} else 3
-        if len(node.args) != expected:
-            signatures = {
-                "steady_probability": "steady_probability(MODEL, STATE)",
-                "steady_reward": "steady_reward(MODEL, REWARD)",
-                "hitting_probability": "hitting_probability(MODEL, START, TARGET)",
-                "expected_steps": "expected_steps(MODEL, START, TARGET)",
-            }
-            raise ExpressionError(
-                f"{operation} expects {signatures[operation]}", self.location
-            )
-        model = self._state_model_reference(node.args[0])
-        if operation == "steady_reward":
-            reward = self._state_model_identifier(
-                node.args[1], "state reward", model.rewards
-            )
-            return self.engine.state_model_steady_reward(model, reward)
-        if operation == "steady_probability":
-            state = self._state_model_identifier(node.args[1], "state", model.states)
-            return self.engine.state_model_steady_probability(model, state)
-        start = self._state_model_identifier(node.args[1], "state", model.states)
-        target = self._state_model_identifier(node.args[2], "state", model.states)
-        if operation == "hitting_probability":
-            return self.engine.state_model_hitting_probability(model, start, target)
-        return self.engine.state_model_expected_steps(model, start, target)
 
     def _distribution_reference(self, node: ast.AST) -> FiniteDistribution:
         if isinstance(node, ast.Call):
@@ -636,8 +545,6 @@ class RestrictedCompiler:
                 | set(self.entry.functions)
                 | set(self.entry.tables)
                 | set(self.entry.distributions)
-                | set(self.entry.recurrences)
-                | set(self.entry.state_models)
                 | set(self.entry.outputs)
                 | set(self.entry.aliases)
             )

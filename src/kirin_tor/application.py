@@ -69,7 +69,6 @@ class WorkspaceIndex:
     inputs: Tuple[InputOption, ...]
     presets: Tuple[NamedOption, ...]
     charts: Tuple[ChartOption, ...]
-    cycles: Tuple[ChartOption, ...]
     analyses: Tuple[ChartOption, ...]
     document_ids: Tuple[str, ...]
 
@@ -229,18 +228,6 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                 position[1] if position else None,
             )
         )
-    cycles = []
-    for entry in sorted(workspace.entries.values(), key=lambda item: item.id):
-        for cycle in sorted(entry.cycles.values(), key=lambda item: item.id):
-            position = entry.positions.get(f"cycles.{cycle.id}")
-            cycles.append(
-                ChartOption(
-                    cycle.qualified_id,
-                    cycle.label,
-                    position[0] if position else None,
-                    position[1] if position else None,
-                )
-            )
     analyses = []
     for analysis in sorted(workspace.analyses.values(), key=lambda item: item.qualified_id):
         analyses.append(
@@ -256,7 +243,6 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
         tuple(inputs),
         presets,
         tuple(charts),
-        tuple(cycles),
         tuple(analyses),
         tuple(sorted(workspace.documents)),
     )

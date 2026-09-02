@@ -9,12 +9,9 @@ const sectionTopics: Record<string, string> = {
   presets: "presets",
   tables: "tables",
   distributions: "distributions",
-  recurrences: "recurrences",
-  state_models: "state-models",
-  type: "structures-cycles",
-  object: "structures-cycles",
-  object_field: "structures-cycles",
-  cycle: "structures-cycles",
+  type: "structures",
+  object: "structures",
+  object_field: "structures",
   process: "process",
   scenario: "process",
   analysis: "process",
@@ -35,12 +32,9 @@ const kindTopics: Record<string, string> = {
   preset: "presets",
   table: "tables",
   distribution: "distributions",
-  recurrence: "recurrences",
-  state_model: "state-models",
-  type: "structures-cycles",
-  object: "structures-cycles",
-  object_field: "structures-cycles",
-  cycle: "structures-cycles",
+  type: "structures",
+  object: "structures",
+  object_field: "structures",
   process: "process",
   scenario: "process",
   analysis: "process",
@@ -60,9 +54,9 @@ export function syntaxTopicForLine(line: string): string | null {
   const section = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):/)?.[1];
   if (sectionTopics[section ?? ""]) return sectionTopics[section ?? ""];
   if (/^@(kirin|entry|game-version|status)\b/.test(trimmed)) return "document";
-  if (/^(type|cycle)\b/.test(trimmed) || /\b(cycle_step|cycle_profile|cost|occupies|sequence|resources|spends|gains|cooldown|charges|recharge)\b/.test(trimmed)) return "structures-cycles";
-  if (/^(process|scenario|analysis)\b/.test(trimmed) || /\b(measure|objective|observe|decide|event|action|policy|variant|maximum_events|maximum_decisions|maximum_branches)\b/.test(trimmed)) return "process";
-  for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^recurrence\b/, "recurrences"], [/^state_model\b/, "state-models"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
+  if (/^type\b/.test(trimmed)) return "structures";
+  if (/^(process|scenario|analysis|recurrence|state_model)\b/.test(trimmed) || /\b(measure|objective|observe|decide|event|action|policy|variant|maximum_events|maximum_decisions|maximum_branches)\b/.test(trimmed)) return "process";
+  for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }
   if (/\b(one-of|boolean|integer|probability|dimensionless|nonnegative_integer|positive_integer)\b/.test(line)) return "semantics";
@@ -75,9 +69,9 @@ export function syntaxTopicForDiagnostic(item: DiagnosticItem, line = ""): strin
   const message = `${item.code ?? ""} ${item.author_message ?? ""} ${item.message ?? ""}`.toLocaleLowerCase();
   for (const [needle, topic] of [
     ["alias", "aliases"], ["别名", "aliases"], ["table", "tables"], ["查表", "tables"],
-    ["distribution", "distributions"], ["分布", "distributions"], ["recurrence", "recurrences"], ["递推", "recurrences"],
-    ["state", "state-models"], ["状态", "state-models"], ["preset", "presets"], ["参数方案", "presets"],
-    ["cycle", "structures-cycles"], ["sequence", "structures-cycles"], ["循环", "structures-cycles"], ["等待", "structures-cycles"],
+    ["distribution", "distributions"], ["分布", "distributions"], ["recurrence", "process"], ["递推", "process"],
+    ["state_model", "process"], ["状态模型", "process"], ["preset", "presets"], ["参数方案", "presets"],
+    ["cycle", "process"], ["sequence", "process"], ["循环", "process"], ["等待", "process"],
     ["process", "process"], ["scenario", "process"], ["analysis", "process"], ["measure", "process"], ["过程", "process"],
     ["unit", "semantics"], ["dimension", "semantics"], ["domain", "semantics"], ["单位", "semantics"], ["量纲", "semantics"],
     ["chart", "charts"], ["图表", "charts"],

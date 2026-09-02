@@ -38,9 +38,11 @@ const kindLabels: Record<string, string> = {
   function: "函数",
   table: "查表",
   distribution: "有限分布",
-  recurrence: "有限递推",
-  state_model: "状态模型",
   output: "输出",
+  object: "类型化对象",
+  process: "过程",
+  scenario: "场景",
+  analysis: "分析",
 };
 
 function documentNodes(graph: RelationshipGraphResult): RelationshipNode[] {
@@ -124,7 +126,7 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
         <Box>
           <Text className="page-kicker">SEMANTIC RELATIONSHIPS</Text>
           <Title order={1}>关系图</Title>
-          <Text c="dimmed" fz="sm" mt={5}>边由已校验的表达式引用生成；包含输入、公式、有限分布、递推与状态模型。</Text>
+          <Text c="dimmed" fz="sm" mt={5}>边由已校验的表达式引用与 Process 组合生成；包含静态成员、过程、场景与分析。</Text>
         </Box>
         <Group gap="xs">
           <Badge variant="outline" color="gray">{graph?.documents.length || 0} 文档</Badge>

@@ -50,17 +50,6 @@ distribution roll "结果分布": dimensionless:
   outcomes:
     - 0 @ 1 - crit
     - 1 @ crit
-
-recurrence bounded_total "有限递推结果": dimensionless:
-  initial = 0
-  steps = 2
-  next(current, index) = current + index
-
-state_model cycle "状态循环":
-  states:
-    - ready
-  transitions:
-    - ready -> ready @ 1
 """
     model_source = """@kirin 2
 @entry model
@@ -77,10 +66,12 @@ output result "总计": dimensionless = 技能(base.crit)
     assert build_completion_candidates(sources, model, "结果分布")[0].insert_text == "base.roll"
     assert build_completion_candidates(sources, model, "分布期望")[0].insert_text == "expectation($0)"
     assert build_completion_candidates(sources, model, "有限分布")[0].label == "有限分布声明"
-    assert build_completion_candidates(sources, model, "有限递推结果")[0].insert_text == "base.bounded_total"
-    assert build_completion_candidates(sources, model, "状态循环")[0].insert_text == "base.cycle"
-    assert build_completion_candidates(sources, model, "稳态概率")[0].insert_text == "steady_probability(model, $0)"
-    assert build_completion_candidates(sources, model, "有限状态")[0].label == "有限状态模型声明"
+    assert build_completion_candidates(sources, model, "过程")[0].insert_text.startswith(
+        "process mechanism:"
+    )
+    assert build_completion_candidates(sources, model, "场景")[0].insert_text.startswith(
+        "scenario trial:"
+    )
     inserted, cursor = prepare_completion_insertion("piecewise(\n  $0\n)", "  ")
     assert inserted == "piecewise(\n    \n  )"
     assert inserted[:cursor].endswith("    ")
@@ -156,7 +147,7 @@ def test_safe_formatter_preserves_prose_and_comments() -> None:
     assert "  output result: dimensionless = 1\n" in rendered
 
 
-def test_authoring_references_respect_bounded_expression_and_state_names() -> None:
+def test_authoring_references_respect_bounded_aggregate_local_names() -> None:
     source = AuthoringSource(
         "entries/model.kirin",
         "entries/model.kirin",
@@ -169,17 +160,13 @@ input chance: probability = 0.5
 
 output total: dimensionless = sum(index, index, 0, 2)
 
-state_model cycle:
-  states:
-    - ready
-  transitions:
-    - ready -> ready @ chance
+output chance_copy: probability = chance
 """,
     )
     index = build_authoring_index([source])
     assert not any(item["symbol_id"] == "model.index" for item in index["references"])
     chance_references = [item for item in index["references"] if item["symbol_id"] == "model.chance"]
-    assert [(item["location"]["line"], item["text"]) for item in chance_references] == [(14, "chance")]
+    assert [(item["location"]["line"], item["text"]) for item in chance_references] == [(10, "chance")]
 
 
 def test_authoring_completes_and_indexes_multi_level_object_paths(tmp_path: Path) -> None:

@@ -410,13 +410,10 @@ def parse_kirin_v2_source(
     constraints: List[str] = []
     tables: Dict[str, Any] = {}
     distributions: Dict[str, Any] = {}
-    recurrences: Dict[str, Any] = {}
-    state_models: Dict[str, Any] = {}
     groups: Dict[str, Any] = {}
     presets: Dict[str, Any] = {}
     types: Dict[str, Any] = {}
     objects: Dict[str, Any] = {}
-    cycles: Dict[str, Any] = {}
     displays: Dict[str, Tuple[str, Optional[int], _Line]] = {}
     source_ids: set[str] = set()
     chart_seen = False
@@ -429,13 +426,34 @@ def parse_kirin_v2_source(
 
     reserved = {
         "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
-        "function", "output", "group", "preset", "table", "distribution", "recurrence",
-        "state_model", "display", "chart", "type", "cycle", "process", "scenario",
+        "function", "output", "group", "preset", "table", "distribution",
+        "display", "chart", "type", "process", "scenario",
         "analysis",
     }
 
     for node in nodes:
         text_head = node.line.text
+        if text_head.startswith("recurrence "):
+            _fail(
+                path,
+                "recurrence was removed in the Process cutover; model bounded iteration "
+                "with process state/events and a scenario run analysis",
+                node.line,
+            )
+        if text_head.startswith("state_model "):
+            _fail(
+                path,
+                "state_model was removed in the Process cutover; model finite transitions "
+                "with process branches and use reach or steady analysis",
+                node.line,
+            )
+        if text_head.startswith("cycle "):
+            _fail(
+                path,
+                "cycle was removed in the Process cutover; declare a fixed source policy "
+                "and use a Process cycle analysis",
+                node.line,
+            )
         if text_head.startswith("process "):
             from .process_parser import _parse_process
 
@@ -723,6 +741,14 @@ def parse_kirin_v2_source(
                     continue
                 interface = re.fullmatch(rf"({IDENTIFIER}):", child.line.text)
                 if interface:
+                    if interface.group(1) in {"cycle_step", "cycle_profile"}:
+                        _fail(
+                            path,
+                            f"{interface.group(1)} was removed in the Process cutover; "
+                            "declare ordinary process state, flow, actions, guards, and events",
+                            child.line,
+                            f"types.{type_id}.interfaces.{interface.group(1)}",
+                        )
                     if interface.group(1) in interfaces:
                         _fail(path, f"duplicate interface {interface.group(1)!r}", child.line, f"types.{type_id}")
                     interfaces[interface.group(1)] = _interface_assignments(
@@ -738,36 +764,6 @@ def parse_kirin_v2_source(
                 "interfaces": interfaces,
             }
             _position(positions, f"types.{type_id}", node.line)
-            continue
-        if text_head.startswith("cycle "):
-            match = _NAMED_BLOCK_RE.fullmatch(text_head)
-            if not match or match.group("kind") != "cycle":
-                _fail(path, 'cycle must use cycle ID ["LABEL"]:', node.line, "cycles")
-            cycle_id = match.group("name")
-            if cycle_id in cycles:
-                _fail(path, f"duplicate cycle {cycle_id!r}", node.line, f"cycles.{cycle_id}")
-            profile: Optional[str] = None
-            sequence: Optional[List[str]] = None
-            for child in node.children:
-                assignment = _ASSIGN_RE.fullmatch(child.line.text)
-                if assignment and assignment.group("name") == "using":
-                    if profile is not None:
-                        _fail(path, "cycle declares using more than once", child.line, f"cycles.{cycle_id}")
-                    profile = assignment.group("value").strip()
-                elif child.line.text == "sequence:":
-                    if sequence is not None:
-                        _fail(path, "cycle declares sequence more than once", child.line, f"cycles.{cycle_id}")
-                    sequence = _list(child, path, f"cycles.{cycle_id}.sequence")
-                else:
-                    _fail(path, "cycle body requires using = PROFILE and sequence:", child.line, f"cycles.{cycle_id}")
-            if not profile or not sequence:
-                _fail(path, "cycle requires using and a non-empty sequence", node.line, f"cycles.{cycle_id}")
-            cycles[cycle_id] = {
-                "label": _label(match, path, node.line) or cycle_id,
-                "profile": profile,
-                "sequence": sequence,
-            }
-            _position(positions, f"cycles.{cycle_id}", node.line)
             continue
         if text_head.startswith("group "):
             match = _NAMED_BLOCK_RE.fullmatch(text_head)
@@ -848,80 +844,6 @@ def parse_kirin_v2_source(
                 "outcomes": outcomes,
             }
             _position(positions, f"distributions.{match.group(1)}", node.line)
-            continue
-        if text_head.startswith("recurrence "):
-            match = re.fullmatch(
-                rf"recurrence\s+({IDENTIFIER})(?:\s+({QUOTED}))?\s*:\s*({IDENTIFIER}):",
-                text_head,
-            )
-            if not match:
-                _fail(path, 'recurrence must use recurrence ID ["LABEL"]: UNIT:', node.line, "recurrences")
-            if match.group(1) in recurrences:
-                _fail(path, f"duplicate recurrence {match.group(1)!r}", node.line, "recurrences")
-            data: Dict[str, Any] = {
-                "label": _decode(match.group(2), path, node.line) if match.group(2) else match.group(1),
-                "unit": match.group(3),
-            }
-            for child in node.children:
-                assignment = _ASSIGN_RE.fullmatch(child.line.text)
-                next_match = _NEXT_RE.fullmatch(child.line.text)
-                if assignment and assignment.group("name") in {"initial", "steps"}:
-                    data[assignment.group("name")] = _expression(child, assignment.group("value"), path, f"recurrences.{match.group(1)}")
-                elif next_match:
-                    data.update({
-                        "current": next_match.group("current"),
-                        "index": next_match.group("index"),
-                        "next": _expression(child, next_match.group("value"), path, f"recurrences.{match.group(1)}.next"),
-                    })
-                else:
-                    _fail(path, "recurrence requires initial, steps, and next(current, index)", child.line, "recurrences")
-            recurrences[match.group(1)] = data
-            _position(positions, f"recurrences.{match.group(1)}", node.line)
-            continue
-        if text_head.startswith("state_model "):
-            match = _NAMED_BLOCK_RE.fullmatch(text_head)
-            if not match or match.group("kind") != "state_model":
-                _fail(path, 'state_model must use state_model ID ["LABEL"]:', node.line, "state_models")
-            if match.group("name") in state_models:
-                _fail(path, f"duplicate state_model {match.group('name')!r}", node.line, "state_models")
-            states: List[str] = []
-            transitions: List[Dict[str, str]] = []
-            rewards: Dict[str, Any] = {}
-            for child in node.children:
-                if child.line.text == "states:":
-                    states = _list(child, path, f"state_models.{match.group('name')}.states")
-                elif child.line.text == "transitions:":
-                    for item in _list(child, path, f"state_models.{match.group('name')}.transitions"):
-                        edge, separator, probability = item.partition("@")
-                        source, arrow, target = edge.strip().partition("->")
-                        if not separator or not arrow:
-                            _fail(path, "transition must use SOURCE -> TARGET @ PROBABILITY", child.line)
-                        transitions.append({
-                            "source": source.strip(), "target": target.strip(),
-                            "probability": normalize_expression(probability.strip()),
-                        })
-                elif child.line.text == "rewards:":
-                    for reward in child.children:
-                        reward_match = re.fullmatch(
-                            rf"reward\s+({IDENTIFIER})(?:\s+({QUOTED}))?\s*:\s*({IDENTIFIER}):",
-                            reward.line.text,
-                        )
-                        if not reward_match:
-                            _fail(path, 'reward must use reward ID ["LABEL"]: UNIT:', reward.line, "state_models")
-                        rewards[reward_match.group(1)] = {
-                            "label": _decode(reward_match.group(2), path, reward.line) if reward_match.group(2) else reward_match.group(1),
-                            "unit": reward_match.group(3),
-                            "values": _assignments(reward, path, f"state_models.{match.group('name')}.rewards.{reward_match.group(1)}"),
-                        }
-                else:
-                    _fail(path, "state_model body requires states, transitions, or rewards", child.line, "state_models")
-            state_models[match.group("name")] = {
-                "label": _label(match, path, node.line) or match.group("name"),
-                "states": states,
-                "transitions": transitions,
-                "rewards": rewards,
-            }
-            _position(positions, f"state_models.{match.group('name')}", node.line)
             continue
         if text_head.startswith("display "):
             match = re.fullmatch(
@@ -1025,9 +947,9 @@ def parse_kirin_v2_source(
         raw["aliases"] = aliases
     raw["constraints"] = constraints
     for key, value in (
-        ("tables", tables), ("distributions", distributions), ("recurrences", recurrences),
-        ("state_models", state_models), ("groups", groups), ("presets", presets),
-        ("types", types), ("objects", objects), ("cycles", cycles),
+        ("tables", tables), ("distributions", distributions),
+        ("groups", groups), ("presets", presets),
+        ("types", types), ("objects", objects),
     ):
         if value:
             raw[key] = value
@@ -1239,10 +1161,6 @@ def render_kirin_v2_document(
                     lines.append(f"{indent}{key} = {rendered}")
 
         render_values(data.get("values", {}), "  ")
-    for name, data in raw.get("cycles", {}).items():
-        lines.extend(["", _labeled("cycle", name, data), f"  using = {data['profile']}", "  sequence:"])
-        lines.extend(f"    - {item}" for item in data["sequence"])
-
     if process_asts:
         from .process_renderer import render_process_ast
 
@@ -1267,25 +1185,6 @@ def render_kirin_v2_document(
         lines.extend(["", _labeled("distribution", name, data, f": {data['unit']}:")])
         lines.append("  outcomes:")
         lines.extend(f"    - {item['value']} @ {item['probability']}" for item in data["outcomes"])
-    for name, data in raw.get("recurrences", {}).items():
-        lines.extend(["", _labeled("recurrence", name, data, f": {data['unit']}:")])
-        lines.extend([
-            f"  initial = {data['initial']}", f"  steps = {data['steps']}",
-            f"  next({data['current']}, {data['index']}) = {data['next']}",
-        ])
-    for name, data in raw.get("state_models", {}).items():
-        lines.extend(["", _labeled("state_model", name, data), "  states:"])
-        lines.extend(f"    - {state}" for state in data["states"])
-        lines.append("  transitions:")
-        lines.extend(
-            f"    - {item['source']} -> {item['target']} @ {item['probability']}"
-            for item in data["transitions"]
-        )
-        if data.get("rewards"):
-            lines.append("  rewards:")
-            for reward_name, reward in data["rewards"].items():
-                lines.append("    " + _labeled("reward", reward_name, reward, f": {reward['unit']}:") )
-                lines.extend(f"      {state} = {value}" for state, value in reward["values"].items())
     for name, data in raw.get("groups", {}).items():
         lines.extend(["", _labeled("group", name, data)])
         lines.extend(f"  - {item}" for item in data["outputs"])

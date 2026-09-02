@@ -1,9 +1,10 @@
 # Kirin Tor 有界 Process 纸面模型
 
-状态：目标语义与执行验证。本文的 Process、Scenario、Policy、Measure、Objective 和 Analysis 声明
+状态：已实现并执行验证。本文的 Process、Scenario、Policy、Measure、Objective 和 Analysis 声明
 已经可解析、完整检查表达式类型、lower、验证静态批次冲突并无损往返；精确 runtime、有限随机路径、
 具名 Analysis 分派、有限策略优化、带诚实证明标签的连续自由时点搜索、CLI 与运行记录重放已经实现。
-一般连续全局证明和工作台投影仍待后续里程碑。
+浏览器工作台与多图投影已经接入。一般连续搜索按设计只返回显式预算下的 `best_found`；当前没有
+会产出 `global_with_error_bound` 的一般求解器。
 
 本文使用[有界 Process 模型](bounded-process-model.md)中的同一组游戏中立原语，检验六类差异较大的
 游戏机制能否在不增加机制专用内核关键字的情况下完整表达。示例数值都是验证数据，不代表任何真实

@@ -9,7 +9,7 @@ import type { RelationshipEdge, RelationshipNode } from "../types";
 
 echarts.use([GraphChart, LegendComponent, TooltipComponent, CanvasRenderer]);
 
-const categoryOrder = ["document", "input", "field", "function", "table", "distribution", "recurrence", "state_model", "output"];
+const categoryOrder = ["document", "input", "field", "function", "table", "distribution", "object", "output", "process", "scenario", "analysis"];
 const categoryLabels: Record<string, string> = {
   document: "文档",
   input: "输入",
@@ -17,9 +17,11 @@ const categoryLabels: Record<string, string> = {
   function: "函数",
   table: "查表",
   distribution: "有限分布",
-  recurrence: "有限递推",
-  state_model: "状态模型",
+  object: "类型化对象",
   output: "输出",
+  process: "过程",
+  scenario: "场景",
+  analysis: "分析",
 };
 const categoryColors: Record<string, string> = {
   document: "#d97757",
@@ -28,9 +30,11 @@ const categoryColors: Record<string, string> = {
   function: "#c19a5b",
   table: "#85a56f",
   distribution: "#d16f78",
-  recurrence: "#9a9388",
-  state_model: "#6fa7a0",
+  object: "#9a9388",
   output: "#7599b2",
+  process: "#d97757",
+  scenario: "#6fa7a0",
+  analysis: "#c19a5b",
 };
 const emptyRootIds: string[] = [];
 

@@ -131,49 +131,6 @@
     "code": "@kirin 2\n@entry distribution_demo\n\ninput chance \"触发率\": probability = 0.25\n\noutput mean \"期望\": dimensionless = expectation(proc)\n\noutput spread \"方差\": dimensionless = variance(proc)\n\noutput triggered \"触发概率\": dimensionless = probability(proc, 1)\n\ndistribution proc \"触发结果\": dimensionless:\n  outcomes:\n    - 0 @ 1 - chance\n    - 1 @ chance\n"
   },
   {
-    "id": "recurrences",
-    "title": "有限递推",
-    "summary": "递推从初始值出发执行静态有界的纯函数步骤，不创建可变运行时状态或事件时间线。",
-    "keywords": [
-      "recurrences",
-      "initial",
-      "steps",
-      "next",
-      "递推",
-      "步数",
-      "失败保护"
-    ],
-    "rules": [
-      "步数必须是常量或具有静态有限范围的整数输入。",
-      "current 和 index 只在 next 表达式中生效。",
-      "最多展开 1,000 步。"
-    ],
-    "exampleTitle": "有限增长递推",
-    "code": "@kirin 2\n@entry recurrence_demo\n\ninput step_count \"步数\": count = 3 in 0..10\n\noutput result \"递推结果\": dimensionless = growth\n\nrecurrence growth \"累计值\": dimensionless:\n  initial = 1\n  steps = step_count\n  next(current, index) = current + 1\n"
-  },
-  {
-    "id": "state-models",
-    "title": "有限状态解析模型",
-    "summary": "有限状态模型精确求稳态、奖励、到达概率和期望步数；它不是战斗事件模拟器。",
-    "keywords": [
-      "state_models",
-      "steady_probability",
-      "steady_reward",
-      "hitting_probability",
-      "expected_steps",
-      "状态",
-      "稳态",
-      "奖励"
-    ],
-    "rules": [
-      "每个状态都必须具有出边，且每一行概率精确归一化。",
-      "奖励可选，但声明后必须覆盖每个状态并保持单位一致。",
-      "非唯一稳态或奇异线性系统会明确失败。"
-    ],
-    "exampleTitle": "两状态触发循环",
-    "code": "@kirin 2\n@entry state_demo\n\noutput ready_share \"可用占比\": dimensionless = steady_probability(cycle, ready)\n\noutput long_run_value \"长期奖励\": dimensionless = steady_reward(cycle, value)\n\nstate_model cycle \"触发循环\":\n  states:\n    - ready\n    - cooldown\n  transitions:\n    - ready -> ready @ 3/4\n    - ready -> cooldown @ 1/4\n    - cooldown -> ready @ 1\n  rewards:\n    reward value \"状态奖励\": dimensionless:\n      ready = 1\n      cooldown = 0\n"
-  },
-  {
     "id": "semantics",
     "title": "量纲、单位与值域",
     "summary": "游戏词汇由普通 entry 声明；内核只提供游戏中立的数学基础，不根据名字猜测单位。",
@@ -196,36 +153,23 @@
     "code": "@kirin 2\n@entry semantics_demo\n\ndimension power \"强度\"\n\nunit power = power\n\ndomain rank: dimensionless in 1..3 integer\n\ninput base \"基础强度\": power = 10\n\ninput level \"等级\": rank = 2\n\noutput result \"最终强度\": power = base * level\n"
   },
   {
-    "id": "structures-cycles",
-    "title": "类型化属性、多层访问与固定循环",
-    "summary": "先给一类技能或角色声明封闭属性，再用技能名创建对象；固定 sequence 会联合推进资源、冷却与逐枚恢复的离散充能。",
+    "id": "structures",
+    "title": "类型化属性与多层访问",
+    "summary": "先声明封闭的可复用数据结构，再用类型名创建具名对象；对象仍是静态数据，时间与状态变化由 Process 表达。",
     "keywords": [
       "type",
-      "cycle",
-      "sequence",
-      "cost",
-      "occupies",
-      "profile",
-      "resources",
-      "spends",
-      "gains",
-      "cooldown",
-      "charges",
-      "recharge",
-      "多资源",
+      "object",
+      "field",
       "多层属性",
-      "循环",
-      "等待"
+      "封闭结构"
     ],
     "rules": [
       "类型字段是封闭的：对象缺少必填字段或写入未知字段会报错。",
-      "cycle_profile 的 resources 可以声明最多 64 个任意命名资源。",
-      "cycle_step 的 spends 在步骤开始消耗资源，gains 在步骤结束产生资源，cooldown 也从步骤开始计时。",
-      "charges.maximum 与 charges.recharge 启用逐枚顺序恢复的离散充能；initial 未写时默认等于 maximum。",
-      "等待由资源不足、冷却和充能中恢复最慢的一项决定；所有状态在同一等待期间同步推进。"
+      "字段可以引用另一种结构类型，形成受深度限制的封闭嵌套对象。",
+      "对象属性可进入普通表达式；它们不会自动获得资源、冷却或充能语义。"
     ],
-    "exampleTitle": "联合资源、冷却与充能的固定技能循环",
-    "code": "@kirin 2\n@entry rotation_demo \"资源、冷却与充能\"\n\ndimension mana\nunit mana = mana\nunit mana_per_time = mana / time\n\ntype skill:\n  mana_cost: mana = 0\n  occupies: time\n  cooldown: time = 0 second\n  maximum_charges: positive_integer = 1\n  recharge: time = 1 second\n  cycle_step:\n    occupies = occupies\n    cooldown = cooldown\n    spends:\n      mana = mana_cost\n    charges:\n      maximum = maximum_charges\n      recharge = recharge\n\ntype profile:\n  mana_initial: mana\n  mana_maximum: mana\n  mana_regeneration: mana_per_time\n  cycle_profile:\n    resources:\n      mana:\n        initial = mana_initial\n        maximum = mana_maximum\n        regeneration = mana_regeneration\n\nskill arcane_blast \"奥术冲击\":\n  mana_cost = 30\n  occupies = 1 second\n  cooldown = 3 second\n\nskill arcane_orb \"奥术宝珠\":\n  occupies = 1 second\n  maximum_charges = 2\n  recharge = 5 second\n\nprofile character \"角色状态\":\n  mana_initial = 100\n  mana_maximum = 100\n  mana_regeneration = 10\n\ncycle main_rotation \"主要循环\":\n  using = character\n  sequence:\n    - arcane_blast\n    - arcane_orb\n    - arcane_orb\n"
+    "exampleTitle": "嵌套技能属性",
+    "code": "@kirin 2\n@entry structure_demo\n\ndimension damage\nunit damage = damage\n\ntype modifier:\n  multiplier: dimensionless = 1\n\ntype skill:\n  base: damage\n  tuning: modifier\n\nskill arcane_blast \"奥术冲击\":\n  base = 100\n  tuning:\n    multiplier = 3/2\n\noutput result \"最终伤害\": damage = arcane_blast.base * arcane_blast.tuning.multiplier\n"
   },
   {
     "id": "process",

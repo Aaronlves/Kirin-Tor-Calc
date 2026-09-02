@@ -1,122 +1,54 @@
 @kirin 2
-@entry rotation "循环可行性（虚构）"
+@entry rotation "过程周期证明（虚构）"
 @status "example_only"
 
 ----
-完全虚构的固定循环，用于演示多资源联合等待、技能产出资源、动作冷却、逐枚恢复充能与长期可持续性分析。
+完全虚构的固定策略，用普通 Process 状态、flow、action 与 Scenario 决策表达；cycle analysis 只证明该有界场景边界状态的精确重复，不拥有资源或技能专用语义。
 ----
 
 dimension mana "法力"
-dimension focus "专注"
-dimension charge "层数"
-
 unit mana = mana
-unit focus = focus
-unit charge = charge
 unit mana_per_time = mana / time
-unit focus_per_time = focus / time
-unit charge_per_time = charge / time
 
-type skill:
-  mana_cost: mana = 0
-  focus_cost: focus = 0
-  charge_cost: charge = 0
-  charge_gain: charge = 0
-  occupies: time
-  cooldown: time = 0 second
-  cycle_step:
-    occupies = occupies
-    cooldown = cooldown
-    spends:
-      mana = mana_cost
-      focus = focus_cost
-      charge = charge_cost
-    gains:
-      charge = charge_gain
+process resource_rotation "资源过程":
+  input maximum_mana: mana = 100 mana
+  input regeneration: mana_per_time = 10 mana_per_time
+  input blast_cost: mana = 10 mana
+  state mana: mana = maximum_mana in 0..maximum_mana
+  action arcane_blast() when mana >= blast_cost
+  flow mana(current, elapsed) = min(maximum_mana, current + regeneration * elapsed)
+  on arcane_blast():
+    next mana = mana - blast_cost
+  observe current_mana: mana = mana
 
-type charged_skill:
-  occupies: time
-  maximum_charges: positive_integer
-  recharge: time
-  cycle_step:
-    occupies = occupies
-    charges:
-      maximum = maximum_charges
-      recharge = recharge
-
-type profile:
-  mana_initial: mana
-  mana_maximum: mana
-  mana_regeneration: mana_per_time
-  focus_initial: focus
-  focus_maximum: focus
-  focus_regeneration: focus_per_time
-  charge_initial: charge
-  charge_maximum: charge
-  charge_regeneration: charge_per_time
-  cycle_profile:
-    resources:
-      mana:
-        initial = mana_initial
-        maximum = mana_maximum
-        regeneration = mana_regeneration
-      focus:
-        initial = focus_initial
-        maximum = focus_maximum
-        regeneration = focus_regeneration
-      charge:
-        initial = charge_initial
-        maximum = charge_maximum
-        regeneration = charge_regeneration
-
-skill arcane_blast "奥术冲击":
-  mana_cost = 30
-  focus_cost = 20
-  charge_gain = 1
-  occupies = 1 second
-
-skill arcane_barrage "奥术弹幕":
-  charge_cost = 2
-  occupies = 1 second
-
-skill evocation "唤醒":
-  occupies = 1 second
-  cooldown = 5 second
-
-skill filler "填充技能":
-  occupies = 2 second
-
-charged_skill arcane_orb "奥术宝珠":
-  occupies = 1 second
-  maximum_charges = 2
-  recharge = 5 second
-
-profile character "角色状态":
-  mana_initial = 100
-  mana_maximum = 100
-  mana_regeneration = 10
-  focus_initial = 40
-  focus_maximum = 100
-  focus_regeneration = 5
-  charge_initial = 0
-  charge_maximum = 4
-  charge_regeneration = 0
-
-cycle main_rotation "多资源奥术循环":
-  using = character
-  sequence:
+scenario main_rotation "固定技能策略":
+  phases:
+    - decision
+  use actor = resource_rotation:
+  action arcane_blast:
+    send actor.arcane_blast() phase decision
+  policy named_rotation:
+    sequence:
+      - arcane_blast
+      - wait
+      - arcane_blast
+  decide every 1 second from 0 second until 2 second phase decision:
     - arcane_blast
-    - arcane_blast
-    - arcane_barrage
+    - wait
+  measure ending_mana: mana = final(actor.current_mana)
+  bounds:
+    horizon = 2 second
+    maximum_events = 2
+    maximum_decisions = 3
+    maximum_branches = 8
+    maximum_entities = 1
 
-cycle readiness_cooldown "冷却循环":
-  using = character
-  sequence:
-    - evocation
-    - filler
+analysis replay_rotation "重放固定策略":
+  using = main_rotation
+  operation = run
+  policy = named_rotation
 
-cycle readiness_charge "充能循环":
-  using = character
-  sequence:
-    - arcane_orb
-    - arcane_orb
+analysis prove_rotation "证明边界周期":
+  using = main_rotation
+  operation = cycle
+  policy = named_rotation

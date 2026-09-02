@@ -13,8 +13,7 @@
 - Added Process Analysis to the browser workbench index and in-flow document preview, including variant/objective summaries, proof labels, release times, interactive multi-chart selection, and explicit export-all. Added Process authoring snippets, top-level outline/highlighting vocabulary, contextual syntax help, and synchronized packaged frontend assets.
 - Replaced public `.kirin` v1 section syntax with the single-declaration `@kirin 2` grammar; migrated built-in tutorials, examples, templates, Package scaffolds, syntax help, completion, highlighting, and tests. V1 source is now rejected rather than maintained as a second public dialect.
 - Added closed reusable structure types, named typed objects, exact percentage and numeric-unit literals, and statically resolved multi-level paths such as `entry.skill.coefficient.periodic`.
-- Added author-mapped `cycle_step` and `cycle_profile` interfaces plus exact deterministic fixed-sequence analysis. `kt cycle` and the browser projection report no-wait sustainability, the first wait or terminal block, eventual wait per cycle/minute, and replayable run provenance.
-- Generalized fixed-cycle analysis to an exact bounded resource-state vector. Profiles may expose up to 64 named resources; steps may spend several resources at start and produce resources at finish, while shared waits report the limiting pools.
+- Completed the single-language Process cutover: removed the old `recurrence`, `state_model`, and `cycle` declarations, state-model expression functions, `cycle_step`/`cycle_profile` contracts, `kt cycle`, and the independent fixed-timeline executor. Bounded iteration, finite random transitions, fixed policies, resources, cooldowns, charges, reachability, steady state, and cycle proofs now use ordinary Process/Scenario/Analysis semantics.
 - Added Workbench Extension Plugin protocol v1 with strict local manifests, immutable content-addressed snapshots, separate user-local executable approvals, requirements/lock files, offline verification, enable/disable/remove/update commands, and `kt web --safe-mode` recovery.
 - Added sandboxed document renderers, top-level plugin views, workspace tools, declarative commands, and composable layout Profiles. Plugin frames receive permission-filtered validated projections through a bounded message protocol and cannot access the host DOM, session token, filesystem, network, Save All, or Package mutation.
 - Added a game-neutral fictional talent-tree example and focused Python, CLI, HTTP-security, TypeScript, and real-browser plugin coverage; the example demonstrates source navigation and host-brokered evaluation without shipping real game data.
@@ -30,6 +29,7 @@
 Breaking changes:
 
 - All editable and Package `.kirin` documents must use `@kirin 2`; v1 section syntax is no longer accepted.
+- The pre-release `recurrence`, `state_model`, `cycle`, `cycle_step`, and `cycle_profile` syntax and `kt cycle` command are removed; migrate dynamic models to Process/Scenario/Analysis. Old source receives an explicit migration diagnostic.
 - `parse_kirin_source` and `load_kirin_document` now return typed source containers instead of tuples; callers use explicit `.raw`, `.positions`, `.process_asts`, `.scenario_asts`, `.analysis_asts`, `.text`, and `.sha256` fields.
 
 ## 0.3.0rc1 — 2026-09-01 (pre-release)

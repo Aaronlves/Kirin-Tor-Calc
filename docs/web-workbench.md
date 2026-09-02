@@ -31,7 +31,7 @@ The workbench keeps the following authority boundary:
 ## Views and CLI parity
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates. An empty workspace replaces the three-pane editor with a welcome surface for the bundled basic-model, preset-comparison, and scan/chart tutorials.
-- Relationship Graph derives global document and member projections from validated expression references and provides source navigation. Members include inputs, fields, functions, tables, finite distributions, bounded recurrences, finite state models, and outputs. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
+- Relationship Graph derives global document and member projections from validated expression references and Process composition, then provides source navigation. Members include inputs, fields, functions, tables, finite distributions, objects, outputs, processes, scenarios, and analyses. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
 - Syntax Reference is a read-only drawer opened from the navigation rail, workspace menu, or command palette. It searches Chinese labels, canonical syntax terms, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
 - Workspace Search searches local drafts, disk sources, and locked Package sources together. Replace All skips Package sources and returns ordinary unsaved local overlays; it never writes directly to disk. Change Review compares every dirty buffer with its opening or creation baseline before Save All and separately exposes read-only Git log and working-tree summaries when the workspace belongs to a repository.
 - Runs is a workspace drawer for replay and explicit artifact regeneration.
@@ -91,7 +91,7 @@ Cursor movement links source to the currently visible result, formula, or local-
 CodeMirror has an explicit accessible name and visible focus outline. Canvas relationship graphs and calculation charts expose a collapsible keyboard-readable node or data list. Generated charts can be expanded into a full-window preview without creating another editable surface.
 
 Entries containing named Process Analysis declarations expose a `过程` projection beside ordinary
-results, static charts, and legacy cycle summaries. The projection runs the same backend Analysis,
+results and static charts. The projection runs the same backend Analysis,
 shows every variant/objective strategy with proof level, release times and all Measures, and allows
 selection among all declared trajectory/search charts. `导出全部图表` is an explicit operation that
 uses the source-declared SVG/CSV paths and the same workspace confinement and overwrite checks; live

@@ -13,10 +13,10 @@ from .workspace import Workspace
 
 
 _BUILTINS = {
-    "abs", "ceil", "condition", "expectation", "expected_steps", "floor",
-    "hitting_probability", "if_else", "independent_sum", "interpolate", "lookup",
-    "map", "max", "min", "piecewise", "probability", "product", "repeat_sum",
-    "sqrt", "steady_probability", "steady_reward", "sum", "true", "false", "variance",
+    "abs", "ceil", "condition", "expectation", "floor", "if_else",
+    "independent_sum", "interpolate", "lookup", "map", "max", "min",
+    "piecewise", "probability", "product", "repeat_sum", "sqrt", "sum",
+    "true", "false", "variance",
 }
 
 
@@ -31,16 +31,10 @@ def _member_kind(entry: Entry, name: str) -> Optional[str]:
         return "table"
     if name in entry.distributions:
         return "distribution"
-    if name in entry.recurrences:
-        return "recurrence"
-    if name in entry.state_models:
-        return "state_model"
     if name in entry.outputs:
         return "output"
     if name in entry.objects:
         return "object"
-    if name in entry.cycles:
-        return "cycle"
     return None
 
 
@@ -81,12 +75,6 @@ def _expression_references(
             and isinstance(node.args[1], ast.Name)
         ):
             bound.add(node.args[1].id)
-        if node.func.id in {
-            "steady_probability", "steady_reward", "hitting_probability", "expected_steps"
-        }:
-            ignored_name_nodes.update(
-                id(argument) for argument in node.args[1:] if isinstance(argument, ast.Name)
-            )
 
     attribute_bases = {
         id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)
@@ -161,22 +149,10 @@ def _node(entry: Entry, name: str, kind: str, metadata: object) -> dict:
         expression = "; ".join(
             f"{outcome.value} @ {outcome.probability}" for outcome in metadata.outcomes
         )
-    elif kind == "recurrence":
-        expression = (
-            f"initial = {metadata.initial}; steps = {metadata.steps}; "
-            f"next({metadata.current_name}, {metadata.index_name}) = {metadata.next_expression}"
-        )
-    elif kind == "state_model":
-        expression = "; ".join(
-            f"{transition.source} -> {transition.target} @ {transition.probability}"
-            for transition in metadata.transitions
-        )
     elif kind == "object":
         expression = "; ".join(
             f"{key} = {value}" for key, value in metadata.values.items()
         )
-    elif kind == "cycle":
-        expression = f"using = {metadata.profile}; sequence = " + ", ".join(metadata.sequence)
     return {
         "id": qualified,
         "label": label or name,
@@ -222,11 +198,11 @@ def build_relationship_graph(workspace: Workspace) -> dict:
             ("function", entry.functions),
             ("table", entry.tables),
             ("distribution", entry.distributions),
-            ("recurrence", entry.recurrences),
-            ("state_model", entry.state_models),
             ("object", entry.objects),
-            ("cycle", entry.cycles),
             ("output", entry.outputs),
+            ("process", entry.processes),
+            ("scenario", entry.scenarios),
+            ("analysis", entry.analyses),
         )
         for kind, collection in collections:
             for name in sorted(collection):
@@ -251,29 +227,6 @@ def build_relationship_graph(workspace: Workspace) -> dict:
                 (f"{entry.id}.{name}", expression, ())
                 for outcome in distribution.outcomes
                 for expression in (outcome.value, outcome.probability)
-            )
-        formulae.extend(
-            (
-                f"{entry.id}.{name}",
-                expression,
-                (recurrence.current_name, recurrence.index_name),
-            )
-            for name, recurrence in entry.recurrences.items()
-            for expression in (
-                recurrence.initial,
-                recurrence.steps,
-                recurrence.next_expression,
-            )
-        )
-        for name, model in entry.state_models.items():
-            formulae.extend(
-                (f"{entry.id}.{name}", transition.probability, ())
-                for transition in model.transitions
-            )
-            formulae.extend(
-                (f"{entry.id}.{name}", expression, ())
-                for reward in model.rewards.values()
-                for expression in reward.values.values()
             )
         for name, obj in entry.objects.items():
             def object_expressions(values):
@@ -301,24 +254,25 @@ def build_relationship_graph(workspace: Workspace) -> dict:
                         "kind": "formula",
                     }
                 )
-        for name, cycle in entry.cycles.items():
-            target = f"{entry.id}.{name}"
-            for reference in (cycle.profile, *cycle.sequence):
-                parts = reference.split(".")
-                source = (
-                    f"{entry.id}.{parts[0]}"
-                    if len(parts) == 1
-                    else f"{parts[0]}.{parts[1]}"
-                )
+        for scenario in entry.scenarios.values():
+            for instance in scenario.instances:
                 edges.append(
                     {
-                        "id": f"{source}->{target}",
-                        "source": source,
-                        "target": target,
-                        "kind": "sequence",
+                        "id": f"{instance.process.qualified_id}->{scenario.qualified_id}",
+                        "source": instance.process.qualified_id,
+                        "target": scenario.qualified_id,
+                        "kind": "uses",
                     }
                 )
-
+        for analysis in entry.analyses.values():
+            edges.append(
+                {
+                    "id": f"{analysis.scenario_id}->{analysis.qualified_id}",
+                    "source": analysis.scenario_id,
+                    "target": analysis.qualified_id,
+                    "kind": "analyzes",
+                }
+            )
     edges = [
         edge
         for (_source, _target), edge in sorted(

@@ -1,149 +1,98 @@
 from __future__ import annotations
 
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
 
-from kirin_tor.engine import Engine
-from kirin_tor.errors import DependencyCycleError, ExpressionError, UnitError
-from kirin_tor.kirin_syntax import load_kirin_document, render_kirin_document
-from kirin_tor.operations import evaluate
+from kirin_tor.errors import SchemaError
+from kirin_tor.process_analysis import RunAnalysisResult, execute_process_analysis
 from kirin_tor.workspace import Workspace, initialize
 
 
-def _recurrence_workspace(root: Path) -> Path:
+def _workspace(root: Path) -> Workspace:
     root = initialize(root)
-    (root / "entries" / "recurrence_model.kirin").write_text(
+    (root / "entries" / "bounded_iteration.kirin").write_text(
         """@kirin 2
-@entry recurrence_model
+@entry bounded_iteration
 
-input failures: nonnegative_integer = 3 in 0..5
+process failure_protection:
+  input steps: nonnegative_integer = 3 in 0..5
+  input base_chance: probability = 1/10
+  input increase: probability = 1/20
+  input cap: probability = 3/10
+  state current: probability = base_chance
+  state index: count = 0 in 0..5
+  event input start()
+  event internal advance()
+  key next_step
+  phase step
+  on start() when index < steps:
+    next current = min(current + increase, cap)
+    next index = index + 1
+    when index + 1 < steps:
+      schedule advance() after 1 second phase step key next_step
+  on advance() when index < steps:
+    next current = min(current + increase, cap)
+    next index = index + 1
+    when index + 1 < steps:
+      schedule advance() after 1 second phase step key next_step
+  observe chance: probability = current
+  observe completed_steps: count = index
 
-input base_chance: probability = 1/10
+scenario three_failures:
+  phases:
+    - step
+  use actor = failure_protection:
+    phase step = step
+  at 0 second phase step:
+    send actor.start()
+  measure final_chance: probability = final(actor.chance)
+  measure final_steps: count = final(actor.completed_steps)
+  bounds:
+    horizon = 5 second
+    maximum_events = 5
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
 
-input increase: probability = 1/20
-
-input cap: probability = 3/10
-
-output current_chance: dimensionless = protected_chance
-
-output triangular_value: dimensionless = triangular
-
-recurrence protected_chance "失败保护概率": dimensionless:
-  initial = base_chance
-  steps = failures
-  next(current, index) = min(current + increase, cap)
-
-recurrence triangular "三角数": dimensionless:
-  initial = 0
-  steps = failures
-  next(total, index) = total + index + 1
+analysis result:
+  using = three_failures
+  operation = run
 """,
         encoding="utf-8",
     )
-    (root / "entries" / "consumer.kirin").write_text(
-        """@kirin 2
-@entry consumer
+    return Workspace.load(root)
 
-output imported: dimensionless = recurrence_model.protected_chance
-""",
-        encoding="utf-8",
+
+def test_bounded_iteration_uses_process_events_and_shared_runtime(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path / "iteration")
+    result = execute_process_analysis(
+        workspace.analyses["bounded_iteration.result"],
+        workspace.scenarios["bounded_iteration.three_failures"],
+        workspace.units,
     )
-    return root
+    assert isinstance(result, RunAnalysisResult)
+    assert len(result.outcomes) == 1
+    assert dict(result.outcomes[0].measures) == {
+        "final_chance": Fraction(1, 4),
+        "final_steps": Fraction(3),
+    }
+    assert result.outcomes[0].result.event_count == 3
 
 
-def test_finite_recurrence_supports_bounded_inputs_index_and_cross_entry_use(
-    tmp_path: Path,
-) -> None:
-    root = _recurrence_workspace(tmp_path / "recurrence")
-    workspace = Workspace.load(root)
-    assert Engine(workspace).validate_all()["status"] == "ok"
-    assert evaluate(Engine(workspace), "recurrence_model.current_chance")["exact"] == "1/4"
-    assert evaluate(Engine(workspace), "recurrence_model.triangular_value")["exact"] == "6"
-    assert evaluate(Engine(workspace), "consumer.imported")["exact"] == "1/4"
-    assert evaluate(
-        Engine(workspace),
-        "recurrence_model.current_chance",
-        overrides={"recurrence_model.failures": "0"},
-    )["exact"] == "1/10"
-    assert evaluate(
-        Engine(workspace),
-        "recurrence_model.current_chance",
-        overrides={"recurrence_model.failures": "5"},
-    )["exact"] == "3/10"
-
-
-def test_recurrence_source_round_trips(tmp_path: Path) -> None:
-    root = _recurrence_workspace(tmp_path / "round-trip")
-    source = root / "entries" / "recurrence_model.kirin"
-    loaded = load_kirin_document(source)
-    rendered = render_kirin_document(loaded)
-    rendered_path = root / "entries" / "rendered.kirin"
-    rendered_path.write_text(
-        rendered.replace("@entry recurrence_model", "@entry rendered"),
-        encoding="utf-8",
-    )
-    rendered_loaded = load_kirin_document(rendered_path)
-    assert rendered_loaded.raw["recurrences"] == loaded.raw["recurrences"]
-
-
-def test_recurrence_requires_statically_bounded_nonnegative_steps(tmp_path: Path) -> None:
-    root = initialize(tmp_path / "unbounded")
-    path = root / "entries" / "unbounded.kirin"
-    path.write_text(
+def test_removed_recurrence_syntax_points_to_process(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "removed")
+    (root / "entries" / "removed.kirin").write_text(
         """@kirin 2
-@entry unbounded
-
-input steps: nonnegative_integer = 2
+@entry removed
 
 recurrence result: dimensionless:
   initial = 0
-  steps = steps
-  next(current, index) = current + 1
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ExpressionError, match="finite integer bounds"):
-        Engine(Workspace.load(root)).validate_all()
-
-    path.write_text(
-        path.read_text(encoding="utf-8").replace(
-            "steps: nonnegative_integer = 2",
-            "steps: number[dimensionless] = -1 in -1..2 integer",
-        ),
-        encoding="utf-8",
-    )
-    with pytest.raises(ExpressionError, match="between 0"):
-        Engine(Workspace.load(root)).validate_all()
-
-
-def test_recurrence_preserves_units_and_rejects_cycles(tmp_path: Path) -> None:
-    root = initialize(tmp_path / "invalid")
-    path = root / "entries" / "invalid.kirin"
-    path.write_text(
-        """@kirin 2
-@entry invalid
-
-recurrence result: time:
-  initial = 1 * second
   steps = 2
   next(current, index) = current + 1
 """,
         encoding="utf-8",
     )
-    with pytest.raises(UnitError, match="incompatible units"):
-        Engine(Workspace.load(root)).validate_all()
-
-    path.write_text(
-        """@kirin 2
-@entry invalid
-
-recurrence result: dimensionless:
-  initial = 0
-  steps = 1
-  next(current, index) = result + 1
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(DependencyCycleError, match="dependency cycle"):
-        Engine(Workspace.load(root)).validate_all()
+    with pytest.raises(SchemaError, match="recurrence.*removed.*process"):
+        Workspace.load(root)

@@ -1,7 +1,7 @@
 # Kirin Tor source syntax v2
 
 Kirin Tor uses one public source format: `.kirin` with `@kirin 2`. Each file is one
-`entry`; calculations, game data, named objects, fixed sequences, bounded Process definitions,
+`entry`; calculations, game data, named objects, bounded Process definitions,
 presets, and optional charts can live in the same file. The source remains the editable authority.
 Indexes, previews, and run records are derived projections.
 
@@ -80,8 +80,8 @@ Whitespace makes a numeric unit literal readable: `3/2 second` is lowered to
 Expressions remain restricted mathematical expressions. They do not support assignment,
 imports, arbitrary Python calls, mutation, or executable hooks. Supported families include
 arithmetic and comparisons, `if_else`, `piecewise`, `min`, `max`, `abs`, `sqrt`, exact finite
-sums/products, lookup and interpolation, finite distribution functions, finite recurrence
-functions, and finite-state analytical functions.
+sums/products, lookup and interpolation, and finite distribution functions. Time- and path-dependent
+state changes belong to Process declarations rather than scalar-expression built-ins.
 
 ## Dimensions, units, and domains
 
@@ -157,145 +157,6 @@ Member paths are statically resolved and may have multiple levels:
 A type can be reused from another entry as `entry.type`. Type and field names are stable ASCII
 identity; quoted labels remain presentation-only.
 
-## Semantic interfaces for fixed cycles
-
-Kirin Tor does not assume resource names such as mana, energy, rage, or charges. A type maps
-author-chosen fields to named resource roles used by cycle analysis:
-
-```text
-type skill:
-  mana_cost: mana = 0
-  charge_cost: charge = 0
-  charge_gain: charge = 0
-  cast_time: time
-  cooldown: time = 0 second
-  cycle_step:
-    occupies = cast_time
-    cooldown = cooldown
-    spends:
-      mana = mana_cost
-      charge = charge_cost
-    gains:
-      charge = charge_gain
-
-type character_profile:
-  starting_mana: mana
-  maximum_mana: mana
-  mana_per_time: mana_per_time
-  starting_charge: charge
-  maximum_charge: charge
-  charge_per_time: charge_per_time
-  cycle_profile:
-    resources:
-      mana:
-        initial = starting_mana
-        maximum = maximum_mana
-        regeneration = mana_per_time
-      charge:
-        initial = starting_charge
-        maximum = maximum_charge
-        regeneration = charge_per_time
-```
-
-The mapping is written once on the type. Every skill object then contains only its own values:
-
-```text
-input haste "急速": probability = 20%
-
-skill arcane_blast "奥术冲击":
-  mana_cost = 30
-  charge_gain = 1
-  cast_time = 3/2 second / (1 + haste)
-```
-
-`spends` is applied at action start; `gains` is applied at action finish. Both sections are optional,
-but `occupies` is required. Every named profile resource requires `initial`, `maximum`, and
-`regeneration`. The resource name connects step effects to the profile; units are still independently
-checked. A fixed cycle may use at most 64 resources and 256 spend/gain mappings per step.
-
-Action cooldowns and discrete charges are opt-in roles on `cycle_step`; Kirin Tor does not infer
-them from field names. A charged action type can be declared separately:
-
-```text
-type charged_skill:
-  cast_time: time
-  maximum_charges: positive_integer
-  recharge_time: time
-  cycle_step:
-    occupies = cast_time
-    charges:
-      maximum = maximum_charges
-      recharge = recharge_time
-```
-
-`cooldown` must be non-negative time and starts when the action starts. `charges.maximum` and
-`charges.recharge` must appear together; the maximum is a positive integer up to 64 and recharge
-time is positive. Charges begin full unless the interface also maps `charges.initial`. Missing
-charges recover one after another, not in parallel. The same canonical skill object shares one
-cooldown and one charge pool wherever its readable skill name occurs in the sequence.
-
-For a deliberately single-resource model, the compact `cost` plus flat `initial`, `maximum`, and
-`regeneration` interface remains valid and is normalized to the same state-vector engine.
-
-## Fixed sequence analysis
-
-```text
-character_profile raid_profile "团队副本角色":
-  starting_mana = 100
-  maximum_mana = 100
-  mana_per_time = 10
-  starting_charge = 0
-  maximum_charge = 4
-  charge_per_time = 0
-
-cycle main_rotation "主要循环":
-  using = raid_profile
-  sequence:
-    - arcane_blast
-    - arcane_blast
-    - arcane_barrage
-```
-
-Analyze it with:
-
-```bash
-kt cycle rotation.main_rotation
-kt cycle rotation.main_rotation --set rotation.haste=0.3 --json
-```
-
-The operation returns one of three exact outcomes:
-
-- `continuous`: the declared sequence can repeat forever without inserted waits;
-- `waiting`: it can repeat forever if Kirin Tor waits just long enough before a resource,
-  cooldown, or charge constraint;
-- `blocked`: a step can never execute, for example because its cost exceeds the maximum or the
-  resource cannot recover.
-
-The report includes every declared resource and unit, resource and action-readiness failures, all
-constraints that jointly determine the first wait, the global step number, cycle and position,
-waiting time per eventual cycle, waiting time per minute, and eventual cycle duration. Preset and
-temporary input values are honored, and a cycle run can be saved and replayed like other operations.
-
-The current timeline is deliberately exact and narrow:
-
-1. A step checks all named `spends`, its action-local cooldown, and its available charge.
-2. At action start it applies `spends`, starts `cooldown`, and consumes one charge when configured.
-3. Every resource regenerates simultaneously during `occupies`, independently capped at its own
-   `maximum`.
-4. All cooldowns count down and all missing charges recharge during both `occupies` and inserted
-   waits. Sequential charge recovery preserves partial progress toward the next charge.
-5. All named `gains` are applied at action finish and capped.
-6. If the next step fails several constraints, analysis waits for the slowest recoverable one; all
-   resource and readiness states continue to advance during that shared wait.
-7. A resource with zero passive regeneration can still be produced by earlier skills. If it is
-   insufficient when required, waiting cannot repair the deficit and the sequence is blocked.
-
-Current cycle analysis has a deterministic fixed sequence, non-negative spends/gains, positive
-durations, bounded resource pools, action-local cooldowns, and sequential discrete charges. It does
-not yet model conditional priorities, shared cooldown groups, cooldown or charge resets, random
-procs, clipping, latency, or branching action lists. Those belong to later state-transition layers
-and are not guessed from property names.
-
 ## Aliases and structured sources
 
 ```text
@@ -328,7 +189,7 @@ preset raid "团队副本":
 Groups organize local outputs without changing mathematics. Presets store named assignments to
 formal inputs. One-sided ranges use `*`, as in `in 0..*`.
 
-## Tables, finite distributions, recurrences, and state models
+## Tables and finite distributions
 
 ```text
 table rating:
@@ -342,36 +203,17 @@ distribution proc: damage:
   outcomes:
     - 0 @ 1 - chance
     - hit @ chance
-
-recurrence protection: probability:
-  initial = chance
-  steps = failures
-  next(current, index) = min(current + increment, 1)
-
-state_model proc_state:
-  states:
-    - ready
-    - cooldown
-  transitions:
-    - ready -> ready @ 1 - chance
-    - ready -> cooldown @ chance
-    - cooldown -> ready @ 1
-  rewards:
-    reward value: damage:
-      ready = hit
-      cooldown = 0
 ```
 
 Tables are ordered and exact. Finite distributions require probabilities in `0..1` that sum
-exactly to one. Recurrences are pure and statically bounded to at most 1,000 steps. State models
-are finite analytical systems, not event simulations; the current bounds are 16 states, 256
-transitions, and 64 rewards.
+exactly to one. Bounded iteration uses Process state plus a finite event chain; finite transition
+systems use Process branches with `reach` or `steady` analysis. The former `recurrence` and
+`state_model` declarations were removed in the single-language Process cutover.
 
 ## Bounded Process declarations
 
-The public source parser, workspace loader, and canonical renderer now accept typed `process`
-blocks. A Process declaration is lowered outside the legacy raw mapping into `ProcessAst` and then
-immutable `ProcessIR`:
+The public source parser, workspace loader, and canonical renderer accept typed `process` blocks.
+A Process declaration is lowered into `ProcessAst` and then immutable `ProcessIR`:
 
 ```text
 process delayed_damage "伤害延迟池":
@@ -505,7 +347,7 @@ configured SVG/CSV explicitly; preview data itself never becomes editable author
 
 The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
 multi-level paths, navigation, safe rename for scalar declarations, diagnostics, and live scalar,
-chart, cycle, and Process Analysis previews. Process/Scenario/Analysis have insertion snippets,
+chart and Process Analysis previews. Process/Scenario/Analysis have insertion snippets,
 top-level outline identities, contextual syntax help, variant/objective result tables, proof badges,
 interactive multi-chart selection, and explicit export-all. These authoring projections do not
 extend the grammar or make invalid source executable.

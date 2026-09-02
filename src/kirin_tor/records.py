@@ -19,7 +19,6 @@ from .errors import KTError, SchemaError, UnsupportedError, WorkspaceError
 from .kirin_syntax import parse_kirin_source
 from .limits import MAX_RUN_RECORD_BYTES
 from .operations import (
-    analyze_cycle,
     analyze_process,
     differentiate,
     evaluate,
@@ -237,14 +236,6 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             overrides=parameters,
             precision=request["precision"],
             display_digits=request["display_digits"],
-            timeout_seconds=request["timeout_seconds"],
-        )
-    if operation == "cycle":
-        return analyze_cycle(
-            engine,
-            request["target"],
-            preset=preset,
-            overrides=parameters,
             timeout_seconds=request["timeout_seconds"],
         )
     if operation == "process_analysis":

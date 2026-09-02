@@ -24,8 +24,8 @@ enables, or executes one. See [Workbench Extension Plugin protocol v1](workbench
 
 The installed mathematical core owns exact numbers, booleans, `dimensionless`, arithmetic,
 dimension algebra, unit conversion, constraints, functions, piecewise expressions, tables,
-finite discrete distributions, bounded recurrences, finite analytical state models, and the
-general document grammar. It may also provide uncontroversial game-neutral vocabulary such
+finite discrete distributions, bounded Process execution and analysis, and the general document
+grammar. It may also provide uncontroversial game-neutral vocabulary such
 as probability, non-negative integers, and physical time units.
 
 The application distribution contains only the current Python modules, browser assets, and the

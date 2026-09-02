@@ -1,18 +1,17 @@
 # Kirin Tor 有界 Process 模型
 
-状态：目标设计；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
+状态：已实现；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
 表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证、精确时间执行器与 trace、
 公开轨迹 Measure、具名多 Objective、事件/条件/连续自由时点决策，以及
-run/compare/optimize/reach/steady/cycle 分析分派、CLI 与浏览器工作台投影已经实现；一般连续全局证明
-与旧动态构造迁移尚未完成。
+run/compare/optimize/reach/steady/cycle 分析分派、CLI、运行记录、浏览器工作台和多图投影已经实现。
+一般连续搜索仍只承诺显式预算下的 `best_found`，不声称尚未证明的全局最优。
 
-本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
-但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以
+本文是动态机制的语义依据。当前行为同时以
 [Kirin Tor source syntax v2](kirin-syntax.md)、
 [结构模型、表达式与安全边界](schema-and-expressions.md)和测试为准。
 
 本文固定语义；配套纸面模型冻结首批动态词汇，但不冻结参数标点、缩进和不增加语义的简写。
-文中的 source 片段都是目标语义示意，不能当作当前可执行语法。
+文中的 source 片段使用当前可执行语法；完整细节以语法文档和测试为准。
 
 六类机制对这套语义与候选表面语法的纸面验证见
 [有界 Process 纸面模型](bounded-process-paper-models.md)。
@@ -321,19 +320,17 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 
 动态重构不得改变现有静态数值、单位、类型、对象、来源和输入覆盖的含义。
 
-- `process`、`scenario` 和 `analysis` 是目标公开动态语义；
-- `recurrence` 可以保留为单一 step 事件 process 的作者简写，但 parser 必须立即降低到同一个 AST/IR，
-  不能保留独立 schema 或求值器；
-- `state_model` 的有限概率转移迁移为 process，由 `steady`、`reach` 等分析器解释；目标表面名称不再
-  使用容易与通用状态混淆的 `state_model`；
-- `cycle` 可以保留为固定 action sequence 与 `cycle` analysis 的作者简写，但不能保留专用状态语义；
-- `cycle_step`、`cycle_profile`、内建资源、冷却和充能合同不进入目标 IR；它们的能力改由普通
-  process 组件表达；
-- 现有 `continuous`、`waiting`、`blocked` 结果只能在新模型满足相同证明条件时保持；
-- 迁移必须保留 canonical ID、跨 entry 依赖、Package 权限检查和运行记录闭包。
+- `process`、`scenario` 和 `analysis` 是唯一公开动态语义；
+- 旧 `recurrence` 已改写为 Process 状态与有界事件链，旧声明及其独立求值器已删除；
+- 旧 `state_model` 已改写为有限随机 Process，由 `steady`、`reach` 等分析器解释，旧声明和解析函数已删除；
+- 固定序列使用 Scenario source Policy；周期证明使用同一 Process runtime 的 `cycle` Analysis；
+- `cycle_step`、`cycle_profile`、旧 `cycle` 声明、内建资源/冷却/充能合同和独立 timeline 执行器已删除；
+- 原先由 `continuous`、`waiting`、`blocked` 汇总的事实现在由作者定义 observation/Measure、guard
+  失败、完整 trace 和明确的周期证明共同表达，不保留隐式自动等待语义；
+- canonical ID、跨 entry Process 引用、Package 权限检查和运行记录闭包继续由统一 workspace/lowering
+  链路维护。
 
-由于尚未投入正式使用，目标是直接完成单一 v2 cutover，不维护两套公开动态语法。实现期间可以有
-内部迁移适配器，但不能让旧、新两套 source 同时成为长期权威。
+这是单一 v2 cutover。旧语法只在迁移诊断中出现，不再是可执行或可发布的第二套动态语言。
 
 ## 13. 纸面能力验收
 
@@ -362,12 +359,10 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 5. **已完成静态部分：**表达式结果类型、安全求值、单个 process 转移及可枚举场景批次的写入/调度
    key 冲突、phase 映射与外部事件/决策 fuel 已验证；动态事件链 fuel 由执行器继续落实；
 6. **已完成内核：**实现确定性 `run` 与完整 trace；具名 Analysis/CLI 分派在步骤 10 接入；
-7. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
+7. **已完成：**将有限递推、有限随机状态转移和固定策略/周期能力迁移到 Process，并删除旧动态执行器；
 8. **已完成：**实现有限随机分支、source Policy、策略比较和有界优化；
-9. **分析器已完成：**实现精确可达、有限离散稳态和确定性周期证明；旧 `state_model` 动态路径仍待
-   步骤 7/9 的统一迁移后移除；
-10. 同步诊断、补全、高亮、浏览器预览、CLI、Package 校验、运行记录和公开能力文档后，才宣布
-    cutover 完成。
+9. **已完成：**实现精确可达、有限离散稳态和确定性周期证明，并移除旧 `state_model` 路径；
+10. **已完成：**同步诊断、补全、高亮、浏览器预览、CLI、Package 校验、运行记录和公开能力文档。
 
 完成意味着当前受支持模型的行为等价、新的六类机制无需游戏专用内核扩展、所有执行边界可见且可
 重放，并且旧动态语义实现已经删除。仅有目标文档、局部测试或可运行原型都不构成完成。

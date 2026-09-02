@@ -32,7 +32,7 @@ def test_relationship_graph_uses_formula_members_and_aggregates_documents(
     assert documents["combo"]["has_chart"] is True
 
 
-def test_relationship_graph_includes_bounded_model_members_and_dependencies(
+def test_relationship_graph_includes_process_scenario_and_analysis_dependencies(
     tmp_path: Path,
 ) -> None:
     root = initialize(tmp_path / "relationship-models")
@@ -42,32 +42,36 @@ def test_relationship_graph_includes_bounded_model_members_and_dependencies(
 
 input proc_chance: probability = 1/4
 
-input failures: nonnegative_integer = 2 in 0..5
-
-output combined: dimensionless = expectation(proc_result) + protected_chance + steady_reward(proc_cycle, active)
+output expected: dimensionless = expectation(proc_result)
 
 distribution proc_result "触发结果": dimensionless:
   outcomes:
     - 0 @ 1 - proc_chance
     - 1 @ proc_chance
 
-recurrence protected_chance "失败保护": dimensionless:
-  initial = proc_chance
-  steps = failures
-  next(current, index) = min(current + proc_chance, 1)
+process proc_cycle "触发循环":
+  state active: boolean = false
+  event input step()
+  on step():
+    next active = true
+  observe is_active: boolean = active
 
-state_model proc_cycle "触发循环":
-  states:
-    - ready
-    - cooldown
-  transitions:
-    - ready -> ready @ 1 - proc_chance
-    - ready -> cooldown @ proc_chance
-    - cooldown -> ready @ 1
-  rewards:
-    reward active "激活收益": dimensionless:
-      ready = proc_chance
-      cooldown = 0
+scenario one_step "一步场景":
+  phases:
+    - step
+  use actor = proc_cycle:
+  at 0 second phase step:
+    send actor.step()
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+
+analysis run_once "运行一次":
+  using = one_step
+  operation = run
 """,
         encoding="utf-8",
     )
@@ -75,15 +79,13 @@ state_model proc_cycle "触发循环":
     graph = Workbench(root).execute("relationship_graph")
     nodes = {node["id"]: node for node in graph["nodes"]}
     assert nodes["bounded_models.proc_result"]["kind"] == "distribution"
-    assert nodes["bounded_models.protected_chance"]["kind"] == "recurrence"
-    assert nodes["bounded_models.proc_cycle"]["kind"] == "state_model"
+    assert nodes["bounded_models.proc_cycle"]["kind"] == "process"
+    assert nodes["bounded_models.one_step"]["kind"] == "scenario"
+    assert nodes["bounded_models.run_once"]["kind"] == "analysis"
     assert nodes["bounded_models.proc_result"]["line"] is not None
 
     edges = {(edge["source"], edge["target"]) for edge in graph["edges"]}
     assert ("bounded_models.proc_chance", "bounded_models.proc_result") in edges
-    assert ("bounded_models.proc_chance", "bounded_models.protected_chance") in edges
-    assert ("bounded_models.failures", "bounded_models.protected_chance") in edges
-    assert ("bounded_models.proc_chance", "bounded_models.proc_cycle") in edges
-    assert ("bounded_models.proc_result", "bounded_models.combined") in edges
-    assert ("bounded_models.protected_chance", "bounded_models.combined") in edges
-    assert ("bounded_models.proc_cycle", "bounded_models.combined") in edges
+    assert ("bounded_models.proc_result", "bounded_models.expected") in edges
+    assert ("bounded_models.proc_cycle", "bounded_models.one_step") in edges
+    assert ("bounded_models.one_step", "bounded_models.run_once") in edges
