@@ -27,7 +27,7 @@ PROCESS_IR_VERSION = 1
 
 @dataclass(frozen=True)
 class BooleanTypeIR:
-    pass
+    domain_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

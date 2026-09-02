@@ -1,6 +1,7 @@
 # Kirin Tor 有界 Process 模型
 
-状态：目标设计，尚未实现。
+状态：目标设计；类型化 AST、Process IR、独立 parser/lowering 与结构验证已经实现，但尚未接入公开
+workspace loader、renderer 或执行器。
 
 本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
 但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以
@@ -310,15 +311,17 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 ## 14. 实现顺序与完成条件
 
 1. **已完成：**完成六类纸面模型并冻结最小表面语法；
-2. **已完成结构基础：**建立独立于当前 raw dictionary 的类型化 AST 和 process IR；目前尚未接入
-   parser、语义验证或执行器；
-3. 实现类型、所有权、phase、调度、冲突和 fuel 的静态验证；
-4. 实现确定性 `run` 与完整 trace；
-5. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
-6. 实现有限随机分支、策略比较和有界优化；
-7. 迁移稳态/可达分析，并移除旧动态语义路径；
-8. 同步 parser、renderer、诊断、补全、高亮、浏览器预览、CLI、Package 校验与运行记录；
-9. 更新公开语法和能力文档后，才宣布 cutover 完成。
+2. **已完成：**建立独立于当前 raw dictionary 的类型化 AST 和 process IR；
+3. **已完成内部链路：**独立 Process parser、AST 到 IR lowering，以及声明命名空间、类型解析、
+   所有权引用、事件参数、reducer、phase 和调度 key 的结构验证；九个纸面 Process 均可降低；
+4. 改造类型化文档容器与 renderer，并在保证 source 往返不丢失后接入公开 workspace parser；
+5. 完成表达式结果类型、同批写冲突、phase 先后和统一 fuel 的静态验证；
+6. 实现确定性 `run` 与完整 trace；
+7. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
+8. 实现有限随机分支、策略比较和有界优化；
+9. 迁移稳态/可达分析，并移除旧动态语义路径；
+10. 同步诊断、补全、高亮、浏览器预览、CLI、Package 校验、运行记录和公开能力文档后，才宣布
+    cutover 完成。
 
 完成意味着当前受支持模型的行为等价、新的六类机制无需游戏专用内核扩展、所有执行边界可见且可
 重放，并且旧动态语义实现已经删除。仅有目标文档、局部测试或可运行原型都不构成完成。

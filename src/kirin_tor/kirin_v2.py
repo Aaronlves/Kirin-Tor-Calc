@@ -409,7 +409,7 @@ def parse_kirin_v2_source(text: str, path: Path) -> Tuple[Dict[str, Any], Dict[s
     reserved = {
         "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
         "function", "output", "group", "preset", "table", "distribution", "recurrence",
-        "state_model", "display", "chart", "type", "cycle",
+        "state_model", "display", "chart", "type", "cycle", "process",
     }
 
     for node in nodes:
