@@ -90,6 +90,13 @@ Cursor movement links source to the currently visible result, formula, or local-
 
 CodeMirror has an explicit accessible name and visible focus outline. Canvas relationship graphs and calculation charts expose a collapsible keyboard-readable node or data list. Generated charts can be expanded into a full-window preview without creating another editable surface.
 
+Entries containing named Process Analysis declarations expose a `过程` projection beside ordinary
+results, static charts, and legacy cycle summaries. The projection runs the same backend Analysis,
+shows every variant/objective strategy with proof level, release times and all Measures, and allows
+selection among all declared trajectory/search charts. `导出全部图表` is an explicit operation that
+uses the source-declared SVG/CSV paths and the same workspace confinement and overwrite checks; live
+preview rows and rendered canvases remain derived, read-only state.
+
 ## Interface system
 
 The workbench uses one explicit grid hierarchy rather than stacking framework offsets and percentage split panes:

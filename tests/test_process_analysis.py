@@ -22,6 +22,7 @@ from kirin_tor.process_chart import (
 from kirin_tor.cli import app
 from kirin_tor.records import replay
 from kirin_tor.workspace import Workspace, initialize
+from kirin_tor.workbench import Workbench
 from conftest import make_cli_runner
 
 
@@ -562,10 +563,29 @@ analysis search:
     export_csv = "results/tradeoff.csv"
 """
     workspace = _workspace(tmp_path, source)
+    workbench = Workbench(workspace.root)
+    assert [item["value"] for item in workbench.bootstrap()["index"]["analyses"]] == [
+        "chart_export.search"
+    ]
+    preview = workbench.execute(
+        "process_analysis", {"target": "chart_export.search", "timeout": 10}
+    )
+    assert len(preview["charts"]) == 2
+    exported = workbench.execute(
+        "export_process_charts",
+        {"target": "chart_export.search", "timeout": 10},
+    )
+    assert len(exported["artifacts"]) == 2
     monkeypatch.chdir(workspace.root)
     completed = runner.invoke(
         app,
-        ["analyze", "chart_export.search", "--export-charts", "--json"],
+        [
+            "analyze",
+            "chart_export.search",
+            "--export-charts",
+            "--force",
+            "--json",
+        ],
     )
     assert completed.exit_code == 0, completed.output
     payload = json.loads(completed.stdout)

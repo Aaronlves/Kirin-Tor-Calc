@@ -11,8 +11,8 @@
 
 纸面模型的职责是验证表达能力、可读性、结算顺序和边界。当前自动化验证证明九个 Process 可以进入
 带可执行表达式节点的统一 IR，酒仙 Scenario 与 Analysis 也进入组合 IR；回归验证了 phase、来袭伤害
-reducer、死亡 stop、轨迹 Measure 和三个作者定义 Objective 的独立全局有限搜索。它不证明连续时间
-优化或工作台动态预览已经实现。
+reducer、死亡 stop、轨迹 Measure、三个作者定义 Objective 的独立搜索，以及工作台的结构化结果与
+多图投影。一般连续搜索只提供带显式预算的 `best_found`，不声称全局证明。
 
 ## 1. 候选最小表面语法
 

@@ -3,8 +3,8 @@
 状态：目标设计；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
 表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证、精确时间执行器与 trace、
 公开轨迹 Measure、具名多 Objective、事件/条件/连续自由时点决策，以及
-run/compare/optimize/reach/steady/cycle 分析分派已经实现；一般连续全局证明、旧动态构造迁移与工作台
-切换尚未完成。
+run/compare/optimize/reach/steady/cycle 分析分派、CLI 与浏览器工作台投影已经实现；一般连续全局证明
+与旧动态构造迁移尚未完成。
 
 本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
 但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以

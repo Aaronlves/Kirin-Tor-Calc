@@ -6,7 +6,7 @@ Kirin Tor 是一个游戏中立、文件驱动的结构化数学工作台，面�
 
 Kirin Tor 不是脚本式战斗模拟器。内核只执行 source 明确声明且受 horizon、事件、决策、分支、实体和
 集合容量约束的 Process 事件场景；它不会补全完整 APL、Boss 时间轴或未声明规则，也不做隐式抽样。
-Process Analysis 已接入 CLI 和可重放运行记录，浏览器工作台投影仍在接入中。
+Process Analysis 已接入 CLI、浏览器工作台实时投影、多图导出和可重放运行记录。
 
 ## 安装
 

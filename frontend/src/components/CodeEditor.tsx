@@ -81,9 +81,11 @@ const declarationKeywords = new Set([
   "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
   "function", "output", "group", "preset", "table", "distribution", "recurrence",
   "state_model", "display", "chart", "type", "cycle", "reward",
+  "process", "scenario", "analysis", "measure", "objective", "variant", "policy",
+  "event", "action", "observe", "flow", "decide", "branch", "emit", "schedule",
 ]);
 
-const nestedSections = new Set(["states", "transitions", "rewards", "resources", "spends", "gains", "charges"]);
+const nestedSections = new Set(["states", "transitions", "rewards", "resources", "spends", "gains", "charges", "phases", "objectives", "variants", "search", "series", "markers", "bounds", "sequence"]);
 
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);

@@ -457,7 +457,8 @@ choices requires an explicit selector; random branches are rejected by this dete
 `steady`, and exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
 can be saved/replayed with embedded source snapshots. The finite optimizer returns every Measure for
 each selected Objective and labels exhaustive finite policy enumeration as `exact_global`; it uses
-no hidden time grid or numerical tolerance. The workbench projection remains pending. The
+no hidden time grid or numerical tolerance. The browser workbench exposes the same named Analysis,
+variant/objective table, proof labels, traces, and multi-chart projections in the document flow. The
 full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
@@ -503,8 +504,8 @@ configured SVG/CSV explicitly; preview data itself never becomes editable author
 ## Authoring boundary
 
 The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
-multi-level paths, navigation, safe rename for scalar declarations, diagnostics, live scalar/chart/
-cycle previews, and a syntax reference. These are tolerant projections over complete or incomplete
-drafts. Generic document editing and validation preserve Process blocks, but Process-specific
-completion, highlighting, outline items, previews, and execution are not implemented yet. Authoring
-projections do not extend the grammar or make invalid source executable.
+multi-level paths, navigation, safe rename for scalar declarations, diagnostics, and live scalar,
+chart, cycle, and Process Analysis previews. Process/Scenario/Analysis have insertion snippets,
+top-level outline identities, contextual syntax help, variant/objective result tables, proof badges,
+interactive multi-chart selection, and explicit export-all. These authoring projections do not
+extend the grammar or make invalid source executable.

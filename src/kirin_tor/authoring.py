@@ -118,13 +118,16 @@ _DECLARATION_KIND = {
     "output": "outputs",
     "cycle": "cycles",
     "type": "types",
+    "process": "processes",
+    "scenario": "scenarios",
+    "analysis": "analyses",
 }
 
 _RESERVED_DECLARATIONS = {
     "dimension", "unit", "domain", "source", "alias", "input", "field",
     "require", "function", "output", "group", "preset", "table",
     "distribution", "recurrence", "state_model", "display", "chart", "type",
-    "cycle",
+    "cycle", "process", "scenario", "analysis",
 }
 
 
@@ -217,6 +220,41 @@ SNIPPETS = (
         "cycle",
         "cycle rotation:\n  using = profile_name\n  sequence:\n    - skill_name$0",
         16,
+    ),
+    _snippet(
+        "有界过程",
+        "过程",
+        "process",
+        "process mechanism:\n  state value: count = 0\n  event input step()\n  on step():\n    next value = value + 1\n  observe current: count = value$0",
+        16,
+    ),
+    _snippet(
+        "过程场景",
+        "场景",
+        "scenario process",
+        "scenario trial:\n  phases:\n    - event\n    - decision\n  use actor = mechanism:\n  bounds:\n    horizon = 10 second\n    maximum_events = 100\n    maximum_decisions = 10\n    maximum_branches = 100\n    maximum_entities = 1$0",
+        17,
+    ),
+    _snippet(
+        "轨迹度量",
+        "度量",
+        "measure trajectory",
+        "measure minimum_value: number[dimensionless] = minimum_over_time(actor.current)$0",
+        18,
+    ),
+    _snippet(
+        "优化目标",
+        "目标",
+        "objective optimize",
+        "objective best:\n  maximize result_measure\n  then minimize cost_measure$0",
+        18,
+    ),
+    _snippet(
+        "过程分析",
+        "过程分析",
+        "analysis process",
+        "analysis search:\n  using = trial\n  operation = optimize\n  objectives:\n    - best$0",
+        19,
     ),
     _snippet("长说明块", "长说明", "description", "---\n$0\n---", 18),
     _snippet(

@@ -70,6 +70,7 @@ class WorkspaceIndex:
     presets: Tuple[NamedOption, ...]
     charts: Tuple[ChartOption, ...]
     cycles: Tuple[ChartOption, ...]
+    analyses: Tuple[ChartOption, ...]
     document_ids: Tuple[str, ...]
 
 @dataclass(frozen=True)
@@ -240,12 +241,23 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                     position[1] if position else None,
                 )
             )
+    analyses = []
+    for analysis in sorted(workspace.analyses.values(), key=lambda item: item.qualified_id):
+        analyses.append(
+            ChartOption(
+                analysis.qualified_id,
+                analysis.label or analysis.id,
+                analysis.location.line if analysis.location else None,
+                analysis.location.column if analysis.location else None,
+            )
+        )
     return WorkspaceIndex(
         tuple(targets),
         tuple(inputs),
         presets,
         tuple(charts),
         tuple(cycles),
+        tuple(analyses),
         tuple(sorted(workspace.documents)),
     )
 

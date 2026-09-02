@@ -39,6 +39,7 @@ from .errors import KTError, ParameterError, ReferenceError, SourceLocation, Val
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     analyze_cycle,
+    analyze_process,
     differentiate,
     evaluate,
     explain,
@@ -61,6 +62,7 @@ from .package_authoring import (
 from .package_manifest import package_source_paths
 from .package_store import PackageResolver, PackageStoreManager, locked_workspace_resolution
 from .plotting import render_plot, write_grid_csv, write_scan_csv
+from .process_chart import render_process_chart_svg, write_process_chart_csv
 from .plugin_store import PluginManager
 from .records import load_run, replay as replay_run
 from .relationship_graph import build_relationship_graph
@@ -583,6 +585,7 @@ class Workbench:
             "presets": [item.__dict__ for item in index.presets],
             "charts": [item.__dict__ for item in index.charts],
             "cycles": [item.__dict__ for item in index.cycles],
+            "analyses": [item.__dict__ for item in index.analyses],
             "document_ids": list(index.document_ids),
         }
 
@@ -1059,6 +1062,74 @@ class Workbench:
                     ),
                     [preset] if preset else [],
                 )
+
+            if operation == "process_analysis":
+                request = {
+                    "target": str(payload.get("target", "")),
+                    "include_trace": True,
+                    "timeout_seconds": timeout,
+                }
+                return record_operation(
+                    workspace,
+                    save_run_id,
+                    "process_analysis",
+                    request,
+                    lambda: analyze_process(
+                        workspace,
+                        request["target"],
+                        include_trace=True,
+                        timeout_seconds=timeout,
+                    ),
+                )
+
+            if operation == "export_process_charts":
+                target = str(payload.get("target", ""))
+                force = bool(payload.get("force"))
+                allow_outside = bool(payload.get("allow_outside_workspace"))
+                result = analyze_process(
+                    workspace, target, include_trace=True, timeout_seconds=timeout
+                )
+                configured = [
+                    (chart, chart.get("export_svg"), chart.get("export_csv"))
+                    for chart in result.get("charts", [])
+                    if chart.get("export_svg") or chart.get("export_csv")
+                ]
+                if not configured:
+                    raise ParameterError(
+                        "analysis has no chart export_svg or export_csv paths"
+                    )
+                paths = [
+                    artifact_path(workspace, value, allow_outside)
+                    for _chart, svg, csv_path in configured
+                    for value in (svg, csv_path)
+                    if value is not None
+                ]
+                preflight_artifacts(paths, force)
+                artifacts = []
+                for chart, svg, csv_path in configured:
+                    item = {"chart": chart["id"]}
+                    if svg is not None:
+                        item["svg"] = str(
+                            render_process_chart_svg(
+                                chart,
+                                artifact_path(workspace, svg, allow_outside),
+                                overwrite=force,
+                            )
+                        )
+                    if csv_path is not None:
+                        item["csv"] = str(
+                            write_process_chart_csv(
+                                chart,
+                                artifact_path(workspace, csv_path, allow_outside),
+                                overwrite=force,
+                            )
+                        )
+                    artifacts.append(item)
+                return {
+                    **result,
+                    "operation": "export_process_charts",
+                    "artifacts": artifacts,
+                }
 
             if operation == "compare":
                 variants = []

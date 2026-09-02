@@ -689,7 +689,7 @@ export function useWorkbench() {
     validate,
     validation,
     validationItems,
-    workspaceIndex: bootstrapData?.index ?? { targets: [], inputs: [], presets: [], charts: [], cycles: [] },
+    workspaceIndex: bootstrapData?.index ?? { targets: [], inputs: [], presets: [], charts: [], cycles: [], analyses: [] },
   };
 }
 
