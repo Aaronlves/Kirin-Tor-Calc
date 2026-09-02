@@ -83,7 +83,7 @@ const declarationKeywords = new Set([
   "state_model", "display", "chart", "type", "cycle", "reward",
 ]);
 
-const nestedSections = new Set(["states", "transitions", "rewards", "resources", "spends", "gains"]);
+const nestedSections = new Set(["states", "transitions", "rewards", "resources", "spends", "gains", "charges"]);
 
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);
@@ -210,7 +210,7 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
       return "heading";
     }
-    if (stream.match(/^(using|sequence|outcomes|states|transitions|rewards|resources|spends|gains|initial|maximum|regeneration|cost|occupies|points|x|range|y|title|x_label|y_label|export_svg|export_csv|next)\b/)) return "keyword";
+    if (stream.match(/^(using|sequence|outcomes|states|transitions|rewards|resources|spends|gains|charges|initial|maximum|regeneration|recharge|cooldown|cost|occupies|points|x|range|y|title|x_label|y_label|export_svg|export_csv|next)\b/)) return "keyword";
     if (stream.match(/^(true|false)\b/)) return "bool";
     if (stream.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?/)) return "number";
     if (stream.match(/^(number|probability|boolean|integer|dimensionless|nonnegative_integer|positive_integer|count|time|second|millisecond)\b/)) return "typeName";

@@ -1751,9 +1751,15 @@ class Engine:
                 )
             resource_dimensions[resource_id] = resource_dimension
         for step in cycle.sequence:
-            step_owner, step_object, duration_path, spends, gains = self.cycle_step_contract(
-                owner, step
-            )
+            (
+                step_owner,
+                step_object,
+                duration_path,
+                spends,
+                gains,
+                cooldown_path,
+                charge_paths,
+            ) = self.cycle_step_contract(owner, step)
             unknown_resources = sorted((set(spends) | set(gains)) - set(resources))
             if unknown_resources:
                 raise SchemaError(
@@ -1768,6 +1774,38 @@ class Engine:
                 raise UnitError(
                     f"cycle step {step!r} occupies must use time", step_object.location
                 )
+            if cooldown_path is not None:
+                cooldown_value = self.resolve_object_member(
+                    step_owner, step_object, tuple(cooldown_path.split("."))
+                )
+                if cooldown_value.dimension != time_dimension:
+                    raise UnitError(
+                        f"cycle step {step!r} cooldown must use time",
+                        step_object.location,
+                    )
+            if charge_paths:
+                for role in ("initial", "maximum"):
+                    member_path = charge_paths.get(role)
+                    if member_path is None:
+                        continue
+                    charge_value = self.resolve_object_member(
+                        step_owner, step_object, tuple(member_path.split("."))
+                    )
+                    if charge_value.dimension != DIMENSIONLESS:
+                        raise UnitError(
+                            f"cycle step {step!r} charges.{role} must be dimensionless",
+                            step_object.location,
+                        )
+                recharge_value = self.resolve_object_member(
+                    step_owner,
+                    step_object,
+                    tuple(charge_paths["recharge"].split(".")),
+                )
+                if recharge_value.dimension != time_dimension:
+                    raise UnitError(
+                        f"cycle step {step!r} charges.recharge must use time",
+                        step_object.location,
+                    )
             for resource_id, member_path in (*spends.items(), *gains.items()):
                 value = self.resolve_object_member(
                     step_owner, step_object, tuple(member_path.split("."))
@@ -1843,8 +1881,10 @@ class Engine:
         str,
         Dict[str, str],
         Dict[str, str],
+        Optional[str],
+        Dict[str, str],
     ]:
-        """Normalize one action to duration plus named resource spends and gains."""
+        """Normalize one action to resource effects, cooldown, and charge roles."""
 
         object_owner, obj, interface = self.object_interface(
             owner, reference, "cycle_step"
@@ -1852,35 +1892,59 @@ class Engine:
         duration_path = interface.get("occupies")
         if duration_path is None:
             raise SchemaError("cycle_step is missing role 'occupies'", obj.location)
-        if "cost" in interface:
-            unknown = sorted(set(interface) - {"cost", "occupies"})
-            if unknown:
-                raise SchemaError(
-                    "legacy cycle_step cost may not be mixed with vector effects: "
-                    + ", ".join(unknown),
-                    obj.location,
-                )
-            return object_owner, obj, duration_path, {"resource": interface["cost"]}, {}
-
         spends: Dict[str, str] = {}
         gains: Dict[str, str] = {}
+        charge_paths: Dict[str, str] = {}
+        cooldown_path = interface.get("cooldown")
         for role, member_path in interface.items():
-            if role == "occupies":
+            if role in {"occupies", "cooldown", "cost"}:
                 continue
             parts = role.split(".")
-            if len(parts) != 2 or parts[0] not in {"spends", "gains"}:
+            if len(parts) == 2 and parts[0] in {"spends", "gains"}:
+                target = spends if parts[0] == "spends" else gains
+                target[parts[1]] = member_path
+                continue
+            if len(parts) == 2 and parts[0] == "charges" and parts[1] in {
+                "initial",
+                "maximum",
+                "recharge",
+            }:
+                charge_paths[parts[1]] = member_path
+                continue
+            raise SchemaError(
+                "cycle_step roles must use occupies, cooldown, spends.RESOURCE, "
+                "gains.RESOURCE, charges.initial, charges.maximum, or "
+                "charges.recharge",
+                obj.location,
+            )
+        if "cost" in interface:
+            if spends or gains:
                 raise SchemaError(
-                    "cycle_step roles must use occupies, spends.RESOURCE, or gains.RESOURCE",
+                    "cycle_step cost may not be mixed with spends or gains",
                     obj.location,
                 )
-            target = spends if parts[0] == "spends" else gains
-            target[parts[1]] = member_path
+            spends = {"resource": interface["cost"]}
+        if charge_paths:
+            missing = sorted({"maximum", "recharge"} - set(charge_paths))
+            if missing:
+                raise SchemaError(
+                    "cycle_step charges is missing role(s): " + ", ".join(missing),
+                    obj.location,
+                )
         if len(spends) + len(gains) > MAX_CYCLE_EFFECTS_PER_STEP:
             raise SchemaError(
                 f"cycle_step exceeds {MAX_CYCLE_EFFECTS_PER_STEP} resource effects",
                 obj.location,
             )
-        return object_owner, obj, duration_path, spends, gains
+        return (
+            object_owner,
+            obj,
+            duration_path,
+            spends,
+            gains,
+            cooldown_path,
+            charge_paths,
+        )
 
     def validate_all(self) -> dict:
         checked = []

@@ -6,7 +6,7 @@ import json
 import pytest
 
 from kirin_tor.engine import Engine
-from kirin_tor.errors import ReferenceError, SchemaError, UnitError, ValidationErrors
+from kirin_tor.errors import DomainError, ReferenceError, SchemaError, UnitError, ValidationErrors
 from kirin_tor.cli import app
 from kirin_tor.kirin_syntax import load_kirin_document, render_kirin_document
 from kirin_tor.operations import analyze_cycle, evaluate
@@ -192,6 +192,93 @@ cycle joint_wait "联合等待":
 """
 
 
+READINESS_SOURCE = """@kirin 2
+@entry readiness_rotation "冷却与充能循环"
+
+dimension resource
+unit resource = resource
+unit resource_per_time = resource / time
+
+type cooldown_skill:
+  cost: resource = 0
+  occupies: time
+  cooldown: time = 0 second
+  cycle_step:
+    occupies = occupies
+    cooldown = cooldown
+    spends:
+      resource = cost
+
+type charged_skill:
+  occupies: time
+  maximum_charges: positive_integer
+  recharge: time
+  cycle_step:
+    occupies = occupies
+    charges:
+      maximum = maximum_charges
+      recharge = recharge
+
+type profile:
+  initial: resource
+  maximum: resource
+  regeneration: resource_per_time
+  cycle_profile:
+    resources:
+      resource:
+        initial = initial
+        maximum = maximum
+        regeneration = regeneration
+
+cooldown_skill burst "爆发技能":
+  cost = 1
+  occupies = 1 second
+  cooldown = 5 second
+
+cooldown_skill filler "填充技能":
+  occupies = 2 second
+
+charged_skill charged_strike "充能打击":
+  occupies = 1 second
+  maximum_charges = 2
+  recharge = 5 second
+
+charged_skill quick_strike "快速充能打击":
+  occupies = 1 second
+  maximum_charges = 1
+  recharge = 1 second
+
+profile character "角色状态":
+  initial = 1
+  maximum = 1
+  regeneration = 1/4
+
+cycle cooldown_wait "冷却等待":
+  using = character
+  sequence:
+    - burst
+    - filler
+
+cycle cooldown_ready "冷却自然完成":
+  using = character
+  sequence:
+    - burst
+    - filler
+    - filler
+
+cycle charge_wait "充能等待":
+  using = character
+  sequence:
+    - charged_strike
+    - readiness_rotation.charged_strike
+
+cycle charge_ready "充能自然完成":
+  using = character
+  sequence:
+    - quick_strike
+"""
+
+
 def _workspace(tmp_path: Path) -> Workspace:
     root = initialize(tmp_path / "workspace")
     (root / "entries" / "rotation.kirin").write_text(SOURCE, encoding="utf-8")
@@ -311,6 +398,134 @@ def test_v2_multi_resource_cycle_spends_gains_waits_and_blocks(
     replayed = runner.invoke(app, ["replay", "multi", "--json"])
     assert replayed.exit_code == 0, replayed.output
     assert json.loads(replayed.stdout)["matches_recorded_result"] is True
+
+
+def test_v2_cycle_cooldowns_and_sequential_charges_share_the_timeline(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "readiness")
+    (root / "entries" / "readiness_rotation.kirin").write_text(
+        READINESS_SOURCE, encoding="utf-8"
+    )
+    workspace = Workspace.load(root)
+    assert Engine(workspace).validate_all()["status"] == "ok"
+
+    cooldown = analyze_cycle(
+        Engine(workspace), "readiness_rotation.cooldown_wait"
+    )
+    assert cooldown["cycle_status"] == "waiting"
+    assert cooldown["cooldown_action_count"] == 1
+    assert cooldown["charge_action_count"] == 0
+    assert cooldown["first_wait"]["step"] == 3
+    assert cooldown["first_wait"]["duration"] == "2"
+    assert cooldown["first_wait"]["resource_failures"] == [
+        {
+            "resource": "resource",
+            "available": "3/4",
+            "required": "1",
+            "unit": "resource",
+        }
+    ]
+    assert cooldown["first_wait"]["readiness_failures"] == [
+        {
+            "kind": "cooldown",
+            "action": "burst",
+            "remaining": "2",
+            "unit": "second",
+        }
+    ]
+    assert cooldown["first_wait"]["limiting_constraints"] == [
+        "cooldown:burst"
+    ]
+    assert cooldown["wait_per_cycle"] == "2"
+
+    cooldown_ready = analyze_cycle(
+        Engine(workspace), "readiness_rotation.cooldown_ready"
+    )
+    assert cooldown_ready["cycle_status"] == "continuous"
+    assert cooldown_ready["first_wait"] is None
+
+    charges = analyze_cycle(Engine(workspace), "readiness_rotation.charge_wait")
+    assert charges["cycle_status"] == "waiting"
+    assert charges["cooldown_action_count"] == 0
+    assert charges["charge_action_count"] == 1
+    assert charges["first_wait"]["step"] == 3
+    assert charges["first_wait"]["duration"] == "3"
+    assert charges["first_wait"]["readiness_failures"] == [
+        {
+            "kind": "charge",
+            "action": "charged_strike",
+            "remaining": "3",
+            "unit": "second",
+            "available": 0,
+            "required": 1,
+        }
+    ]
+    assert charges["first_wait"]["limiting_constraints"] == [
+        "charge:charged_strike"
+    ]
+
+    charge_ready = analyze_cycle(
+        Engine(workspace), "readiness_rotation.charge_ready"
+    )
+    assert charge_ready["cycle_status"] == "continuous"
+    assert charge_ready["first_wait"] is None
+
+
+def test_v2_cycle_can_start_with_partially_empty_charges(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "initial-charges")
+    source = READINESS_SOURCE.replace(
+        "  maximum_charges: positive_integer\n",
+        "  initial_charges: count\n  maximum_charges: positive_integer\n",
+        1,
+    ).replace(
+        "    charges:\n      maximum = maximum_charges\n",
+        "    charges:\n      initial = initial_charges\n      maximum = maximum_charges\n",
+        1,
+    ).replace(
+        "  maximum_charges = 2\n",
+        "  initial_charges = 0\n  maximum_charges = 2\n",
+        1,
+    )
+    (root / "entries" / "rotation.kirin").write_text(source, encoding="utf-8")
+    result = analyze_cycle(
+        Engine(Workspace.load(root)), "readiness_rotation.charge_wait"
+    )
+    assert result["first_wait"]["step"] == 1
+    assert result["first_wait"]["duration"] == "5"
+    assert result["first_wait"]["limiting_constraints"] == [
+        "charge:charged_strike"
+    ]
+
+
+def test_v2_cycle_charge_contract_and_values_are_bounded(tmp_path: Path) -> None:
+    missing_root = initialize(tmp_path / "missing-recharge")
+    (missing_root / "entries" / "rotation.kirin").write_text(
+        READINESS_SOURCE.replace("      recharge = recharge\n", "", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises((SchemaError, ValidationErrors), match="missing role.*recharge"):
+        Engine(Workspace.load(missing_root)).validate_all()
+
+    noninteger_root = initialize(tmp_path / "noninteger-charges")
+    (noninteger_root / "entries" / "rotation.kirin").write_text(
+        READINESS_SOURCE.replace(
+            "  maximum_charges: positive_integer\n",
+            "  maximum_charges: dimensionless\n",
+            1,
+        ).replace("  maximum_charges = 2\n", "  maximum_charges = 3/2\n", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises((DomainError, ValidationErrors), match="charges.maximum must be an integer"):
+        analyze_cycle(Engine(Workspace.load(noninteger_root)), "readiness_rotation.charge_wait")
+
+    excessive_root = initialize(tmp_path / "excessive-charges")
+    (excessive_root / "entries" / "rotation.kirin").write_text(
+        READINESS_SOURCE.replace("  maximum_charges = 2\n", "  maximum_charges = 65\n", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainError, match="charges.maximum exceeds 64"):
+        analyze_cycle(Engine(Workspace.load(excessive_root)), "readiness_rotation.charge_wait")
 
 
 def test_v2_multi_resource_cycle_rejects_unknown_resources_and_wrong_units(

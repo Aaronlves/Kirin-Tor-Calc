@@ -636,13 +636,26 @@ def cycle_command(
             [preset] if preset else [],
         )
         if result["cycle_status"] == "continuous":
-            summary = "可持续：无需资源等待"
+            summary = "可持续：无需等待"
         elif result["cycle_status"] == "waiting":
             first = result.get("first_wait") or {}
-            limiting = ", ".join(first.get("limiting_resources") or [])
+            constraint_labels = {
+                "resource": "资源",
+                "cooldown": "冷却",
+                "charge": "充能",
+            }
+            constraints = first.get("limiting_constraints") or [
+                f"resource:{item}"
+                for item in first.get("limiting_resources") or []
+            ]
+            limiting = ", ".join(
+                f"{constraint_labels.get(str(item).split(':', 1)[0], str(item).split(':', 1)[0])} "
+                f"{str(item).split(':', 1)[-1]}"
+                for item in constraints
+            )
             summary = (
                 f"需要等待：首次在第 {first.get('step')} 步 {first.get('action')}；"
-                + (f"受限资源 {limiting}；" if limiting else "")
+                + (f"受限于 {limiting}；" if limiting else "")
                 + f"每分钟等待 {result.get('wait_per_minute')} 秒"
             )
         else:

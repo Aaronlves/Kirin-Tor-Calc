@@ -478,11 +478,22 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(preview).toContainText("需要等待，可持续循环");
     await expect(preview).toContainText("资源：charge / focus / mana");
     await expect(preview).toContainText("首次等待：第 4 步");
-    await expect(preview).toContainText("受限：focus");
+    await expect(preview).toContainText("受限：资源 focus");
     await expect(preview).toContainText("每分钟等待：75/2 秒");
 
     await page.getByRole("button", { name: "定位循环源码" }).click();
     await expect(page.locator(".cm-activeLine")).toContainText('cycle main_rotation "多资源奥术循环"');
+
+    await page.getByRole("combobox", { name: "分析循环" }).click();
+    await page.getByRole("option", { name: "冷却循环" }).click();
+    await expect(preview).toContainText("首次等待：第 3 步");
+    await expect(preview).toContainText("受限：冷却 evocation");
+    await expect(preview).toContainText("每分钟等待：24 秒");
+
+    await page.getByRole("combobox", { name: "分析循环" }).click();
+    await page.getByRole("option", { name: "充能循环" }).click();
+    await expect(preview).toContainText("首次等待：第 3 步");
+    await expect(preview).toContainText("受限：充能 arcane_orb");
   });
 
   test("结果、图表、公式与局部关系都能返回源码位置", async ({ page }) => {

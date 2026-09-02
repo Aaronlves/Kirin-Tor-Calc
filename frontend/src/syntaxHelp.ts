@@ -54,7 +54,7 @@ export function syntaxTopicForLine(line: string): string | null {
   const section = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*):/)?.[1];
   if (sectionTopics[section ?? ""]) return sectionTopics[section ?? ""];
   if (/^@(kirin|entry|game-version|status)\b/.test(trimmed)) return "document";
-  if (/^(type|cycle)\b/.test(trimmed) || /\b(cycle_step|cycle_profile|cost|occupies|sequence|resources|spends|gains)\b/.test(trimmed)) return "structures-cycles";
+  if (/^(type|cycle)\b/.test(trimmed) || /\b(cycle_step|cycle_profile|cost|occupies|sequence|resources|spends|gains|cooldown|charges|recharge)\b/.test(trimmed)) return "structures-cycles";
   for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^recurrence\b/, "recurrences"], [/^state_model\b/, "state-models"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }

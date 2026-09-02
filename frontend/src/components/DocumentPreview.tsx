@@ -34,11 +34,22 @@ function cycleResourceIds(result: OperationResult): string[] {
   return Object.keys(units as Record<string, unknown>);
 }
 
-function cycleLimitingResourceIds(result: OperationResult): string[] {
+function cycleLimitingConstraints(result: OperationResult): string[] {
   const firstWait = result.first_wait;
   if (!firstWait || typeof firstWait !== "object" || Array.isArray(firstWait)) return [];
-  const resources = (firstWait as Record<string, unknown>).limiting_resources;
-  return Array.isArray(resources) ? resources.map(String) : [];
+  const event = firstWait as Record<string, unknown>;
+  const declared = event.limiting_constraints;
+  const legacyResources = event.limiting_resources;
+  const constraints = Array.isArray(declared)
+    ? declared
+    : Array.isArray(legacyResources)
+      ? legacyResources.map((item) => `resource:${String(item)}`)
+      : [];
+  const labels: Record<string, string> = { resource: "资源", cooldown: "冷却", charge: "充能" };
+  return constraints.map((item) => {
+    const [kind, ...rest] = String(item).split(":");
+    return `${labels[kind] ?? kind} ${rest.join(":")}`;
+  });
 }
 
 interface DocumentPreviewProps {
@@ -290,7 +301,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
           {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : mode === "cycle" ? "正在分析循环…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
           {result && mode === "result" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
-          {result && mode === "cycle" && <Stack gap="md" className={`document-result-preview${activeSymbolId === cycleTarget ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedCycle?.label || cycleTarget}</Text>{selectedCycle?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedCycle.line, selectedCycle.column)}>定位循环源码</Button>}</Group><Text className="document-result-value">{cycleSummary(result)}</Text><Group gap={6} mt="xs"><Badge variant="outline" color="gray">资源：{cycleResourceIds(result).join(" / ") || "—"}</Badge><Badge variant="outline" color="gray">首次等待：{result.first_wait ? `第 ${String((result.first_wait as Record<string, unknown>).step)} 步` : "无"}</Badge>{cycleLimitingResourceIds(result).length > 0 && <Badge variant="outline" color="gray">受限：{cycleLimitingResourceIds(result).join(" / ")}</Badge>}<Badge variant="outline" color="gray">每分钟等待：{String(result.wait_per_minute ?? "—")} 秒</Badge></Group></Box><TechnicalResult result={result} /></Stack>}
+          {result && mode === "cycle" && <Stack gap="md" className={`document-result-preview${activeSymbolId === cycleTarget ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedCycle?.label || cycleTarget}</Text>{selectedCycle?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedCycle.line, selectedCycle.column)}>定位循环源码</Button>}</Group><Text className="document-result-value">{cycleSummary(result)}</Text><Group gap={6} mt="xs"><Badge variant="outline" color="gray">资源：{cycleResourceIds(result).join(" / ") || "—"}</Badge><Badge variant="outline" color="gray">首次等待：{result.first_wait ? `第 ${String((result.first_wait as Record<string, unknown>).step)} 步` : "无"}</Badge>{cycleLimitingConstraints(result).length > 0 && <Badge variant="outline" color="gray">受限：{cycleLimitingConstraints(result).join(" / ")}</Badge>}<Badge variant="outline" color="gray">每分钟等待：{String(result.wait_per_minute ?? "—")} 秒</Badge></Group></Box><TechnicalResult result={result} /></Stack>}
           {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview"><Group justify="space-between"><Text className="result-label">图表预览</Text><Group gap={4}>{chart?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, chart.line, chart.column)}>定位图表源码</Button>}<Button variant="default" size="xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreviewOpened(true)}>展开预览</Button><Button variant="default" size="xs" leftSection={<FileOutput size={13} />} onClick={() => setExportOpened(true)}>导出</Button></Group></Group><ChartCanvas result={result} /><Group gap={6}><Badge variant="light" color="green">{Array.isArray(result.rows) ? result.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(result.x || "—")}</Badge></Group><TechnicalResult result={result} /></Stack>}
           {exportResult && <Box className="export-success"><Save size={16} /><span><strong>图表已导出</strong><small>{String(exportResult.out || "已使用文档声明的输出路径")}</small></span></Box>}
         </Stack>

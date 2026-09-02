@@ -193,8 +193,15 @@ SNIPPETS = (
     _snippet(
         "多资源循环步骤类型",
         "多资源技能类型",
-        "cycle step spends gains",
-        "type skill:\n  mana_cost: mana = 0\n  charge_gain: charge = 0\n  occupies: time\n  cycle_step:\n    occupies = occupies\n    spends:\n      mana = mana_cost\n    gains:\n      charge = charge_gain$0",
+        "cycle step spends gains cooldown",
+        "type skill:\n  mana_cost: mana = 0\n  charge_gain: charge = 0\n  occupies: time\n  cooldown: time = 0 second\n  cycle_step:\n    occupies = occupies\n    cooldown = cooldown\n    spends:\n      mana = mana_cost\n    gains:\n      charge = charge_gain$0",
+        15,
+    ),
+    _snippet(
+        "离散充能循环步骤类型",
+        "充能技能类型",
+        "cycle step sequential charges",
+        "type charged_skill:\n  occupies: time\n  maximum_charges: positive_integer\n  recharge: time\n  cycle_step:\n    occupies = occupies\n    charges:\n      maximum = maximum_charges\n      recharge = recharge$0",
         15,
     ),
     _snippet(

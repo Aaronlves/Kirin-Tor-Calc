@@ -13,10 +13,11 @@ from .errors import DomainError, ParameterError, UnitError, UnsupportedError
 from .expression import MathValue, merge_inputs, parse_exact_number
 from .limits import (
     DEFAULT_TIMEOUT_SECONDS,
+    MAX_CYCLE_ACTION_CHARGES,
     MAX_SCAN_POINTS,
 )
 from .timeout import run_with_timeout
-from .timeline import ResourcePool, TimelineAction, analyze_fixed_timeline
+from .timeline import ChargePool, ResourcePool, TimelineAction, analyze_fixed_timeline
 from .workspace import Workspace
 
 
@@ -194,9 +195,15 @@ def _cycle_analysis_core(
 
     step_values = []
     for reference in cycle.sequence:
-        step_owner, step_object, duration_path, spend_paths, gain_paths = (
-            engine.cycle_step_contract(entry, reference)
-        )
+        (
+            step_owner,
+            step_object,
+            duration_path,
+            spend_paths,
+            gain_paths,
+            cooldown_path,
+            charge_paths,
+        ) = engine.cycle_step_contract(entry, reference)
         duration_value = engine.resolve_object_member(
             step_owner, step_object, tuple(duration_path.split("."))
         )
@@ -212,8 +219,29 @@ def _cycle_analysis_core(
             )
             for resource_id, member_path in gain_paths.items()
         }
+        cooldown_value = (
+            engine.resolve_object_member(
+                step_owner, step_object, tuple(cooldown_path.split("."))
+            )
+            if cooldown_path is not None
+            else None
+        )
+        charge_values = {
+            role: engine.resolve_object_member(
+                step_owner, step_object, tuple(member_path.split("."))
+            )
+            for role, member_path in charge_paths.items()
+        }
         step_values.append(
-            (reference, duration_value, spend_values, gain_values)
+            {
+                "reference": reference,
+                "state_id": step_object.qualified_id,
+                "duration": duration_value,
+                "spends": spend_values,
+                "gains": gain_values,
+                "cooldown": cooldown_value,
+                "charges": charge_values,
+            }
         )
 
     all_values = [
@@ -223,8 +251,14 @@ def _cycle_analysis_core(
     ]
     all_values.extend(
         value
-        for _reference, duration_value, spend_values, gain_values in step_values
-        for value in (duration_value, *spend_values.values(), *gain_values.values())
+        for step in step_values
+        for value in (
+            step["duration"],
+            *step["spends"].values(),
+            *step["gains"].values(),
+            *((step["cooldown"],) if step["cooldown"] is not None else ()),
+            *step["charges"].values(),
+        )
     )
     combined_value = MathValue(
         sp.Integer(0),
@@ -311,12 +345,93 @@ def _cycle_analysis_core(
         dependency_ids.update(regeneration_value.dependencies)
 
     actions = []
-    for reference, duration_value, spend_values, gain_values in step_values:
+    cooldown_action_ids = set()
+    charge_action_ids = set()
+    for step in step_values:
+        reference = step["reference"]
+        duration_value = step["duration"]
+        spend_values = step["spends"]
+        gain_values = step["gains"]
         if duration_value.dimension != time_dimension:
             raise UnitError(f"cycle step {reference!r} occupies must use time")
         duration = concrete(duration_value, f"cycle step {reference} occupies")
         established(sp.Gt(duration, 0), f"cycle step {reference!r} occupies must be positive")
         dependency_ids.update(duration_value.dependencies)
+        cooldown = sp.Integer(0)
+        cooldown_value = step["cooldown"]
+        if cooldown_value is not None:
+            if cooldown_value.dimension != time_dimension:
+                raise UnitError(f"cycle step {reference!r} cooldown must use time")
+            cooldown = concrete(
+                cooldown_value, f"cycle step {reference} cooldown"
+            )
+            established(
+                sp.Ge(cooldown, 0),
+                f"cycle step {reference!r} cooldown must be non-negative",
+            )
+            dependency_ids.update(cooldown_value.dependencies)
+            if cooldown != 0:
+                cooldown_action_ids.add(step["state_id"])
+
+        charge_pool = None
+        charge_values = step["charges"]
+        if charge_values:
+            maximum_value = charge_values["maximum"]
+            recharge_value = charge_values["recharge"]
+            initial_value = charge_values.get("initial", maximum_value)
+            for role, value in (
+                ("maximum", maximum_value),
+                ("initial", initial_value),
+            ):
+                if value.dimension != workspace.units.parse_unit("dimensionless"):
+                    raise UnitError(
+                        f"cycle step {reference!r} charges.{role} must be dimensionless"
+                    )
+            if recharge_value.dimension != time_dimension:
+                raise UnitError(
+                    f"cycle step {reference!r} charges.recharge must use time"
+                )
+            maximum_expr = concrete(
+                maximum_value, f"cycle step {reference} charges.maximum"
+            )
+            initial_expr = concrete(
+                initial_value, f"cycle step {reference} charges.initial"
+            )
+            recharge = concrete(
+                recharge_value, f"cycle step {reference} charges.recharge"
+            )
+            if maximum_expr not in sp.S.Integers:
+                raise DomainError(
+                    f"cycle step {reference!r} charges.maximum must be an integer"
+                )
+            if initial_expr not in sp.S.Integers:
+                raise DomainError(
+                    f"cycle step {reference!r} charges.initial must be an integer"
+                )
+            initial = int(initial_expr)
+            maximum = int(maximum_expr)
+            if maximum < 1:
+                raise DomainError(
+                    f"cycle step {reference!r} charges.maximum must be positive"
+                )
+            if maximum > MAX_CYCLE_ACTION_CHARGES:
+                raise DomainError(
+                    f"cycle step {reference!r} charges.maximum exceeds "
+                    f"{MAX_CYCLE_ACTION_CHARGES}"
+                )
+            if initial < 0 or initial > maximum:
+                raise DomainError(
+                    f"cycle step {reference!r} charges.initial must be between 0 "
+                    "and charges.maximum"
+                )
+            established(
+                sp.Gt(recharge, 0),
+                f"cycle step {reference!r} charges.recharge must be positive",
+            )
+            charge_pool = ChargePool(initial, maximum, recharge)
+            charge_action_ids.add(step["state_id"])
+            for value in charge_values.values():
+                dependency_ids.update(value.dependencies)
         spends = {}
         gains = {}
         for effect_name, effect_values, target_values in (
@@ -339,7 +454,17 @@ def _cycle_analysis_core(
                 )
                 target_values[resource_id] = amount
                 dependency_ids.update(value.dependencies)
-        actions.append(TimelineAction(reference, duration, spends, gains))
+        actions.append(
+            TimelineAction(
+                reference,
+                step["state_id"],
+                duration,
+                spends,
+                gains,
+                cooldown,
+                charge_pool,
+            )
+        )
 
     timeline = analyze_fixed_timeline(resource_pools, actions)
     second_scale = engine.unit_scale_expr("second")
@@ -357,6 +482,23 @@ def _cycle_analysis_core(
             rendered["reason"] = str(failure["reason"])
         return rendered
 
+    def format_readiness_failure(failure: Mapping[str, object]) -> dict:
+        rendered = {
+            "kind": str(failure["kind"]),
+            "action": str(failure["action"]),
+            "remaining": exact_text(
+                sp.simplify(failure["remaining"] / second_scale)
+            ),
+            "unit": "second",
+        }
+        if failure.get("available") is not None:
+            rendered["available"] = int(failure["available"])
+        if failure.get("required") is not None:
+            rendered["required"] = int(failure["required"])
+        if failure.get("reason"):
+            rendered["reason"] = str(failure["reason"])
+        return rendered
+
     def format_event(event: Optional[Mapping[str, object]], *, wait: bool = False):
         if event is None:
             return None
@@ -366,12 +508,20 @@ def _cycle_analysis_core(
         }
         failures = [format_failure(item) for item in event.get("failures", [])]
         rendered["resource_failures"] = failures
+        readiness_failures = [
+            format_readiness_failure(item)
+            for item in event.get("readiness_failures", [])
+        ]
+        rendered["readiness_failures"] = readiness_failures
         if wait:
             rendered["duration"] = exact_text(
                 sp.simplify(event["duration"] / second_scale)
             )
             rendered["limiting_resources"] = list(
                 event.get("limiting_resources", [])
+            )
+            rendered["limiting_constraints"] = list(
+                event.get("limiting_constraints", [])
             )
         if failures:
             first = failures[0]
@@ -398,6 +548,8 @@ def _cycle_analysis_core(
         "time_unit": "second",
         "resource_units": dict(sorted(resource_units.items())),
         "resource_count": len(resource_units),
+        "cooldown_action_count": len(cooldown_action_ids),
+        "charge_action_count": len(charge_action_ids),
         "parameters": dict(sorted(parameter_values.items())),
         "dependency_ids": sorted(dependency_ids),
     }

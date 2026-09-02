@@ -3,7 +3,7 @@
 @status "example_only"
 
 ----
-完全虚构的多资源固定循环，用于演示联合等待、技能产出资源与长期可持续性分析。
+完全虚构的固定循环，用于演示多资源联合等待、技能产出资源、动作冷却、逐枚恢复充能与长期可持续性分析。
 ----
 
 dimension mana "法力"
@@ -23,14 +23,26 @@ type skill:
   charge_cost: charge = 0
   charge_gain: charge = 0
   occupies: time
+  cooldown: time = 0 second
   cycle_step:
     occupies = occupies
+    cooldown = cooldown
     spends:
       mana = mana_cost
       focus = focus_cost
       charge = charge_cost
     gains:
       charge = charge_gain
+
+type charged_skill:
+  occupies: time
+  maximum_charges: positive_integer
+  recharge: time
+  cycle_step:
+    occupies = occupies
+    charges:
+      maximum = maximum_charges
+      recharge = recharge
 
 type profile:
   mana_initial: mana
@@ -67,6 +79,18 @@ skill arcane_barrage "奥术弹幕":
   charge_cost = 2
   occupies = 1 second
 
+skill evocation "唤醒":
+  occupies = 1 second
+  cooldown = 5 second
+
+skill filler "填充技能":
+  occupies = 2 second
+
+charged_skill arcane_orb "奥术宝珠":
+  occupies = 1 second
+  maximum_charges = 2
+  recharge = 5 second
+
 profile character "角色状态":
   mana_initial = 100
   mana_maximum = 100
@@ -84,3 +108,15 @@ cycle main_rotation "多资源奥术循环":
     - arcane_blast
     - arcane_blast
     - arcane_barrage
+
+cycle readiness_cooldown "冷却循环":
+  using = character
+  sequence:
+    - evocation
+    - filler
+
+cycle readiness_charge "充能循环":
+  using = character
+  sequence:
+    - arcane_orb
+    - arcane_orb

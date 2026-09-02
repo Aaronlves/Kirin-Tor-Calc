@@ -159,8 +159,10 @@ type skill:
   charge_cost: charge = 0
   charge_gain: charge = 0
   cast_time: time
+  cooldown: time = 0 second
   cycle_step:
     occupies = cast_time
+    cooldown = cooldown
     spends:
       mana = mana_cost
       charge = charge_cost
@@ -202,6 +204,27 @@ but `occupies` is required. Every named profile resource requires `initial`, `ma
 `regeneration`. The resource name connects step effects to the profile; units are still independently
 checked. A fixed cycle may use at most 64 resources and 256 spend/gain mappings per step.
 
+Action cooldowns and discrete charges are opt-in roles on `cycle_step`; Kirin Tor does not infer
+them from field names. A charged action type can be declared separately:
+
+```text
+type charged_skill:
+  cast_time: time
+  maximum_charges: positive_integer
+  recharge_time: time
+  cycle_step:
+    occupies = cast_time
+    charges:
+      maximum = maximum_charges
+      recharge = recharge_time
+```
+
+`cooldown` must be non-negative time and starts when the action starts. `charges.maximum` and
+`charges.recharge` must appear together; the maximum is a positive integer up to 64 and recharge
+time is positive. Charges begin full unless the interface also maps `charges.initial`. Missing
+charges recover one after another, not in parallel. The same canonical skill object shares one
+cooldown and one charge pool wherever its readable skill name occurs in the sequence.
+
 For a deliberately single-resource model, the compact `cost` plus flat `initial`, `maximum`, and
 `regeneration` interface remains valid and is normalized to the same state-vector engine.
 
@@ -233,32 +256,36 @@ kt cycle rotation.main_rotation --set rotation.haste=0.3 --json
 
 The operation returns one of three exact outcomes:
 
-- `continuous`: the declared sequence can repeat forever without inserted resource waits;
-- `waiting`: it can repeat forever if Kirin Tor waits just long enough before resource-starved
-  steps;
+- `continuous`: the declared sequence can repeat forever without inserted waits;
+- `waiting`: it can repeat forever if Kirin Tor waits just long enough before a resource,
+  cooldown, or charge constraint;
 - `blocked`: a step can never execute, for example because its cost exceeds the maximum or the
   resource cannot recover.
 
-The report includes every declared resource and unit, the resources that fail a step, the resource
-or resources that determine the first wait, the global step number, cycle and position, waiting time
-per eventual cycle, waiting time per minute, and eventual cycle duration. Preset and temporary input
-values are honored, and a cycle run can be saved and replayed like other operations.
+The report includes every declared resource and unit, resource and action-readiness failures, all
+constraints that jointly determine the first wait, the global step number, cycle and position,
+waiting time per eventual cycle, waiting time per minute, and eventual cycle duration. Preset and
+temporary input values are honored, and a cycle run can be saved and replayed like other operations.
 
 The current timeline is deliberately exact and narrow:
 
-1. A step checks and applies all named `spends` at the start.
-2. Every resource regenerates simultaneously during `occupies`, independently capped at its own
+1. A step checks all named `spends`, its action-local cooldown, and its available charge.
+2. At action start it applies `spends`, starts `cooldown`, and consumes one charge when configured.
+3. Every resource regenerates simultaneously during `occupies`, independently capped at its own
    `maximum`.
-3. All named `gains` are applied at action finish and capped.
-4. If the next step lacks one or more resources, analysis waits for the slowest recoverable deficit;
-   every pool continues to regenerate during that shared wait.
-5. A resource with zero passive regeneration can still be produced by earlier skills. If it is
+4. All cooldowns count down and all missing charges recharge during both `occupies` and inserted
+   waits. Sequential charge recovery preserves partial progress toward the next charge.
+5. All named `gains` are applied at action finish and capped.
+6. If the next step fails several constraints, analysis waits for the slowest recoverable one; all
+   resource and readiness states continue to advance during that shared wait.
+7. A resource with zero passive regeneration can still be produced by earlier skills. If it is
    insufficient when required, waiting cannot repair the deficit and the sequence is blocked.
 
 Current cycle analysis has a deterministic fixed sequence, non-negative spends/gains, positive
-durations, and bounded resource pools. It does not yet model conditional priorities, cooldown
-timers, discrete recharge queues, random procs, clipping, latency, or branching action lists. Those
-belong to later state-transition layers and are not guessed from property names.
+durations, bounded resource pools, action-local cooldowns, and sequential discrete charges. It does
+not yet model conditional priorities, shared cooldown groups, cooldown or charge resets, random
+procs, clipping, latency, or branching action lists. Those belong to later state-transition layers
+and are not guessed from property names.
 
 ## Aliases and structured sources
 

@@ -198,7 +198,7 @@
   {
     "id": "structures-cycles",
     "title": "类型化属性、多层访问与固定循环",
-    "summary": "先给一类技能或角色声明封闭属性，再用技能名创建对象；固定 sequence 可精确判断无需等待、等待后持续或最终阻塞。",
+    "summary": "先给一类技能或角色声明封闭属性，再用技能名创建对象；固定 sequence 会联合推进资源、冷却与逐枚恢复的离散充能。",
     "keywords": [
       "type",
       "cycle",
@@ -209,6 +209,9 @@
       "resources",
       "spends",
       "gains",
+      "cooldown",
+      "charges",
+      "recharge",
       "多资源",
       "多层属性",
       "循环",
@@ -217,11 +220,12 @@
     "rules": [
       "类型字段是封闭的：对象缺少必填字段或写入未知字段会报错。",
       "cycle_profile 的 resources 可以声明最多 64 个任意命名资源。",
-      "cycle_step 的 spends 在步骤开始消耗资源，gains 在步骤结束产生资源。",
-      "等待由所有不足资源中恢复最慢的一项决定；其他资源在同一等待期间同步回复。"
+      "cycle_step 的 spends 在步骤开始消耗资源，gains 在步骤结束产生资源，cooldown 也从步骤开始计时。",
+      "charges.maximum 与 charges.recharge 启用逐枚顺序恢复的离散充能；initial 未写时默认等于 maximum。",
+      "等待由资源不足、冷却和充能中恢复最慢的一项决定；所有状态在同一等待期间同步推进。"
     ],
-    "exampleTitle": "一套会等待但可长期持续的技能循环",
-    "code": "@kirin 2\n@entry rotation_demo \"多资源固定循环\"\n\ndimension mana\ndimension charge\nunit mana = mana\nunit charge = charge\nunit mana_per_time = mana / time\nunit charge_per_time = charge / time\n\ntype skill:\n  mana_cost: mana = 0\n  charge_cost: charge = 0\n  charge_gain: charge = 0\n  occupies: time\n  cycle_step:\n    occupies = occupies\n    spends:\n      mana = mana_cost\n      charge = charge_cost\n    gains:\n      charge = charge_gain\n\ntype profile:\n  mana_initial: mana\n  mana_maximum: mana\n  mana_regeneration: mana_per_time\n  charge_initial: charge\n  charge_maximum: charge\n  charge_regeneration: charge_per_time\n  cycle_profile:\n    resources:\n      mana:\n        initial = mana_initial\n        maximum = mana_maximum\n        regeneration = mana_regeneration\n      charge:\n        initial = charge_initial\n        maximum = charge_maximum\n        regeneration = charge_regeneration\n\nskill arcane_blast \"奥术冲击\":\n  mana_cost = 30\n  charge_gain = 1\n  occupies = 1 second\n\nskill arcane_barrage \"奥术弹幕\":\n  charge_cost = 2\n  occupies = 1 second\n\nprofile character \"角色状态\":\n  mana_initial = 100\n  mana_maximum = 100\n  mana_regeneration = 10\n  charge_initial = 0\n  charge_maximum = 4\n  charge_regeneration = 0\n\ncycle main_rotation \"主要循环\":\n  using = character\n  sequence:\n    - arcane_blast\n    - arcane_blast\n    - arcane_barrage\n"
+    "exampleTitle": "联合资源、冷却与充能的固定技能循环",
+    "code": "@kirin 2\n@entry rotation_demo \"资源、冷却与充能\"\n\ndimension mana\nunit mana = mana\nunit mana_per_time = mana / time\n\ntype skill:\n  mana_cost: mana = 0\n  occupies: time\n  cooldown: time = 0 second\n  maximum_charges: positive_integer = 1\n  recharge: time = 1 second\n  cycle_step:\n    occupies = occupies\n    cooldown = cooldown\n    spends:\n      mana = mana_cost\n    charges:\n      maximum = maximum_charges\n      recharge = recharge\n\ntype profile:\n  mana_initial: mana\n  mana_maximum: mana\n  mana_regeneration: mana_per_time\n  cycle_profile:\n    resources:\n      mana:\n        initial = mana_initial\n        maximum = mana_maximum\n        regeneration = mana_regeneration\n\nskill arcane_blast \"奥术冲击\":\n  mana_cost = 30\n  occupies = 1 second\n  cooldown = 3 second\n\nskill arcane_orb \"奥术宝珠\":\n  occupies = 1 second\n  maximum_charges = 2\n  recharge = 5 second\n\nprofile character \"角色状态\":\n  mana_initial = 100\n  mana_maximum = 100\n  mana_regeneration = 10\n\ncycle main_rotation \"主要循环\":\n  using = character\n  sequence:\n    - arcane_blast\n    - arcane_orb\n    - arcane_orb\n"
   },
   {
     "id": "charts",
