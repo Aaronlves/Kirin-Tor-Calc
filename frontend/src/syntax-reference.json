@@ -21,6 +21,31 @@
     "code": "@kirin 2\n@entry quick_start\n\n----\n这里可以解释来源、假设和适用范围。\n----\n\ninput x \"输入\": number[dimensionless] = 0.25 in 0..1\n\noutput result \"结果\": dimensionless = 1 + x\n"
   },
   {
+    "id": "external-authoring",
+    "title": "Agent 与外部编辑器",
+    "summary": "Agent 可以直接编写同一份 .kirin 权威源码；工作台只同步文件结果，不显示操作过程，也不会覆盖浏览器中的未保存草稿。",
+    "keywords": [
+      "Agent",
+      "外部编辑器",
+      "协作",
+      "external",
+      "sync",
+      "conflict",
+      "同步",
+      "冲突",
+      "草稿"
+    ],
+    "rules": [
+      "Agent 或普通编辑器可以直接创建、修改 entries/**/*.kirin，不需要操作浏览器或通过 Kirin Tor CLI 写文档。",
+      "页面可见时，新文档会自动出现；没有未保存修改的已打开文档会重新加载并校验。",
+      "浏览器中的未保存草稿不会暴露给 Agent；双方修改同一文档时进入 base/draft/disk 冲突比较。",
+      "工作台不显示 Agent 提示词、活动记录、终端或文件操作过程，只显示源码、诊断和派生结果。",
+      "外部多文件写入不属于 Save All 原子事务；每个被发现的磁盘状态都必须通过完整校验后才能计算。"
+    ],
+    "exampleTitle": "可由 Agent 直接写入的普通源码",
+    "code": "@kirin 2\n@entry external_authoring \"外部创作示例\"\n\n----\n作者、Agent 或普通文本编辑器都可以维护这份源码。\n事实、假设和适用边界仍应显式写在文档中。\n----\n\ninput base \"基础值\": number[dimensionless] = 10 in 0..*\n\noutput result \"结果\": dimensionless = base * 2\n"
+  },
+  {
     "id": "members",
     "title": "输入、字段、函数与输出",
     "summary": "输入保存可变参数，字段保存常量或派生值，函数声明显式参数，输出定义作者希望公开计算的结果。",

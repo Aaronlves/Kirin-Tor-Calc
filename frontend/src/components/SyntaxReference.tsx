@@ -89,15 +89,15 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
       <header className="syntax-reference-header">
         <Box>
           <Text className="page-kicker">AUTHORING REFERENCE</Text>
-          <Text fw={680} fz="lg">在源码旁快速确认写法</Text>
+          <Text fw={680} fz="lg">在源码旁确认写法与创作边界</Text>
           <Text c="dimmed" fz="xs" mt={4}>
-            这是随应用发布的只读速查。严格语义和边界仍由当前版本校验器决定。
+            这是随应用发布的只读速查。语法、Agent 协作和严格语义仍由当前版本实现与校验器决定。
           </Text>
         </Box>
         <TextInput
           aria-label="搜索语法参考"
           leftSection={<Search size={14} />}
-          placeholder="搜索输入、参数方案、分布、图表…"
+          placeholder="搜索输入、Process、Agent、图表…"
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
@@ -177,7 +177,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
             <Stack className="syntax-reference-empty" align="center" justify="center" gap="xs">
               <Search size={26} />
               <Text fw={650}>没有匹配的语法主题</Text>
-              <Text c="dimmed" fz="xs">换一个关键词，例如“输入”“分布”或“图表”。</Text>
+              <Text c="dimmed" fz="xs">换一个关键词，例如“输入”“Agent”或“图表”。</Text>
             </Stack>
           )}
         </ScrollArea>

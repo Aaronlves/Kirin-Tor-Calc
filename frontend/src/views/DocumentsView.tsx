@@ -522,7 +522,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 <Text className="page-kicker">GET STARTED</Text>
                 <Title order={1}>从一份真正的 Kirin Tor 源码开始</Title>
                 <Text c="dimmed" maw={720}>
-                  当前工作区仍然为空。内置教程只读展示完整 `.kirin`；只有主动复制后，它才会成为当前工作区中的未保存草稿。
+                  当前工作区仍然为空。可以复制只读教程、新建草稿，或让本地 Agent 直接创建 `entries/**/*.kirin`；工作台只显示写入后的源码与结果。
                 </Text>
                 <Group gap="xs" mt="lg">
                   <Button className="tutorial-primary-action" leftSection={<ArrowRight size={14} />} onClick={() => openTutorial(tutorials[0])}>开始基础教程</Button>
@@ -560,8 +560,8 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <section className="workspace-authority-note">
                 <FileCode2 size={18} />
                 <Box>
-                  <Text fw={650} fz="sm">教程不是工作区数据</Text>
-                  <Text c="dimmed" fz="xs" mt={3}>它不会参加校验、计算、搜索或保存；复制后生成的 `.kirin` 草稿才进入这些流程。</Text>
+                  <Text fw={650} fz="sm">真正的 `.kirin` 才是工作区数据</Text>
+                  <Text c="dimmed" fz="xs" mt={3}>教程保持只读；复制产生的草稿或 Agent 写入磁盘的本地源码才进入校验。工作台不会显示 Agent 的操作过程。</Text>
                 </Box>
               </section>
             </div>
@@ -925,7 +925,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       >
         {controller.externalConflict && (
           <Stack gap="md">
-            <Text fz="sm">磁盘上的 <strong>{controller.externalConflict.path}</strong> 已被其他程序修改。当前草稿尚未覆盖磁盘。</Text>
+            <Text fz="sm">磁盘上的 <strong>{controller.externalConflict.path}</strong> 已被 Agent 或其他外部编辑器修改。当前工作台草稿没有被覆盖。</Text>
             <Text c="dimmed" fz="xs">
               {controller.externalConflict.base == null
                 ? "恢复草稿缺少可验证的共同基线，因此不能自动三方合并；仍可下载草稿或重新加载磁盘版本。"

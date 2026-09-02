@@ -44,6 +44,7 @@ def test_bundled_syntax_reference_examples_are_complete_and_valid(tmp_path: Path
     sections = json.loads(reference_path.read_text(encoding="utf-8"))
     assert len(sections) >= 8
     assert len({section["id"] for section in sections}) == len(sections)
+    assert any(section["id"] == "external-authoring" for section in sections)
 
     for section in sections:
         assert section["title"] and section["summary"] and section["rules"]

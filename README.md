@@ -101,7 +101,7 @@ kt eval basic_model.total
 ### 与 Agent 一起创作
 
 保持 `kt web` 打开的同时，可以让本地 Agent 直接创建或修改工作区中的
-`entries/**/*.kirin`。Agent 不需要操作浏览器，也不需要通过 Kirin CLI 写文档；工作台会自动发现新
+`entries/**/*.kirin`。Agent 不需要操作浏览器，也不需要通过 Kirin Tor CLI 写文档；工作台会自动发现新
 文档，并在当前缓冲区没有未保存修改时重新加载源码和派生预览。界面只显示最终文档、诊断与结果，
 不会显示 Agent 的提示词、操作过程、终端或 CLI 输出。
 

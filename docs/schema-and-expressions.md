@@ -166,6 +166,6 @@ Measure。结构化 chart rows 随 Analysis 结果生成，SVG/CSV 仅在显式�
 
 浏览器工作台只监听本机回环地址，并使用随机会话令牌、Host/Origin 检查和隔离的长操作进程。前端
 高亮、补全和预览不会扩大语言或数学引擎的权限。外部 Agent 的文件权限由宿主环境授予，不由
-Workbench 会话令牌、Plugin 权限或 Kirin 数学内核授予；Kirin 只重新加载并校验其最终写入的本地
+Workbench 会话令牌、Plugin 权限或 Kirin Tor 数学内核授予；Kirin Tor 只重新加载并校验其最终写入的本地
 source，不接收或展示 Agent 操作流。同步、冲突和外部多文件写入边界见
 [浏览器工作台规范](web-workbench.md#external-agent-authoring)。

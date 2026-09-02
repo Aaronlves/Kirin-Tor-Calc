@@ -1,6 +1,6 @@
 {
-  "_Checkbox-C-Lz40m6.js": {
-    "file": "Checkbox-C-Lz40m6.js",
+  "_Checkbox-h5gxbapb.js": {
+    "file": "Checkbox-h5gxbapb.js",
     "name": "Checkbox",
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
@@ -15,12 +15,12 @@
       "_createLucideIcon-fs27rAxj.js"
     ]
   },
-  "_CommunityDiscoveryPanel-G7xWD1kV.js": {
-    "file": "CommunityDiscoveryPanel-G7xWD1kV.js",
+  "_CommunityDiscoveryPanel-BlJeGfkt.js": {
+    "file": "CommunityDiscoveryPanel-BlJeGfkt.js",
     "name": "CommunityDiscoveryPanel",
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_trash-2-CVqAMyok.js",
+      "_trash-2-DrsgJ9zN.js",
       "_Code-B0qtSTIf.js",
       "_TextInput-DfkY1-5d.js",
       "_refresh-cw-BQiGGhOd.js",
@@ -49,8 +49,8 @@
       "_createLucideIcon-fs27rAxj.js"
     ]
   },
-  "_Select-B9y0uqNO.js": {
-    "file": "Select-B9y0uqNO.js",
+  "_Select-BtIzKhtI.js": {
+    "file": "Select-BtIzKhtI.js",
     "name": "Select",
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
@@ -59,8 +59,8 @@
       "index.html"
     ]
   },
-  "_Tabs-Cot82qfA.js": {
-    "file": "Tabs-Cot82qfA.js",
+  "_Tabs-R_u7BjJI.js": {
+    "file": "Tabs-R_u7BjJI.js",
     "name": "Tabs",
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
@@ -112,8 +112,8 @@
       "_createLucideIcon-fs27rAxj.js"
     ]
   },
-  "_trash-2-CVqAMyok.js": {
-    "file": "trash-2-CVqAMyok.js",
+  "_trash-2-DrsgJ9zN.js": {
+    "file": "trash-2-DrsgJ9zN.js",
     "name": "trash-2",
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
@@ -121,7 +121,7 @@
     ]
   },
   "index.html": {
-    "file": "index-CbduPxWj.js",
+    "file": "index-DYS_tJmr.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -144,20 +144,20 @@
     ]
   },
   "src/components/ChangeReview.tsx": {
-    "file": "ChangeReview-DUMliehy.js",
+    "file": "ChangeReview-B_1qCTAY.js",
     "name": "ChangeReview",
     "src": "src/components/ChangeReview.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_Tabs-Cot82qfA.js",
-      "_Select-B9y0uqNO.js",
+      "_Tabs-R_u7BjJI.js",
+      "_Select-BtIzKhtI.js",
       "_Code-B0qtSTIf.js",
       "index.html"
     ]
   },
   "src/components/SyntaxReference.tsx": {
-    "file": "SyntaxReference-CKxTL5Cy.js",
+    "file": "SyntaxReference-sM5mhmSF.js",
     "name": "SyntaxReference",
     "src": "src/components/SyntaxReference.tsx",
     "isDynamicEntry": true,
@@ -170,28 +170,28 @@
     ]
   },
   "src/components/WorkspaceSearch.tsx": {
-    "file": "WorkspaceSearch-BPvEP2Bk.js",
+    "file": "WorkspaceSearch-D3w5ohe-.js",
     "name": "WorkspaceSearch",
     "src": "src/components/WorkspaceSearch.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_Checkbox-C-Lz40m6.js",
+      "_Checkbox-h5gxbapb.js",
       "_TextInput-DfkY1-5d.js",
       "index.html"
     ]
   },
   "src/views/DocumentsView.tsx": {
-    "file": "DocumentsView-Dr3-F0EI.js",
+    "file": "DocumentsView-CtDAFXe0.js",
     "name": "DocumentsView",
     "src": "src/views/DocumentsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_Tabs-Cot82qfA.js",
-      "_trash-2-CVqAMyok.js",
-      "_Select-B9y0uqNO.js",
-      "_Checkbox-C-Lz40m6.js",
+      "_Tabs-R_u7BjJI.js",
+      "_trash-2-DrsgJ9zN.js",
+      "_Select-BtIzKhtI.js",
+      "_Checkbox-h5gxbapb.js",
       "_Code-B0qtSTIf.js",
       "_folder-input-DKWTrP27.js",
       "_TextInput-DfkY1-5d.js",
@@ -202,7 +202,7 @@
     ]
   },
   "src/views/GraphView.tsx": {
-    "file": "GraphView-B5KWFAnZ.js",
+    "file": "GraphView-BebW1GDF.js",
     "name": "GraphView",
     "src": "src/views/GraphView.tsx",
     "isDynamicEntry": true,
@@ -217,15 +217,15 @@
     ]
   },
   "src/views/PackagesView.tsx": {
-    "file": "PackagesView-ujuFsheW.js",
+    "file": "PackagesView-DODmVBTS.js",
     "name": "PackagesView",
     "src": "src/views/PackagesView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_Tabs-Cot82qfA.js",
-      "_trash-2-CVqAMyok.js",
-      "_CommunityDiscoveryPanel-G7xWD1kV.js",
+      "_Tabs-R_u7BjJI.js",
+      "_trash-2-DrsgJ9zN.js",
+      "_CommunityDiscoveryPanel-BlJeGfkt.js",
       "_Code-B0qtSTIf.js",
       "_folder-input-DKWTrP27.js",
       "_TextInput-DfkY1-5d.js",
@@ -234,14 +234,14 @@
     ]
   },
   "src/views/PluginsView.tsx": {
-    "file": "PluginsView-ByRi1YBe.js",
+    "file": "PluginsView-g0PmFG1K.js",
     "name": "PluginsView",
     "src": "src/views/PluginsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_trash-2-CVqAMyok.js",
-      "_CommunityDiscoveryPanel-G7xWD1kV.js",
+      "_trash-2-DrsgJ9zN.js",
+      "_CommunityDiscoveryPanel-BlJeGfkt.js",
       "_Code-B0qtSTIf.js",
       "_TextInput-DfkY1-5d.js",
       "_refresh-cw-BQiGGhOd.js",
@@ -249,13 +249,13 @@
     ]
   },
   "src/views/RunsView.tsx": {
-    "file": "RunsView-xU6w_mPa.js",
+    "file": "RunsView-DzFXQM_D.js",
     "name": "RunsView",
     "src": "src/views/RunsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-fs27rAxj.js",
-      "_Checkbox-C-Lz40m6.js",
+      "_Checkbox-h5gxbapb.js",
       "_Code-B0qtSTIf.js",
       "_TextInput-DfkY1-5d.js",
       "_refresh-cw-BQiGGhOd.js",

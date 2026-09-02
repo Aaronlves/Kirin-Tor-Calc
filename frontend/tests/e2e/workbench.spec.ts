@@ -186,7 +186,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
-    await expect(reference.getByText("10 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByText("11 个匹配主题", { exact: true })).toBeVisible();
+    await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("Agent");
+    await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
+    await expect(reference).toContainText("不显示 Agent 提示词、活动记录、终端或文件操作过程");
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
@@ -198,10 +202,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await reference.locator(".mantine-Drawer-close").click();
     await page.getByRole("button", { name: /命令/ }).click();
-    await page.getByPlaceholder("搜索页面或命令…").fill("语法参考");
-    await page.getByText("打开 Kirin Tor 语法参考", { exact: true }).click();
+    await page.getByPlaceholder("搜索页面或命令…").fill("Agent 协作");
+    await page.getByText("查看 Agent 与外部编辑器协作", { exact: true }).click();
     reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
+    await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
   });
 
   test("主工作台与语法抽屉通过自动无障碍检查", async ({ page }) => {
@@ -586,6 +591,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     const conflictDialog = page.getByRole("dialog", { name: "比较外部修改" });
     await expect(conflictDialog).toContainText("// local workbench draft", { timeout: 8_000 });
+    await expect(conflictDialog).toContainText("Agent 或其他外部编辑器");
     await expect(conflictDialog).toContainText("// external edit");
     const downloadPromise = page.waitForEvent("download");
     await conflictDialog.getByRole("button", { name: "保留草稿副本" }).click();
@@ -607,6 +613,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       await page.goto(sessionUrl);
       await expect(page.getByLabel("Kirin Tor 入门")).toBeVisible();
       await expect(page.getByRole("heading", { name: "从一份真正的 Kirin Tor 源码开始" })).toBeVisible();
+      await expect(page.getByText(/让本地 Agent 直接创建/)).toBeVisible();
+      await expect(page.getByText("真正的 `.kirin` 才是工作区数据", { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { name: "三个虚构、游戏中立的练习" })).toBeVisible();
       expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
       if (browserName !== "firefox") {

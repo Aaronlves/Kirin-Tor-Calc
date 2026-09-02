@@ -21,7 +21,7 @@ The workbench keeps the following authority boundary:
 | Local `.kirin` buffer | In the official editor | Unsaved overlay until Save All | Editable draft over the same source model; not durable authority |
 | Local `.kirin` file | Through validated Save All or an external local editor/Agent | Durable workspace content | Authoritative local definition; validity is established separately |
 | Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
-| Agent prompt, transcript, or activity state | No Workbench editing contract | Outside Kirin | Not model authority and not displayed or recorded by Kirin |
+| Agent prompt, transcript, or activity state | No Workbench editing contract | Outside Kirin Tor | Not model authority and not displayed or recorded by Kirin Tor |
 | Completion and symbol index | No | Rebuilt in memory | Tolerant authoring projection, not validation evidence |
 | Bundled syntax reference | No | Versioned frontend content | Searchable writing aid whose examples are checked by the current validator |
 | Bundled tutorial source | No | Versioned application resource | Game-neutral learning source; excluded from the workspace until explicitly copied |
@@ -33,7 +33,7 @@ The workbench keeps the following authority boundary:
 
 - Documents covers CLI list/show/new/check and adds multi-document drafts, atomic Save All, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates. An empty workspace replaces the three-pane editor with a welcome surface for the bundled basic-model, preset-comparison, and scan/chart tutorials.
 - Relationship Graph derives global document and member projections from validated expression references and Process composition, then provides source navigation. Members include inputs, fields, functions, tables, finite distributions, objects, outputs, processes, scenarios, and analyses. Document projections use a deterministic circular layout; member projections retain a force layout. The document inspector shows a local zero-, one-, or two-hop projection from the same data, can limit traversal to dependencies or users, marks members of the current document, and reports both connection counts for the selected node.
-- Syntax Reference is a read-only drawer opened from the navigation rail, workspace menu, or command palette. It searches Chinese labels, canonical syntax terms, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
+- Syntax Reference is a read-only drawer opened from the navigation rail, workspace menu, or command palette. It searches Chinese labels, canonical syntax terms, external-Agent authoring boundaries, rule summaries, and example source. Each topic contains a complete copyable `.kirin` example; copying never inserts into or otherwise mutates the active editor. The reference is a writing aid rather than an alternative parser or validation result.
 - Workspace Search searches local drafts, disk sources, and locked Package sources together. Replace All skips Package sources and returns ordinary unsaved local overlays; it never writes directly to disk. Change Review compares every dirty buffer with its opening or creation baseline before Save All and separately exposes read-only Git log and working-tree summaries when the workspace belongs to a repository.
 - Runs is a workspace drawer for replay and explicit artifact regeneration.
 - Packages is a workspace drawer for add, add-path, list, update, remove, restore, verify, Package new/check, and workspace initialization.
@@ -127,9 +127,9 @@ Package templates are data-only authoritative Package content: they participate 
 
 An external Agent is an ordinary local authoring tool to which the host environment has separately
 granted filesystem access. It is not a Process actor, Workbench Plugin, authenticated browser
-client, or new Kirin authority layer. The workbench does not grant that access and exposes no Agent
+client, or new Kirin Tor authority layer. The workbench does not grant that access and exposes no Agent
 control protocol. The Agent may create or edit writable `entries/**/*.kirin` directly; it does not
-need to drive the browser or invoke the Kirin CLI to write a document.
+need to drive the browser or invoke the Kirin Tor CLI to write a document.
 
 The author sees the resulting source, diagnostics, and derived projections. The workbench does not
 embed an Agent activity feed, prompt history, CLI transcript, terminal, file-operation log, or
@@ -137,7 +137,7 @@ hidden Agent-authored model state. Conversely, an external Agent cannot read the
 buffers through this mechanism. Every durable definition remains inspectable as ordinary `.kirin`
 source.
 
-Direct external writes occur outside the Save All transaction. Kirin therefore does not promise an
+Direct external writes occur outside the Save All transaction. Kirin Tor therefore does not promise an
 atomic multi-document update or suppress a temporarily incomplete source while an external tool is
 writing several files. Every observed disk state is parsed and validated normally; invalid or
 incomplete source remains visible with diagnostics and cannot be evaluated as if it were valid. An

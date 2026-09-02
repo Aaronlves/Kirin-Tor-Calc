@@ -39,12 +39,13 @@ import {
 
 import type { DocumentFocusMode, PluginCommandContribution, PluginSurfaceContribution, ViewId, WorkspaceTool } from "../types";
 import type { WorkbenchController } from "../hooks/useWorkbench";
+import { openSyntaxReference } from "../syntaxHelp";
 
 const builtinViewMetadata: Record<string, { title: string; eyebrow: string; description: string }> = {
   documents: {
     title: "文档",
     eyebrow: "创作",
-    description: "编辑 Kirin Tor 权威源码，并从当前草稿派生诊断与公式。",
+    description: "编辑 Kirin Tor 权威源码；外部本地工具写入会同步到干净缓冲。",
   },
   graph: {
     title: "关系图",
@@ -184,7 +185,15 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
       description: "搜索写作规则并查看可复制的完整示例",
       leftSection: <BookOpenText size={17} strokeWidth={1.7} />,
       onClick: () => onOpenTool("syntax"),
-      keywords: ["syntax", "reference", "docs", "help", "语法", "参考", "文档", "帮助", "示例"],
+      keywords: ["syntax", "reference", "docs", "help", "语法", "参考", "文档", "帮助", "示例", "Agent", "协作"],
+    },
+    {
+      id: "open-external-authoring-help",
+      label: "查看 Agent 与外部编辑器协作",
+      description: "了解直接写入 .kirin、自动同步、草稿保护和冲突边界",
+      leftSection: <BookOpenText size={17} strokeWidth={1.7} />,
+      onClick: () => openSyntaxReference("external-authoring"),
+      keywords: ["Agent 协作", "Agent", "external editor", "sync", "conflict", "外部编辑器", "协作", "同步", "冲突"],
     },
     {
       id: "open-workspace-search",
@@ -354,6 +363,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, documentFoc
                   <Menu.Divider />
                   <Menu.Label>参考</Menu.Label>
                   <Menu.Item leftSection={<BookOpenText size={14} />} onClick={() => onOpenTool("syntax")}>Kirin Tor 语法参考</Menu.Item>
+                  <Menu.Item leftSection={<FileCode2 size={14} />} onClick={() => openSyntaxReference("external-authoring")}>Agent 与外部编辑器</Menu.Item>
                 </Menu.Dropdown>
               </Menu>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
