@@ -310,7 +310,8 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
 ## 14. 实现顺序与完成条件
 
 1. **已完成：**完成六类纸面模型并冻结最小表面语法；
-2. 建立独立于当前 raw dictionary 的类型化 AST 和 process IR；
+2. **已完成结构基础：**建立独立于当前 raw dictionary 的类型化 AST 和 process IR；目前尚未接入
+   parser、语义验证或执行器；
 3. 实现类型、所有权、phase、调度、冲突和 fuel 的静态验证；
 4. 实现确定性 `run` 与完整 trace；
 5. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
