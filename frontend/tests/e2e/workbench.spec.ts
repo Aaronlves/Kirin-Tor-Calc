@@ -593,6 +593,14 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(conflictDialog).toContainText("// local workbench draft", { timeout: 8_000 });
     await expect(conflictDialog).toContainText("Agent 或其他外部编辑器");
     await expect(conflictDialog).toContainText("// external edit");
+    await conflictDialog.getByRole("button", { name: "查看协作边界" }).click();
+    await expect(conflictDialog).toBeHidden();
+    let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
+    await expect(reference).toContainText("Agent 不是 Kirin Tor 关键字");
+    await reference.locator(".mantine-Drawer-close").click();
+    await page.getByLabel("比较外部修改").click();
+    await expect(conflictDialog).toBeVisible();
     const downloadPromise = page.waitForEvent("download");
     await conflictDialog.getByRole("button", { name: "保留草稿副本" }).click();
     expect((await downloadPromise).suggestedFilename()).toBe("组合模型.workbench-draft.kirin");
@@ -624,6 +632,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
           stylePath: resolve("tests/e2e/screenshot.css"),
         });
       }
+
+      await page.getByRole("button", { name: "了解 Agent 协作" }).click();
+      const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+      await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
+      await reference.locator(".mantine-Drawer-close").click();
 
       await page.getByRole("button", { name: "开始基础教程" }).click();
       const tutorial = page.getByRole("dialog", { name: "教程与示例" });

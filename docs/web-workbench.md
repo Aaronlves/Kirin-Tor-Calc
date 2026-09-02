@@ -135,7 +135,9 @@ The author sees the resulting source, diagnostics, and derived projections. The 
 embed an Agent activity feed, prompt history, CLI transcript, terminal, file-operation log, or
 hidden Agent-authored model state. Conversely, an external Agent cannot read the browser's unsaved
 buffers through this mechanism. Every durable definition remains inspectable as ordinary `.kirin`
-source.
+source. Empty-workspace guidance and the external-conflict dialog link directly to the in-app
+Agent/external-editor reference; this contextual help does not add an `Agent` keyword, completion,
+snippet, or highlighting class because the public language has not changed.
 
 Direct external writes occur outside the Save All transaction. Kirin Tor therefore does not promise an
 atomic multi-document update or suppress a temporarily incomplete source while an external tool is

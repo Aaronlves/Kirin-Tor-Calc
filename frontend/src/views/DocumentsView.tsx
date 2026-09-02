@@ -528,6 +528,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   <Button className="tutorial-primary-action" leftSection={<ArrowRight size={14} />} onClick={() => openTutorial(tutorials[0])}>开始基础教程</Button>
                   <Button variant="default" leftSection={<FilePlus2 size={14} />} onClick={() => setNewDocumentOpened(true)}>新建空白文档</Button>
                   <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => openSyntaxReference("document")}>打开语法参考</Button>
+                  <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => openSyntaxReference("external-authoring")}>了解 Agent 协作</Button>
                 </Group>
               </section>
 
@@ -946,7 +947,10 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               </section>
             </div>
             <Group justify="space-between">
-              <Button variant="default" onClick={() => setConflictOpened(false)}>继续编辑草稿</Button>
+              <Group gap="xs">
+                <Button variant="default" onClick={() => setConflictOpened(false)}>继续编辑草稿</Button>
+                <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => { setConflictOpened(false); openSyntaxReference("external-authoring"); }}>查看协作边界</Button>
+              </Group>
               <Group gap="xs">
                 <Button variant="default" leftSection={<FileDown size={14} />} onClick={() => { controller.keepExternalConflictDraft(); }}>保留草稿副本</Button>
                 {controller.externalConflict.base != null && <Button variant="default" leftSection={<GitCompare size={14} />} onClick={() => { void controller.mergeExternalConflict().then((merged) => { if (merged) setConflictOpened(false); }); }}>三方合并为草稿</Button>}
