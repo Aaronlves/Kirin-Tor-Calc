@@ -28,6 +28,7 @@ const kindTopics: Record<string, string> = {
   process: "process",
   scenario: "process",
   analysis: "process",
+  measure: "process",
   dimension: "semantics",
   unit: "semantics",
   domain: "semantics",

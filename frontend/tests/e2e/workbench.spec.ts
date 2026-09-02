@@ -192,6 +192,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
     await expect(reference).toContainText("不显示 Agent 提示词、活动记录、终端或文件操作过程");
+    await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("minimum_where");
+    await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByRole("heading", { name: "有界 Process、场景与策略分析" })).toBeVisible();
+    await expect(reference).toContainText("last_before");
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
@@ -315,6 +319,12 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
 
     await editor.press("Enter");
+    await editor.type("条件筛选最小值");
+    await editor.press("Control+Space");
+    await expect(page.getByRole("option", { name: "条件筛选最小值轨迹 Measure · minimum_where", exact: true })).toBeVisible();
+    await editor.press("Escape");
+
+    await editor.press("Enter");
     await editor.type("真");
     await editor.press("Control+Space");
     const trueCompletion = page.getByRole("option", { name: "布尔真关键字 · true", exact: true });
@@ -335,6 +345,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(stateLine.locator("span").filter({ hasText: /^state$/ })).toHaveCSS("color", "rgb(217, 119, 87)");
     const inputLine = page.locator(".cm-line").filter({ hasText: "input regeneration:" });
     await expect(inputLine.locator("span").filter({ hasText: /^regeneration$/ })).toHaveCSS("color", "rgb(201, 196, 185)");
+    const measureLine = page.locator(".cm-line").filter({ hasText: "measure ending_mana:" });
+    await expect(measureLine.locator("span").filter({ hasText: /^final$/ })).toHaveCSS("color", "rgb(232, 184, 109)");
     const boundsLine = page.locator(".cm-line").filter({ hasText: /^\s*bounds:/ });
     await expect(boundsLine.locator("span").first()).toHaveCSS("color", "rgb(232, 184, 109)");
     const proseLine = page.locator(".cm-line").filter({ hasText: "完全虚构的固定策略" });

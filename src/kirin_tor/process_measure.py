@@ -46,12 +46,14 @@ def _trajectory_value(
         raise ProcessExecutionError("Process run contains no observation samples")
     if operation in {
         "minimum_over_time",
+        "minimum_where",
         "maximum_over_time",
         "maximum_drawdown",
         "total_variation",
         "variance_over_time",
         "duration_where",
         "first_time",
+        "last_before",
     } and any(instance.process.flows for instance in scenario.instances):
         raise UnsupportedError(
             f"{operation} cannot claim an exact result for an unrestricted continuous flow",
@@ -90,6 +92,29 @@ def _trajectory_value(
         return evaluated[-1]
     if operation == "minimum_over_time":
         return min(evaluated)
+    if operation == "minimum_where":
+        assert expression.condition is not None
+        conditions = tuple(
+            evaluate_process_expression(
+                expression.condition,
+                _sample_environment(scenario, sample),
+                registry,
+            )
+            for sample in samples
+        )
+        selected = tuple(
+            value
+            for value, condition in zip(evaluated, conditions)
+            if condition is True
+        )
+        if selected:
+            return min(selected)
+        assert expression.default is not None
+        return evaluate_process_expression(
+            expression.default,
+            _sample_environment(scenario, samples[-1]),
+            registry,
+        )
     if operation == "maximum_over_time":
         return max(evaluated)
     if operation == "maximum_drawdown":
@@ -137,6 +162,24 @@ def _trajectory_value(
         for sample, value in zip(samples, evaluated):
             if value is True:
                 return sample.time
+        assert expression.default is not None
+        return evaluate_process_expression(
+            expression.default,
+            _sample_environment(scenario, samples[-1]),
+            registry,
+        )
+    if operation == "last_before":
+        assert expression.condition is not None
+        for index, sample in enumerate(samples):
+            condition = evaluate_process_expression(
+                expression.condition,
+                _sample_environment(scenario, sample),
+                registry,
+            )
+            if condition is True:
+                if index > 0:
+                    return evaluated[index - 1]
+                break
         assert expression.default is not None
         return evaluate_process_expression(
             expression.default,

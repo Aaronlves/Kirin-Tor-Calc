@@ -269,8 +269,9 @@ Process 通过有方向的类型化事件端口、导出 observation 和动作�
 
 Scenario 用 Measure 把整段公开轨迹归约为带类型的值。Measure 只读公开 observation 快照、公开
 output event 和引擎时间，不读 Process 私有 state。内核提供 `final`、时间极值、事件求和/计数、条件
-持续时间、带显式默认值的首次发生、停止时间、最大回撤、总变化量与时间加权方差；作者可以继续用
-普通安全表达式组合派生 Measure。
+筛选最小值、条件持续时间、带显式默认值的首次发生、条件首次成立前的最后值、停止时间、最大回撤、
+总变化量与时间加权方差；缺少符合条件的样本时必须使用作者声明的显式默认值。作者可以继续用普通
+安全表达式组合派生 Measure。
 
 具名 Objective 可以最大化或最小化一个 Measure，提供任意有限层的字典序次级目标和 Measure 约束。
 例如“最大化死亡时间，其次最大化剩余充能”。同一 Scenario 可以声明多个 Objective；同一 Analysis

@@ -129,11 +129,13 @@ scenario ID ["LABEL"]:
 
   measure ID ["LABEL"]: TYPE = final(VALUE)
   measure ID: TYPE = minimum_over_time(VALUE)
+  measure ID: TYPE = minimum_where(VALUE, CONDITION, default = VALUE)
   measure ID: TYPE = maximum_over_time(VALUE)
   measure ID: TYPE = sum_events(INSTANCE.OUTPUT_EVENT.PARAMETER)
   measure ID: count = count_events(INSTANCE.OUTPUT_EVENT)
   measure ID: time = duration_where(CONDITION)
   measure ID: time = first_time(CONDITION, default = TIME)
+  measure ID: TYPE = last_before(VALUE, CONDITION, default = VALUE)
   measure ID: time = stop_time()
 
   objective ID ["LABEL"]:
@@ -149,6 +151,11 @@ scenario ID ["LABEL"]:
     maximum_branches = INTEGER
     maximum_entities = INTEGER
 ```
+
+`minimum_where` 只在 `CONDITION` 成立的公开 observation 快照中取最小值；`last_before`
+返回 `CONDITION` 第一次成立之前、按轨迹顺序紧邻的最后一个公开 observation 值。若没有可返回的
+样本（条件从未成立、从初始样本就成立，或筛选集合为空），两者都求值显式 `default`；不会暗中返回
+零或其他哨兵值。`default` 若引用 observation，则使用轨迹最后一个公开快照求值。
 
 Scenario 的组合 action 是一次选择，可以向多个实例发送事件；这些事件在指定 phase 作为同一批次
 发生，并在该 phase 的转移开始前一次性构造；它们不是 handler 运行中产生的同 phase 事件。各实例

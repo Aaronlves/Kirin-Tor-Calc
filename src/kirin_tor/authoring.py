@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .errors import ParameterError, WorkspaceError
+from .scenario_measure_syntax import TRAJECTORY_MEASURE_SYNTAX
 
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _QUOTED = r'"(?:[^"\\]|\\.)*"'
@@ -301,6 +302,17 @@ BUILTIN_COMPLETIONS = (
         "builtin",
         ("condition", "条件分布", "条件化"),
         24,
+    ),
+    *(
+        CompletionCandidate(
+            item.label,
+            f"轨迹 Measure · {item.name}",
+            item.insertion,
+            "measure",
+            (item.name, item.label, *item.terms),
+            23,
+        )
+        for item in TRAJECTORY_MEASURE_SYNTAX
     ),
     CompletionCandidate("布尔真", "关键字 · true", "true", "keyword", ("true", "真"), 26),
     CompletionCandidate("布尔假", "关键字 · false", "false", "keyword", ("false", "假"), 26),

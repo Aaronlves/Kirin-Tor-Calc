@@ -60,32 +60,68 @@ from .scenario_ir import (
     VariantInputIR,
 )
 from .schema import require_identifier
+from .scenario_measure_syntax import TRAJECTORY_MEASURE_OPERATIONS
 from .scenario_validation import validate_scenario_ir
 from .units import DIMENSIONLESS, UnitRegistry
 
 
-_TRAJECTORY_MEASURE_OPERATIONS = frozenset(
-    {
-        "final",
-        "minimum_over_time",
-        "maximum_over_time",
-        "maximum_drawdown",
-        "total_variation",
-        "variance_over_time",
-        "sum_events",
-        "count_events",
-        "duration_where",
-        "first_time",
-        "stop_time",
-    }
-)
-
-
 def _measure_call(source: ExpressionAst) -> Optional[Tuple[str, str]]:
     match = re.fullmatch(r"([a-z_][a-z0-9_]*)\((.*)\)", source.text.strip())
-    if match is None or match.group(1) not in _TRAJECTORY_MEASURE_OPERATIONS:
+    if match is None or match.group(1) not in TRAJECTORY_MEASURE_OPERATIONS:
         return None
     return match.group(1), match.group(2).strip()
+
+
+def _conditional_value_arguments(
+    argument: str, operation: str, location
+) -> Tuple[str, str, str]:
+    pieces = []
+    start = 0
+    round_depth = 0
+    square_depth = 0
+    quoted = False
+    escaped = False
+    for index, character in enumerate(argument):
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quoted = False
+            continue
+        if character == '"':
+            quoted = True
+        elif character == "(":
+            round_depth += 1
+        elif character == ")":
+            round_depth -= 1
+        elif character == "[":
+            square_depth += 1
+        elif character == "]":
+            square_depth -= 1
+        elif character == "," and round_depth == 0 and square_depth == 0:
+            pieces.append(argument[start:index].strip())
+            start = index + 1
+        if round_depth < 0 or square_depth < 0:
+            raise SchemaError(
+                f"{operation} contains an unmatched closing bracket", location
+            )
+    if quoted or round_depth or square_depth:
+        raise SchemaError(
+            f"{operation} contains an unmatched quote or bracket", location
+        )
+    pieces.append(argument[start:].strip())
+    if len(pieces) != 3 or not pieces[0] or not pieces[1]:
+        raise SchemaError(
+            f"{operation} requires VALUE, CONDITION, default = VALUE", location
+        )
+    default_match = re.fullmatch(r"default\s*=\s*(.+)", pieces[2], re.DOTALL)
+    if default_match is None:
+        raise SchemaError(
+            f"{operation} requires an explicit default = VALUE", location
+        )
+    return pieces[0], pieces[1], default_match.group(1).strip()
 
 
 def scenario_static_symbols(registry: UnitRegistry) -> Dict[str, SymbolRefIR]:
@@ -390,6 +426,42 @@ class ScenarioLowerer:
                             item.location,
                         )
                     expression = TrajectoryMeasureExpressionIR(operation, value=value)
+                elif operation in {"minimum_where", "last_before"}:
+                    value_text, condition_text, default_text = (
+                        _conditional_value_arguments(
+                            argument, operation, item.location
+                        )
+                    )
+                    value = compile_process_expression(
+                        ExpressionAst(value_text, item.value.location),
+                        declared_type,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    if operation == "minimum_where" and not isinstance(
+                        value.result_type, NumberTypeIR
+                    ):
+                        raise SchemaError(
+                            "minimum_where requires a numeric value", item.location
+                        )
+                    condition = compile_process_expression(
+                        ExpressionAst(condition_text, item.value.location),
+                        self.boolean,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    default = compile_process_expression(
+                        ExpressionAst(default_text, item.value.location),
+                        declared_type,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(
+                        operation,
+                        value=value,
+                        condition=condition,
+                        default=default,
+                    )
                 elif operation == "duration_where":
                     condition = compile_process_expression(
                         ExpressionAst(argument, item.value.location),

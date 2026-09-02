@@ -186,6 +186,7 @@ class ScenarioBoundsIR:
 class TrajectoryMeasureExpressionIR:
     operation: str
     value: Optional[TypedExpressionIR] = None
+    condition: Optional[TypedExpressionIR] = None
     event: Optional[InstanceMemberRefIR] = None
     parameter_id: Optional[str] = None
     default: Optional[TypedExpressionIR] = None

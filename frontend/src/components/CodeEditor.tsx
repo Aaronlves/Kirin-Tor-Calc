@@ -114,6 +114,8 @@ const typeKeywords = new Set([
   "nonnegative_integer", "number", "positive_integer", "probability", "second", "time",
 ]);
 
+const identifierPattern = /^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u;
+
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);
   const cursor = indented.indexOf("$0");
@@ -270,7 +272,13 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       return "keyword";
     }
     if (stream.match(/^one-of\b/)) return "keyword";
-    if (stream.match(/^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u)) {
+    const identifier = stream.match(identifierPattern, false);
+    const followedByCall = identifier && typeof identifier !== "boolean"
+      ? stream.string.slice(stream.pos + identifier[0].length).trimStart().startsWith("(")
+      : false;
+    if (identifier) {
+      stream.match(identifierPattern);
+      if (followedByCall) return "variableName.function";
       return state.section === "output" || state.section === "field" ? "variableName" : "propertyName";
     }
     if (stream.match(/^(?:->|==|!=|<=|>=|\+|-|\*|\/|\^|=|@|:|\.\.)/)) return "operator";
@@ -286,6 +294,7 @@ const kirinHighlight = HighlightStyle.define([
   { tag: tags.number, color: "#8fb9d4" },
   { tag: tags.bool, color: "#c5a0d8" },
   { tag: tags.typeName, color: "#a9a3d5" },
+  { tag: tags.function(tags.variableName), color: "#e8b86d" },
   { tag: tags.variableName, color: "#e5e1d8" },
   { tag: tags.propertyName, color: "#c9c4b9" },
   { tag: tags.operator, color: "#8f8b82" },

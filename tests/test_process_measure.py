@@ -54,6 +54,8 @@ scenario trial:
     send actor.hit(amount = 4 hp)
   measure final_health: hp = final(actor.remaining_health)
   measure minimum_health: hp = minimum_over_time(actor.remaining_health)
+  measure minimum_while_safe: hp = minimum_where(if_else(actor.remaining_health < 8 hp, actor.remaining_health, 100 hp), actor.remaining_health >= 5 hp, default = -1 hp)
+  measure minimum_while_impossible: hp = minimum_where(actor.remaining_health, actor.remaining_health < 0 hp, default = 99 hp)
   measure maximum_health: hp = maximum_over_time(actor.remaining_health)
   measure health_range: hp = maximum_health - minimum_health
   measure health_drawdown: hp = maximum_drawdown(actor.remaining_health)
@@ -64,6 +66,9 @@ scenario trial:
   measure low_health_time: time = duration_where(actor.remaining_health < 8 hp)
   measure critical_time: time = first_time(actor.remaining_health < 5 hp, default = horizon)
   measure never_zero: time = first_time(actor.remaining_health == 0 hp, default = horizon)
+  measure health_before_critical: hp = last_before(actor.remaining_health, actor.remaining_health < 5 hp, default = -1 hp)
+  measure health_before_missing: hp = last_before(actor.remaining_health, actor.remaining_health == 0 hp, default = actor.remaining_health)
+  measure no_preceding_health: hp = last_before(actor.remaining_health, actor.remaining_health <= 10 hp, default = 99 hp)
   measure survival_time: time = stop_time()
   bounds:
     horizon = 4 second
@@ -85,6 +90,8 @@ scenario trial:
     assert values == {
         "final_health": Fraction(3),
         "minimum_health": Fraction(3),
+        "minimum_while_safe": Fraction(7),
+        "minimum_while_impossible": Fraction(99),
         "maximum_health": Fraction(10),
         "health_range": Fraction(7),
         "health_drawdown": Fraction(7),
@@ -95,6 +102,9 @@ scenario trial:
         "low_health_time": Fraction(3),
         "critical_time": Fraction(3),
         "never_zero": Fraction(4),
+        "health_before_critical": Fraction(7),
+        "health_before_missing": Fraction(3),
+        "no_preceding_health": Fraction(99),
         "survival_time": Fraction(4),
     }
     assert [(event.event_id, event.time) for event in result.output_events] == [
@@ -125,6 +135,33 @@ scenario trial:
     maximum_entities = 1
 """
     with pytest.raises(SchemaError, match="explicit default"):
+        _workspace(tmp_path, source)
+
+
+@pytest.mark.parametrize("operation", ["minimum_where", "last_before"])
+def test_conditional_value_measure_requires_explicit_missing_value(
+    tmp_path: Path, operation: str
+) -> None:
+    source = f"""@kirin 2
+@entry invalid
+
+process actor:
+  state value: count = 1
+  observe current: count = value
+
+scenario trial:
+  phases:
+    - event
+  use actor = actor:
+  measure selected: count = {operation}(actor.current, actor.current > 0)
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+"""
+    with pytest.raises(SchemaError, match="default"):
         _workspace(tmp_path, source)
 
 

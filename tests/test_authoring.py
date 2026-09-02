@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from kirin_tor.authoring import (
     AuthoringSource,
+    BUILTIN_COMPLETIONS,
     build_authoring_index,
     build_completion_candidates,
     format_kirin_source,
@@ -14,6 +16,10 @@ from kirin_tor.authoring import (
 )
 from kirin_tor.diagnostics import extract_author_title, format_author_diagnostic
 from kirin_tor.errors import ParameterError, SchemaError, SourceLocation, WorkspaceError
+from kirin_tor.scenario_measure_syntax import (
+    TRAJECTORY_MEASURE_OPERATIONS,
+    TRAJECTORY_MEASURE_SYNTAX,
+)
 
 
 def test_chinese_title_and_full_width_punctuation_diagnostic(tmp_path: Path) -> None:
@@ -72,9 +78,35 @@ output result "总计": dimensionless = 技能(base.crit)
     assert build_completion_candidates(sources, model, "场景")[0].insert_text.startswith(
         "scenario trial:"
     )
+    conditional_measure = build_completion_candidates(
+        sources, model, "条件筛选最小值"
+    )[0]
+    assert conditional_measure.insert_text.startswith("minimum_where(")
+    assert conditional_measure.kind == "measure"
     inserted, cursor = prepare_completion_insertion("piecewise(\n  $0\n)", "  ")
     assert inserted == "piecewise(\n    \n  )"
     assert inserted[:cursor].endswith("    ")
+
+
+def test_trajectory_measure_authoring_and_help_cover_language_contract() -> None:
+    assert {item.name for item in TRAJECTORY_MEASURE_SYNTAX} == (
+        TRAJECTORY_MEASURE_OPERATIONS
+    )
+    completion_names = {
+        item.insert_text.split("(", 1)[0]
+        for item in BUILTIN_COMPLETIONS
+        if item.kind == "measure"
+    }
+    assert completion_names == TRAJECTORY_MEASURE_OPERATIONS
+
+    reference_path = (
+        Path(__file__).parents[1] / "frontend" / "src" / "syntax-reference.json"
+    )
+    sections = json.loads(reference_path.read_text(encoding="utf-8"))
+    process = next(item for item in sections if item["id"] == "process")
+    assert TRAJECTORY_MEASURE_OPERATIONS <= set(process["keywords"])
+    visible_help = "\n".join((*process["rules"], process["code"]))
+    assert all(name in visible_help for name in TRAJECTORY_MEASURE_OPERATIONS)
 
 
 def test_authoring_index_tracks_definitions_aliases_references_and_safe_rename() -> None:
