@@ -151,6 +151,12 @@ Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射�
 取消、动作和 stop trace。随机分支由精确有限分支分析器展开，`run`、`compare`、`reach`、`steady` 和
 `cycle` 都必须先满足各自前提；任何路径都不会暗中抽样或把 fuel 截断结果标成完整结果。
 
+每次运行还保留有序的公开 observation 快照和公开 output event。Scenario 的类型化 Measure 只从这两类
+数据和 `elapsed`/`horizon` 等引擎观察值求值，支持终值、极值、事件求和/计数、条件持续时间、带显式
+默认值的首次发生、停止时间、最大回撤、总变化量和时间加权方差；派生 Measure 可以引用其他 Measure
+组成普通安全表达式。具名 Objective 仅引用数值 Measure，支持任意有限层字典序目标和布尔约束。有限
+策略空间被完整枚举时结果标记为 `exact_global`，并返回最优策略的全部 Measure。
+
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/

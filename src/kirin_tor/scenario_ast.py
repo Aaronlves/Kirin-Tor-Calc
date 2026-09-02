@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, Union
 
 from .errors import SourceLocation
-from .process_ast import EventCallAst, ExpressionAst
+from .process_ast import EventCallAst, ExpressionAst, TypeAst
 
 
 @dataclass(frozen=True)
@@ -115,6 +115,31 @@ class DecisionScheduleAst:
 
 
 @dataclass(frozen=True)
+class MeasureAst:
+    id: str
+    value_type: TypeAst
+    value: ExpressionAst
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ObjectiveTermAst:
+    direction: str
+    measure_id: str
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ObjectiveAst:
+    id: str
+    terms: Tuple[ObjectiveTermAst, ...]
+    constraints: Tuple[ExpressionAst, ...] = ()
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ScenarioBoundsAst:
     horizon: ExpressionAst
     maximum_events: ExpressionAst
@@ -136,6 +161,8 @@ class ScenarioAst:
     actions: Tuple[CompositeActionAst, ...] = ()
     policies: Tuple[PolicyAst, ...] = ()
     decisions: Tuple[DecisionScheduleAst, ...] = ()
+    measures: Tuple[MeasureAst, ...] = ()
+    objectives: Tuple[ObjectiveAst, ...] = ()
     stop: Optional[ExpressionAst] = None
     bounds: Optional[ScenarioBoundsAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
@@ -153,10 +180,7 @@ class AnalysisAst:
     scenario_path: str
     operation: str
     policy_ids: Tuple[str, ...] = ()
-    objective_direction: Optional[str] = None
-    objective: Optional[ExpressionAst] = None
-    tie_break_direction: Optional[str] = None
-    tie_break: Optional[ExpressionAst] = None
+    objective_ids: Tuple[str, ...] = ()
     target: Optional[ExpressionAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 

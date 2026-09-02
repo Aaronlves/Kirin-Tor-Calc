@@ -6,7 +6,7 @@ Kirin Tor 是一个游戏中立、文件驱动的结构化数学工作台，面�
 
 Kirin Tor 不是脚本式战斗模拟器。内核只执行 source 明确声明且受 horizon、事件、决策、分支、实体和
 集合容量约束的 Process 事件场景；它不会补全完整 APL、Boss 时间轴或未声明规则，也不做隐式抽样。
-这套新运行能力尚未接入正式 CLI 与浏览器工作台。
+Process Analysis 已接入 CLI 和可重放运行记录，浏览器工作台投影仍在接入中。
 
 ## 安装
 
@@ -240,7 +240,7 @@ kt cycle rotation.main_rotation
 Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推、有限状态解析模型、确定的多资源固定技能序列，以及有明确 phase 和 fuel 的有界 Process 场景。Process Analysis 已支持精确有限随机路径、作者声明的条件或固定序列策略，以及 `run`、`compare`、确定性有界 `optimize`、`reach`、有限状态 `steady` 和 `cycle`。它不会从技能说明自动推导完整战斗循环。当前没有：
 
 - 优先级 APL、完整战斗时间线或随机采样；
-- 连续时间自由动作时点优化、轨迹 Measure、具名多目标 Objective 或 Process 多图投影；
+- 连续时间自由动作时点优化或 Process 多图投影；
 - 通用联合分布、动态目标集合、列表、向量或矩阵语言；
 - 无界连续或离散全局优化器；
 - 积分、极限和完整通用数值根搜索。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from fractions import Fraction
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
@@ -26,6 +27,7 @@ from .process_ir import (
     TypedExpressionIR,
 )
 from .process_model import EventDirection, ExpressionSymbolKind
+from .process_lowering import ProcessLowerer
 from .scenario_ast import AnalysisAst, AtScheduleAst, EveryScheduleAst, ScenarioAst, ScenarioSendAst
 from .scenario_ir import (
     AnalysisIR,
@@ -34,10 +36,13 @@ from .scenario_ir import (
     ConnectionIR,
     DecisionScheduleIR,
     EveryScheduleIR,
+    DerivedMeasureExpressionIR,
     InstanceInputIR,
     InstanceMemberRefIR,
     InstancePhaseIR,
+    MeasureIR,
     ObjectiveIR,
+    ObjectiveTermIR,
     PolicyIR,
     PolicyRuleIR,
     ProcessInstanceIR,
@@ -45,10 +50,35 @@ from .scenario_ir import (
     ScenarioCallIR,
     ScenarioIR,
     ScenarioPhaseIR,
+    TrajectoryMeasureExpressionIR,
 )
 from .schema import require_identifier
 from .scenario_validation import validate_scenario_ir
 from .units import DIMENSIONLESS, UnitRegistry
+
+
+_TRAJECTORY_MEASURE_OPERATIONS = frozenset(
+    {
+        "final",
+        "minimum_over_time",
+        "maximum_over_time",
+        "maximum_drawdown",
+        "total_variation",
+        "variance_over_time",
+        "sum_events",
+        "count_events",
+        "duration_where",
+        "first_time",
+        "stop_time",
+    }
+)
+
+
+def _measure_call(source: ExpressionAst) -> Optional[Tuple[str, str]]:
+    match = re.fullmatch(r"([a-z_][a-z0-9_]*)\((.*)\)", source.text.strip())
+    if match is None or match.group(1) not in _TRAJECTORY_MEASURE_OPERATIONS:
+        return None
+    return match.group(1), match.group(2).strip()
 
 
 def scenario_static_symbols(registry: UnitRegistry) -> Dict[str, SymbolRefIR]:
@@ -209,6 +239,330 @@ class ScenarioLowerer:
             _member(instance, target), parameters, arguments, phase, source.location
         )
 
+    def _output_event(
+        self,
+        text: str,
+        instances: Mapping[str, ProcessInstanceIR],
+        location,
+        *,
+        with_parameter: bool,
+    ) -> Tuple[InstanceMemberRefIR, Optional[EventParameterIR]]:
+        pieces = text.strip().split(".")
+        expected = 3 if with_parameter else 2
+        if len(pieces) != expected or any(not re.fullmatch(r"[a-z][a-z0-9_]*", item) for item in pieces):
+            form = "INSTANCE.EVENT.PARAMETER" if with_parameter else "INSTANCE.EVENT"
+            raise SchemaError(f"event Measure requires {form}", location)
+        instance = instances.get(pieces[0])
+        if instance is None:
+            raise ReferenceError(
+                f"event Measure references unknown instance {pieces[0]!r}", location
+            )
+        event = next(
+            (
+                item
+                for item in instance.process.events
+                if item.ref.member_id == pieces[1]
+                and item.direction is EventDirection.OUTPUT
+            ),
+            None,
+        )
+        if event is None:
+            raise ReferenceError(
+                f"event Measure requires public output event {pieces[0]}.{pieces[1]}",
+                location,
+            )
+        parameter = None
+        if with_parameter:
+            parameter = next(
+                (item for item in event.parameters if item.id == pieces[2]), None
+            )
+            if parameter is None:
+                raise ReferenceError(
+                    f"output event {pieces[0]}.{pieces[1]} has no parameter {pieces[2]!r}",
+                    location,
+                )
+        return _member(instance, event.ref), parameter
+
+    @staticmethod
+    def _require_compatible_type(actual, expected, message: str, location) -> None:
+        if isinstance(actual, NumberTypeIR) and isinstance(expected, NumberTypeIR):
+            if actual.dimension == expected.dimension and (
+                not expected.integer or actual.integer
+            ):
+                return
+        elif actual == expected:
+            return
+        raise SchemaError(message, location)
+
+    def _lower_measures(
+        self,
+        source: ScenarioAst,
+        instances: Mapping[str, ProcessInstanceIR],
+        dynamic_symbols: Mapping[str, SymbolRefIR],
+    ) -> Tuple[MeasureIR, ...]:
+        type_lowerer = ProcessLowerer(self.registry)
+        declared_types = {}
+        measure_symbols = {}
+        locations = {}
+        for item in source.measures:
+            require_identifier(item.id, "measure id", item.location)
+            if item.id in declared_types:
+                raise SchemaError(f"duplicate scenario measure {item.id!r}", item.location)
+            value_type = type_lowerer._type(item.value_type)
+            declared_types[item.id] = value_type
+            locations[item.id] = item.location
+            measure_symbols[item.id] = SymbolRefIR(
+                source.qualified_id,
+                item.id,
+                ExpressionSymbolKind.MEASURE,
+                value_type,
+            )
+
+        result = []
+        for item in source.measures:
+            declared_type = declared_types[item.id]
+            call = _measure_call(item.value)
+            if call is None:
+                expression = DerivedMeasureExpressionIR(
+                    compile_process_expression(
+                        item.value,
+                        declared_type,
+                        {**self.static_symbols, **measure_symbols},
+                        self.registry,
+                    )
+                )
+            else:
+                operation, argument = call
+                if operation in {
+                    "final",
+                    "minimum_over_time",
+                    "maximum_over_time",
+                    "maximum_drawdown",
+                    "total_variation",
+                    "variance_over_time",
+                }:
+                    if not argument:
+                        raise SchemaError(f"{operation} requires one value", item.location)
+                    expected_type = (
+                        None if operation == "variance_over_time" else declared_type
+                    )
+                    value = compile_process_expression(
+                        ExpressionAst(argument, item.value.location),
+                        expected_type,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    if operation != "final" and not isinstance(
+                        value.result_type, NumberTypeIR
+                    ):
+                        raise SchemaError(
+                            f"{operation} requires a numeric value", item.location
+                        )
+                    if operation == "variance_over_time":
+                        assert isinstance(value.result_type, NumberTypeIR)
+                        variance_type = NumberTypeIR(
+                            value.result_type.dimension.power(Fraction(2)).render(),
+                            value.result_type.dimension.power(Fraction(2)),
+                        )
+                        self._require_compatible_type(
+                            variance_type,
+                            declared_type,
+                            "variance_over_time Measure type must square its value unit",
+                            item.location,
+                        )
+                    expression = TrajectoryMeasureExpressionIR(operation, value=value)
+                elif operation == "duration_where":
+                    condition = compile_process_expression(
+                        ExpressionAst(argument, item.value.location),
+                        self.boolean,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    self._require_compatible_type(
+                        self.time,
+                        declared_type,
+                        "duration_where Measure must have a time type",
+                        item.location,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(
+                        operation, value=condition
+                    )
+                elif operation == "first_time":
+                    match = re.fullmatch(
+                        r"(?s)(.+),\s*default\s*=\s*(.+)", argument
+                    )
+                    if match is None:
+                        raise SchemaError(
+                            "first_time requires an explicit default = TIME",
+                            item.location,
+                        )
+                    condition = compile_process_expression(
+                        ExpressionAst(match.group(1).strip(), item.value.location),
+                        self.boolean,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    default = compile_process_expression(
+                        ExpressionAst(match.group(2).strip(), item.value.location),
+                        self.time,
+                        dynamic_symbols,
+                        self.registry,
+                    )
+                    self._require_compatible_type(
+                        self.time,
+                        declared_type,
+                        "first_time Measure must have a time type",
+                        item.location,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(
+                        operation, value=condition, default=default
+                    )
+                elif operation == "stop_time":
+                    if argument:
+                        raise SchemaError("stop_time does not accept arguments", item.location)
+                    self._require_compatible_type(
+                        self.time,
+                        declared_type,
+                        "stop_time Measure must have a time type",
+                        item.location,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(operation)
+                elif operation == "count_events":
+                    event, _parameter = self._output_event(
+                        argument, instances, item.location, with_parameter=False
+                    )
+                    count_type = NumberTypeIR(
+                        "dimensionless", DIMENSIONLESS, "count", True
+                    )
+                    self._require_compatible_type(
+                        count_type,
+                        declared_type,
+                        "count_events Measure must have an integer count type",
+                        item.location,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(
+                        operation, event=event
+                    )
+                else:
+                    assert operation == "sum_events"
+                    event, parameter = self._output_event(
+                        argument, instances, item.location, with_parameter=True
+                    )
+                    assert parameter is not None
+                    if not isinstance(parameter.value_type, NumberTypeIR):
+                        raise SchemaError(
+                            "sum_events requires a numeric output-event parameter",
+                            item.location,
+                        )
+                    self._require_compatible_type(
+                        parameter.value_type,
+                        declared_type,
+                        "sum_events Measure type must match its event parameter",
+                        item.location,
+                    )
+                    expression = TrajectoryMeasureExpressionIR(
+                        operation,
+                        event=event,
+                        parameter_id=parameter.id,
+                    )
+            result.append(
+                MeasureIR(
+                    source.qualified_id,
+                    item.id,
+                    declared_type,
+                    expression,
+                    item.label,
+                    item.location,
+                )
+            )
+
+        dependencies = {
+            measure.id: tuple(
+                reference.id
+                for reference in (
+                    measure.expression.value.references
+                    if isinstance(measure.expression, DerivedMeasureExpressionIR)
+                    else ()
+                )
+                if reference.kind is ExpressionSymbolKind.MEASURE
+            )
+            for measure in result
+        }
+        visiting = set()
+        complete = set()
+
+        def visit(measure_id: str) -> None:
+            if measure_id in complete:
+                return
+            if measure_id in visiting:
+                raise SchemaError(
+                    f"cyclic Measure dependency involving {measure_id!r}",
+                    locations[measure_id],
+                )
+            visiting.add(measure_id)
+            for dependency in dependencies[measure_id]:
+                visit(dependency)
+            visiting.remove(measure_id)
+            complete.add(measure_id)
+
+        for measure_id in dependencies:
+            visit(measure_id)
+        return tuple(result)
+
+    def _lower_objectives(
+        self, source: ScenarioAst, measures: Sequence[MeasureIR]
+    ) -> Tuple[ObjectiveIR, ...]:
+        measure_map = {measure.id: measure for measure in measures}
+        symbols = {
+            measure.id: SymbolRefIR(
+                source.qualified_id,
+                measure.id,
+                ExpressionSymbolKind.MEASURE,
+                measure.value_type,
+            )
+            for measure in measures
+        }
+        result = []
+        seen = set()
+        for item in source.objectives:
+            require_identifier(item.id, "objective id", item.location)
+            if item.id in seen:
+                raise SchemaError(f"duplicate scenario objective {item.id!r}", item.location)
+            seen.add(item.id)
+            terms = []
+            for term in item.terms:
+                measure = measure_map.get(term.measure_id)
+                if measure is None:
+                    raise ReferenceError(
+                        f"objective {item.id!r} references unknown Measure {term.measure_id!r}",
+                        term.location,
+                    )
+                if not isinstance(measure.value_type, NumberTypeIR):
+                    raise SchemaError(
+                        "objective terms must reference numeric Measures", term.location
+                    )
+                terms.append(ObjectiveTermIR(term.direction, term.measure_id))
+            constraints = tuple(
+                compile_process_expression(
+                    condition,
+                    self.boolean,
+                    {**self.static_symbols, **symbols},
+                    self.registry,
+                )
+                for condition in item.constraints
+            )
+            result.append(
+                ObjectiveIR(
+                    source.qualified_id,
+                    item.id,
+                    tuple(terms),
+                    constraints,
+                    item.label,
+                    item.location,
+                )
+            )
+        return tuple(result)
+
     def lower(self, source: ScenarioAst) -> ScenarioIR:
         require_identifier(source.owner_id, "scenario owner id", source.location)
         require_identifier(source.id, "scenario id", source.location)
@@ -318,6 +672,9 @@ class ScenarioLowerer:
                 "decision_count",
                 ExpressionSymbolKind.RUNTIME,
                 NumberTypeIR("dimensionless", DIMENSIONLESS, "count", True),
+            ),
+            "horizon": SymbolRefIR(
+                scenario_id, "horizon", ExpressionSymbolKind.RUNTIME, self.time
             ),
         }
         dynamic_symbols = {
@@ -495,6 +852,8 @@ class ScenarioLowerer:
             if source.stop is not None
             else None
         )
+        measures = self._lower_measures(source, instances, dynamic_symbols)
+        objectives = self._lower_objectives(source, measures)
         scenario = ScenarioIR(
             source.owner_id,
             source.id,
@@ -507,6 +866,8 @@ class ScenarioLowerer:
             tuple(policies.values()),
             tuple(decisions),
             tuple(observation_symbols.values()) + tuple(runtime_symbols.values()),
+            measures,
+            objectives,
             stop,
             bounds,
             location=source.location,
@@ -544,22 +905,6 @@ def lower_analysis_asts(
         seen.add(source.qualified_id)
         scenario = _resolve_path(source.owner_id, source.scenario_path, scenarios, "scenario")
         symbols = {symbol.id: symbol for symbol in scenario.observation_symbols}
-        objective = (
-            ObjectiveIR(
-                source.objective_direction or "maximize",
-                compile_process_expression(source.objective, None, symbols, registry),
-            )
-            if source.objective is not None
-            else None
-        )
-        tie_break = (
-            ObjectiveIR(
-                source.tie_break_direction or "maximize",
-                compile_process_expression(source.tie_break, None, symbols, registry),
-            )
-            if source.tie_break is not None
-            else None
-        )
         target = (
             compile_process_expression(
                 source.target, BooleanTypeIR(), symbols, registry
@@ -567,27 +912,22 @@ def lower_analysis_asts(
             if source.target is not None
             else None
         )
-        if source.operation == "optimize" and objective is None:
-            raise SchemaError("optimize analysis requires an objective", source.location)
-        if source.operation != "optimize" and objective is not None:
-            raise SchemaError(
-                "objective is only valid for optimize analysis", source.location
+        objective_ids = source.objective_ids
+        available_objectives = {objective.id for objective in scenario.objectives}
+        unknown_objectives = sorted(set(objective_ids) - available_objectives)
+        if unknown_objectives:
+            raise ReferenceError(
+                f"analysis references unknown objective {unknown_objectives[0]!r}",
+                source.location,
             )
-        if objective is not None and not isinstance(
-            objective.value.result_type, NumberTypeIR
-        ):
+        if len(set(objective_ids)) != len(objective_ids):
+            raise SchemaError("analysis objective ids must be unique", source.location)
+        if source.operation == "optimize" and not objective_ids:
+            raise SchemaError("optimize analysis requires objectives", source.location)
+        if source.operation != "optimize" and objective_ids:
             raise SchemaError(
-                "maximize/minimize objectives must be numeric", source.objective.location
+                "objectives are only valid for optimize analysis", source.location
             )
-        if tie_break is not None and not isinstance(
-            tie_break.value.result_type, NumberTypeIR
-        ):
-            raise SchemaError(
-                "maximize/minimize tie-break objectives must be numeric",
-                source.tie_break.location,
-            )
-        if source.operation != "optimize" and tie_break is not None:
-            raise SchemaError("then is only valid for optimize analysis", source.location)
         policy_ids = source.policy_ids
         available_policies = {policy.id for policy in scenario.policies}
         unknown_policies = sorted(set(policy_ids) - available_policies)
@@ -625,8 +965,7 @@ def lower_analysis_asts(
                 scenario.qualified_id,
                 source.operation,
                 policy_ids,
-                objective,
-                tie_break,
+                objective_ids,
                 target,
                 source.location,
             )

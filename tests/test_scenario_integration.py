@@ -46,8 +46,12 @@ def test_brewmaster_scenario_and_analysis_parse_lower_and_round_trip(tmp_path: P
     ]
     assert scenario.bounds.horizon == 60
     assert analysis.scenario_id == scenario.qualified_id
-    assert analysis.objective is not None
-    assert analysis.objective.value.result_type == scenario.observation_symbols[-3].value_type
+    assert analysis.objective_ids == (
+        "smoothest_health",
+        "most_purified",
+        "longest_survival",
+    )
+    assert [item.id for item in scenario.objectives] == list(analysis.objective_ids)
 
 
 def test_scenario_requires_complete_local_phase_mapping(tmp_path: Path) -> None:

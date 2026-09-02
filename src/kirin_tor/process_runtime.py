@@ -93,6 +93,24 @@ class ProcessTraceEntry:
 
 
 @dataclass(frozen=True)
+class ProcessObservationSample:
+    index: int
+    time: Fraction
+    phase: str
+    values: Tuple[Tuple[str, ProcessValue], ...]
+
+
+@dataclass(frozen=True)
+class ProcessOutputEvent:
+    id: ProcessEventId
+    time: Fraction
+    phase: str
+    instance_id: str
+    event_id: str
+    arguments: Tuple[Tuple[str, ProcessValue], ...]
+
+
+@dataclass(frozen=True)
 class ProcessRunResult:
     scenario_id: str
     elapsed: Fraction
@@ -106,6 +124,8 @@ class ProcessRunResult:
     inputs: Tuple[Tuple[str, Tuple[Tuple[str, ProcessValue], ...]], ...]
     states: Tuple[Tuple[str, Tuple[Tuple[str, ProcessValue], ...]], ...]
     observations: Tuple[Tuple[str, ProcessValue], ...]
+    observation_samples: Tuple[ProcessObservationSample, ...]
+    output_events: Tuple[ProcessOutputEvent, ...]
     decisions: Tuple[Tuple[Fraction, str], ...]
     trace: Tuple[ProcessTraceEntry, ...]
 
@@ -219,6 +239,8 @@ class DeterministicProcessExecutor:
         self.branch_count = 1
         self.branch_decision_count = 0
         self.trace: List[ProcessTraceEntry] = []
+        self.observation_samples: List[ProcessObservationSample] = []
+        self.output_events: List[ProcessOutputEvent] = []
         self.decisions: List[Tuple[Fraction, str]] = []
         self.current_time = Fraction(0)
         self.stopped = False
@@ -412,6 +434,7 @@ class DeterministicProcessExecutor:
                 self._queue_key(key)
                 current += schedule.interval
         self._record(Fraction(0), "initial", "initialized")
+        self._sample("initial")
 
     def _scenario_values(self) -> Dict[SymbolRefIR, ProcessValue]:
         result: Dict[SymbolRefIR, ProcessValue] = {}
@@ -426,7 +449,24 @@ class DeterministicProcessExecutor:
         result[symbols["elapsed"]] = self.current_time
         result[symbols["event_count"]] = Fraction(self.event_count)
         result[symbols["decision_count"]] = Fraction(self.decision_count)
+        result[symbols["horizon"]] = self.scenario.bounds.horizon
         return result
+
+    def _sample(self, phase: str) -> None:
+        values = self._scenario_values()
+        self.observation_samples.append(
+            ProcessObservationSample(
+                len(self.observation_samples),
+                self.current_time,
+                phase,
+                tuple(
+                    sorted(
+                        ((symbol.id, value) for symbol, value in values.items()),
+                        key=lambda item: item[0],
+                    )
+                ),
+            )
+        )
 
     def _scenario_event(
         self,
@@ -498,6 +538,7 @@ class DeterministicProcessExecutor:
                 details=(("elapsed", elapsed), ("value", value)),
             )
         self.current_time = time
+        self._sample("flow")
 
     def _available_actions(
         self, schedule: DecisionScheduleIR, values: Mapping[SymbolRefIR, ProcessValue]
@@ -1106,6 +1147,16 @@ class DeterministicProcessExecutor:
             if declaration.direction.value == "internal":
                 self._enqueue(event)
             elif declaration.direction.value == "output":
+                self.output_events.append(
+                    ProcessOutputEvent(
+                        event.id,
+                        event.time,
+                        event.phase.id,
+                        pending.instance_id,
+                        declaration.ref.member_id,
+                        event.arguments,
+                    )
+                )
                 targets = self.connections.get(
                     (pending.instance_id, declaration.ref), ()
                 )
@@ -1189,6 +1240,7 @@ class DeterministicProcessExecutor:
                 self._apply_writes(writes, time, phase)
                 self._apply_schedules(schedules, phase)
                 self._apply_emits(emits)
+            self._sample(phase.id)
             if self._check_stop(phase.id):
                 break
             processed_batches += 1
@@ -1249,6 +1301,8 @@ class DeterministicProcessExecutor:
             inputs,
             states,
             tuple(sorted(((symbol.id, value) for symbol, value in observations.items()))),
+            tuple(self.observation_samples),
+            tuple(self.output_events),
             tuple(self.decisions),
             tuple(self.trace),
         )

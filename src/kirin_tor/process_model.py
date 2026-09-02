@@ -50,3 +50,4 @@ class ExpressionSymbolKind(str, Enum):
     EVENT_CONTEXT = "event_context"
     OBSERVATION = "observation"
     RUNTIME = "runtime"
+    MEASURE = "measure"

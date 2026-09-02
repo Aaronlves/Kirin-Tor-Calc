@@ -17,7 +17,8 @@ from .process_runtime import (
     run_process_scenario,
     selector_for_policy,
 )
-from .scenario_ir import AnalysisIR, PolicyIR, ScenarioIR
+from .process_measure import evaluate_process_measures
+from .scenario_ir import AnalysisIR, ObjectiveIR, PolicyIR, ScenarioIR
 from .units import UnitRegistry
 
 
@@ -49,13 +50,32 @@ class CompareAnalysisResult:
 
 
 @dataclass(frozen=True)
+class SolverProof:
+    level: str
+    method: str
+    error_bound: Optional[Fraction] = None
+    tolerance: Optional[Fraction] = None
+    time_grid: Optional[Fraction] = None
+    search_budget: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ObjectiveOptimizationResult:
+    objective_id: str
+    best: ProcessRunResult
+    measures: Tuple[Tuple[str, ProcessValue], ...]
+    objective_values: Tuple[ProcessValue, ...]
+    constraints: Tuple[bool, ...]
+    proof: SolverProof
+    tied_optima: int
+
+
+@dataclass(frozen=True)
 class OptimizeAnalysisResult:
     analysis_id: str
     operation: str
-    best: ProcessRunResult
-    objective_values: Tuple[ProcessValue, ...]
+    objectives: Tuple[ObjectiveOptimizationResult, ...]
     explored_branches: int
-    tied_optima: int
 
 
 @dataclass(frozen=True)
@@ -200,45 +220,35 @@ def _run_distribution(
     return tuple(outcomes), max(explored, 1)
 
 
-def _result_values(
-    scenario: ScenarioIR, result: ProcessRunResult
-) -> Dict[object, ProcessValue]:
-    values = dict(result.observations)
-    return {
-        symbol: values[symbol.id]
-        for symbol in scenario.observation_symbols
-        if symbol.id in values
-    }
-
-
 def _objective_values(
-    analysis: AnalysisIR,
-    scenario: ScenarioIR,
-    result: ProcessRunResult,
-    registry: UnitRegistry,
+    objective: ObjectiveIR, measures: Mapping[str, ProcessValue]
 ) -> Tuple[ProcessValue, ...]:
-    objectives = tuple(
-        item
-        for item in (analysis.objective, analysis.tie_break)
-        if item is not None
-    )
-    environment = _result_values(scenario, result)
+    return tuple(measures[term.measure_id] for term in objective.terms)
+
+
+def _objective_key(objective: ObjectiveIR, values: Tuple[ProcessValue, ...]):
     return tuple(
-        evaluate_process_expression(item.value, environment, registry)
-        for item in objectives
+        value if term.direction == "maximize" else -value
+        for term, value in zip(objective.terms, values)
     )
 
 
-def _objective_key(analysis: AnalysisIR, values: Tuple[ProcessValue, ...]):
-    objectives = tuple(
-        item
-        for item in (analysis.objective, analysis.tie_break)
-        if item is not None
-    )
-    return tuple(
-        value if objective.direction == "maximize" else -value
-        for objective, value in zip(objectives, values)
-    )
+def _constraints_hold(
+    objective: ObjectiveIR,
+    measures: Mapping[str, ProcessValue],
+    registry: UnitRegistry,
+) -> Tuple[bool, ...]:
+    result = []
+    for constraint in objective.constraints:
+        environment = {
+            reference: measures[reference.id]
+            for reference in constraint.references
+            if reference.id in measures
+        }
+        value = evaluate_process_expression(constraint, environment, registry)
+        assert isinstance(value, bool)
+        result.append(value)
+    return tuple(result)
 
 
 def _optimize(
@@ -250,7 +260,9 @@ def _optimize(
             analysis.location,
         )
     pending: List[Tuple[str, ...]] = [()]
-    complete: List[Tuple[Tuple[ProcessValue, ...], ProcessRunResult]] = []
+    complete: List[
+        Tuple[Tuple[Tuple[str, ProcessValue], ...], ProcessRunResult]
+    ] = []
     explored = 0
     while pending:
         prefix = pending.pop()
@@ -274,25 +286,64 @@ def _optimize(
                 )
             pending.extend(prefix + (choice,) for choice in reversed(need.available))
             continue
-        complete.append((_objective_values(analysis, scenario, result, registry), result))
+        complete.append((evaluate_process_measures(scenario, result, registry), result))
     if not complete:
         raise ProcessExecutionError("optimization produced no complete policy", analysis.location)
-    best_key = max(_objective_key(analysis, values) for values, _result in complete)
-    best = [
-        (values, result)
-        for values, result in complete
-        if _objective_key(analysis, values) == best_key
-    ]
-    # Decision sequences are a stable final tie breaker only for presentation;
-    # semantic equality is entirely determined by declared objectives.
-    best.sort(key=lambda item: item[1].decisions)
+    declarations = {item.id: item for item in scenario.objectives}
+    optimized = []
+    for objective_id in analysis.objective_ids:
+        objective = declarations[objective_id]
+        feasible = []
+        for measure_values, result in complete:
+            measures = dict(measure_values)
+            constraints = _constraints_hold(objective, measures, registry)
+            if all(constraints):
+                feasible.append(
+                    (
+                        _objective_values(objective, measures),
+                        measure_values,
+                        constraints,
+                        result,
+                    )
+                )
+        if not feasible:
+            raise ProcessExecutionError(
+                f"objective {objective_id!r} has no strategy satisfying all constraints",
+                objective.location,
+            )
+        best_key = max(
+            _objective_key(objective, values)
+            for values, _measures, _constraints, _result in feasible
+        )
+        best = [
+            item
+            for item in feasible
+            if _objective_key(objective, item[0]) == best_key
+        ]
+        # Decision sequences are a stable presentation tie breaker. Semantic
+        # equality is entirely determined by the author's lexicographic terms.
+        best.sort(key=lambda item: item[3].decisions)
+        values, measures, constraints, run = best[0]
+        optimized.append(
+            ObjectiveOptimizationResult(
+                objective_id,
+                run,
+                measures,
+                values,
+                constraints,
+                SolverProof(
+                    "exact_global",
+                    "exhaustive_finite_policy_enumeration",
+                    search_budget=scenario.bounds.maximum_branches,
+                ),
+                len(best),
+            )
+        )
     return OptimizeAnalysisResult(
         analysis.qualified_id,
         analysis.operation,
-        best[0][1],
-        best[0][0],
+        tuple(optimized),
         max(explored, 1),
-        len(best),
     )
 
 
@@ -654,6 +705,30 @@ def _run_data(result: ProcessRunResult) -> dict:
         "observations": {
             name: _value_data(value) for name, value in result.observations
         },
+        "observation_samples": [
+            {
+                "index": sample.index,
+                "time": _value_data(sample.time),
+                "phase": sample.phase,
+                "values": {
+                    name: _value_data(value) for name, value in sample.values
+                },
+            }
+            for sample in result.observation_samples
+        ],
+        "output_events": [
+            {
+                "event_id": event.id.value,
+                "time": _value_data(event.time),
+                "phase": event.phase,
+                "instance": event.instance_id,
+                "member": event.event_id,
+                "arguments": {
+                    name: _value_data(value) for name, value in event.arguments
+                },
+            }
+            for event in result.output_events
+        ],
         "decisions": [
             {"time": _value_data(time), "choice": choice}
             for time, choice in result.decisions
@@ -732,11 +807,36 @@ def process_analysis_result_data(
         base.update(
             {
                 "explored_branches": result.explored_branches,
-                "tied_optima": result.tied_optima,
-                "objective_values": [
-                    _value_data(value) for value in result.objective_values
+                "objectives": [
+                    {
+                        "objective": item.objective_id,
+                        "proof": {
+                            "level": item.proof.level,
+                            "method": item.proof.method,
+                            "error_bound": _value_data(item.proof.error_bound)
+                            if item.proof.error_bound is not None
+                            else None,
+                            "tolerance": _value_data(item.proof.tolerance)
+                            if item.proof.tolerance is not None
+                            else None,
+                            "time_grid": _value_data(item.proof.time_grid)
+                            if item.proof.time_grid is not None
+                            else None,
+                            "search_budget": item.proof.search_budget,
+                        },
+                        "tied_optima": item.tied_optima,
+                        "objective_values": [
+                            _value_data(value) for value in item.objective_values
+                        ],
+                        "constraints": list(item.constraints),
+                        "measures": {
+                            name: _value_data(value)
+                            for name, value in item.measures
+                        },
+                        "best": _run_data(item.best),
+                    }
+                    for item in result.objectives
                 ],
-                "best": _run_data(result.best),
             }
         )
     elif isinstance(result, ReachAnalysisResult):

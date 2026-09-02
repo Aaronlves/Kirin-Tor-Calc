@@ -6,6 +6,7 @@ import json
 from typing import List
 
 from .scenario_ast import AnalysisAst, AtScheduleAst, EveryScheduleAst, ScenarioAst, ScenarioSendAst
+from .process_renderer import _type
 
 
 def _quoted(value: str) -> str:
@@ -98,6 +99,27 @@ def render_scenario_ast(scenario: ScenarioAst) -> List[str]:
             line += f" until {_expression(decision.end)}"
         lines.append(f"{line} phase {decision.phase_id}:")
         lines.extend(f"    - {option}" for option in decision.options)
+    for measure in scenario.measures:
+        line = f"  measure {measure.id}"
+        if measure.label is not None:
+            line += " " + _quoted(measure.label)
+        lines.append(
+            f"{line}: {_type(measure.value_type)} = {_expression(measure.value)}"
+        )
+    for objective in scenario.objectives:
+        line = f"  objective {objective.id}"
+        if objective.label is not None:
+            line += " " + _quoted(objective.label)
+        lines.append(line + ":")
+        for index, term in enumerate(objective.terms):
+            prefix = "" if index == 0 else "then "
+            lines.append(
+                f"    {prefix}{term.direction} {term.measure_id}"
+            )
+        lines.extend(
+            f"    require {_expression(condition)}"
+            for condition in objective.constraints
+        )
     if scenario.stop is not None:
         lines.append(f"  stop when {_expression(scenario.stop)}")
     assert scenario.bounds is not None
@@ -128,13 +150,10 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
     elif analysis.policy_ids:
         lines.append("  policies:")
         lines.extend(f"    - {policy_id}" for policy_id in analysis.policy_ids)
-    if analysis.objective is not None:
-        lines.append(
-            f"  objective {analysis.objective_direction} {_expression(analysis.objective)}"
-        )
-    if analysis.tie_break is not None:
-        lines.append(
-            f"  then {analysis.tie_break_direction} {_expression(analysis.tie_break)}"
+    if analysis.objective_ids:
+        lines.append("  objectives:")
+        lines.extend(
+            f"    - {objective_id}" for objective_id in analysis.objective_ids
         )
     if analysis.target is not None:
         lines.append(f"  target = {_expression(analysis.target)}")

@@ -419,6 +419,9 @@ scenario survival:
     otherwise wait
   decide every 1/2 second from 0 second phase decision:
     - wait
+  measure survival_time: time = first_time(not actor.alive, default = horizon)
+  objective longest_survival:
+    maximize survival_time
   stop when not actor.alive
   bounds:
     horizon = 60 second
@@ -431,13 +434,20 @@ analysis survival_run:
   using = survival
   operation = run
   policy = always_wait
+
+analysis survival_search:
+  using = survival
+  operation = optimize
+  objectives:
+    - longest_survival
 ```
 
 `scenario` lowering resolves every Process instance, input, local-to-global phase binding, event
 connection, send, composite action, decision point, observation, stop condition, and mandatory
 fuel bound. It rejects statically enumerable batch conflicts, invalid phase mappings, overlapping
 decision points, and schedules that already exceed their declared event/decision fuel. `analysis`
-resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests and typed objectives.
+resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests, typed trajectory
+Measures, and named constrained lexicographic Objectives.
 
 The deterministic runtime API executes a lowered scenario with exact time, simultaneous phase
 snapshots, reducers, flow, guards, stable event IDs, keyed scheduling, state/domain checks, stop
@@ -445,7 +455,9 @@ conditions, runtime fuel enforcement, and a replay-stable trace. A scenario with
 choices requires an explicit selector; random branches are rejected by this deterministic path.
 `run`, source-Policy `compare`, deterministic bounded `optimize`, exact random `reach`, finite-state
 `steady`, and exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
-can be saved/replayed with embedded source snapshots. The workbench projection remains pending. The
+can be saved/replayed with embedded source snapshots. The finite optimizer returns every Measure for
+each selected Objective and labels exhaustive finite policy enumeration as `exact_global`; it uses
+no hidden time grid or numerical tolerance. The workbench projection remains pending. The
 full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).

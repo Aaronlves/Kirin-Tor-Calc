@@ -14,6 +14,7 @@ from .process_ir import (
     ProcessMemberRefIR,
     SymbolRefIR,
     TypedExpressionIR,
+    ValueTypeIR,
 )
 
 
@@ -138,6 +139,49 @@ class ScenarioBoundsIR:
 
 
 @dataclass(frozen=True)
+class TrajectoryMeasureExpressionIR:
+    operation: str
+    value: Optional[TypedExpressionIR] = None
+    event: Optional[InstanceMemberRefIR] = None
+    parameter_id: Optional[str] = None
+    default: Optional[TypedExpressionIR] = None
+
+
+@dataclass(frozen=True)
+class DerivedMeasureExpressionIR:
+    value: TypedExpressionIR
+
+
+MeasureExpressionIR = Union[TrajectoryMeasureExpressionIR, DerivedMeasureExpressionIR]
+
+
+@dataclass(frozen=True)
+class MeasureIR:
+    scenario_id: str
+    id: str
+    value_type: ValueTypeIR
+    expression: MeasureExpressionIR
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class ObjectiveTermIR:
+    direction: str
+    measure_id: str
+
+
+@dataclass(frozen=True)
+class ObjectiveIR:
+    scenario_id: str
+    id: str
+    terms: Tuple[ObjectiveTermIR, ...]
+    constraints: Tuple[TypedExpressionIR, ...] = ()
+    label: Optional[str] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ScenarioIR:
     owner_id: str
     id: str
@@ -150,6 +194,8 @@ class ScenarioIR:
     policies: Tuple[PolicyIR, ...]
     decisions: Tuple[DecisionScheduleIR, ...]
     observation_symbols: Tuple[SymbolRefIR, ...]
+    measures: Tuple[MeasureIR, ...]
+    objectives: Tuple[ObjectiveIR, ...]
     stop: Optional[TypedExpressionIR]
     bounds: ScenarioBoundsIR
     version: int = SCENARIO_IR_VERSION
@@ -161,12 +207,6 @@ class ScenarioIR:
 
 
 @dataclass(frozen=True)
-class ObjectiveIR:
-    direction: str
-    value: TypedExpressionIR
-
-
-@dataclass(frozen=True)
 class AnalysisIR:
     owner_id: str
     id: str
@@ -174,8 +214,7 @@ class AnalysisIR:
     scenario_id: str
     operation: str
     policy_ids: Tuple[str, ...] = ()
-    objective: Optional[ObjectiveIR] = None
-    tie_break: Optional[ObjectiveIR] = None
+    objective_ids: Tuple[str, ...] = ()
     target: Optional[TypedExpressionIR] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 

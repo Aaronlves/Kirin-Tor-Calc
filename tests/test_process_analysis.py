@@ -167,9 +167,83 @@ def test_bounded_optimizer_finds_a_globally_best_brewmaster_timing(tmp_path: Pat
         workspace.analyses["brew.latest_death"], scenario, workspace.units
     )
     assert isinstance(result, OptimizeAnalysisResult)
-    assert result.best.elapsed >= 3
     assert result.explored_branches <= scenario.bounds.maximum_branches
-    assert result.objective_values[0] == result.best.elapsed
+    assert [item.objective_id for item in result.objectives] == [
+        "smoothest_health",
+        "most_purified",
+        "longest_survival",
+    ]
+    longest = result.objectives[-1]
+    assert longest.best.elapsed >= 3
+    assert longest.objective_values[0] == dict(longest.measures)["survival_time"]
+    assert longest.proof.level == "exact_global"
+    assert longest.proof.time_grid is None
+    assert set(dict(longest.measures)) == {
+        "minimum_health",
+        "health_variation",
+        "total_purified",
+        "survival_time",
+        "remaining_charges",
+    }
+
+
+def test_named_objectives_apply_constraints_and_optimize_independently(
+    tmp_path: Path,
+) -> None:
+    source = """@kirin 2
+@entry objectives
+
+process counter:
+  state value: count = 0
+  event input add()
+  on add():
+    next value = value + 1
+  observe current: count = value
+
+scenario choice:
+  phases:
+    - decision
+  use actor = counter:
+  action add:
+    send actor.add() phase decision
+  decide every 1 second from 0 second until 1 second phase decision:
+    - add
+    - wait
+  measure final_value: count = final(actor.current)
+  measure additions: count = final(decision_count)
+  objective highest_bounded:
+    maximize final_value
+    then minimize additions
+    require final_value <= 1
+  objective fewest_additions:
+    minimize final_value
+    then minimize additions
+  bounds:
+    horizon = 1 second
+    maximum_events = 2
+    maximum_decisions = 2
+    maximum_branches = 16
+    maximum_entities = 1
+
+analysis optimize_both:
+  using = choice
+  operation = optimize
+  objectives:
+    - highest_bounded
+    - fewest_additions
+"""
+    workspace = _workspace(tmp_path, source)
+    result = execute_process_analysis(
+        workspace.analyses["objectives.optimize_both"],
+        workspace.scenarios["objectives.choice"],
+        workspace.units,
+    )
+    assert isinstance(result, OptimizeAnalysisResult)
+    by_id = {item.objective_id: item for item in result.objectives}
+    assert dict(by_id["highest_bounded"].measures)["final_value"] == 1
+    assert by_id["highest_bounded"].constraints == (True,)
+    assert dict(by_id["fewest_additions"].measures)["final_value"] == 0
+    assert all(item.proof.level == "exact_global" for item in result.objectives)
 
 
 def test_steady_proves_a_unique_finite_process_distribution(tmp_path: Path) -> None:

@@ -11,11 +11,12 @@ from .kirin_v2 import IDENTIFIER, PATH, QUOTED, _Node, _decode, _nodes, _parse_h
 from .limits import (
     MAX_SCENARIO_ACTIONS,
     MAX_SCENARIO_INSTANCES,
+    MAX_SCENARIO_MEASURES,
     MAX_SCENARIO_PHASES,
     MAX_SCENARIO_SCHEDULES,
 )
 from .process_ast import EventArgumentAst, EventCallAst, ExpressionAst
-from .process_parser import _split_top_level
+from .process_parser import _split_top_level, _typed_declaration
 from .scenario_ast import (
     AnalysisAst,
     AtScheduleAst,
@@ -26,6 +27,9 @@ from .scenario_ast import (
     EveryScheduleAst,
     InstanceInputAst,
     InstancePhaseAst,
+    MeasureAst,
+    ObjectiveAst,
+    ObjectiveTermAst,
     PolicyAst,
     PolicyRuleAst,
     ProcessInstanceAst,
@@ -179,6 +183,8 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     actions: List[CompositeActionAst] = []
     policies: List[PolicyAst] = []
     decisions: List[DecisionScheduleAst] = []
+    measures: List[MeasureAst] = []
+    objectives: List[ObjectiveAst] = []
     stop = None
     bounds = None
 
@@ -370,6 +376,99 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                 )
             )
             continue
+        if text.startswith("measure "):
+            item_id, label, value_type, tail = _typed_declaration(
+                text[len("measure ") :], path, owner_id, child, field
+            )
+            if child.children or not tail.startswith("=") or not tail[1:].strip():
+                _fail(
+                    path,
+                    owner_id,
+                    child,
+                    "measure must use measure ID [\"LABEL\"]: TYPE = EXPRESSION",
+                    field,
+                )
+            measures.append(
+                MeasureAst(
+                    item_id,
+                    value_type,
+                    ExpressionAst(
+                        tail[1:].strip(), _location(path, owner_id, child, field)
+                    ),
+                    label,
+                    _location(path, owner_id, child, field),
+                )
+            )
+            if len(measures) > MAX_SCENARIO_MEASURES:
+                _fail(
+                    path,
+                    owner_id,
+                    child,
+                    f"scenario exceeds {MAX_SCENARIO_MEASURES} measures",
+                    field,
+                )
+            continue
+        objective = re.fullmatch(
+            rf"objective\s+({IDENTIFIER})(?:\s+({QUOTED}))?:", text
+        )
+        if objective:
+            terms = []
+            constraints = []
+            for objective_item in child.children:
+                term = re.fullmatch(
+                    rf"(maximize|minimize|then\s+maximize|then\s+minimize)\s+({IDENTIFIER})",
+                    objective_item.line.text,
+                )
+                requirement = re.fullmatch(
+                    r"require\s+(.+)", objective_item.line.text
+                )
+                if term and not objective_item.children:
+                    prefix = term.group(1)
+                    is_then = prefix.startswith("then ")
+                    if (not terms and is_then) or (terms and not is_then):
+                        _fail(
+                            path,
+                            owner_id,
+                            objective_item,
+                            "objective starts with maximize/minimize and later terms use then",
+                            field,
+                        )
+                    terms.append(
+                        ObjectiveTermAst(
+                            prefix.removeprefix("then "),
+                            term.group(2),
+                            _location(path, owner_id, objective_item, field),
+                        )
+                    )
+                elif requirement and not objective_item.children:
+                    constraints.append(
+                        ExpressionAst(
+                            requirement.group(1),
+                            _location(path, owner_id, objective_item, field),
+                        )
+                    )
+                else:
+                    _fail(
+                        path,
+                        owner_id,
+                        objective_item,
+                        "objective item must maximize/minimize a Measure or require a condition",
+                        field,
+                    )
+            if not terms:
+                _fail(path, owner_id, child, "objective requires at least one term", field)
+            objectives.append(
+                ObjectiveAst(
+                    objective.group(1),
+                    tuple(terms),
+                    tuple(constraints),
+                    _decode(objective.group(2), path, child.line)
+                    if objective.group(2)
+                    else None,
+                    _location(path, owner_id, child, field),
+                )
+            )
+            continue
         if text.startswith("stop when "):
             if stop is not None:
                 _fail(path, owner_id, child, "scenario stop may be declared only once", field)
@@ -424,6 +523,8 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
         actions=tuple(actions),
         policies=tuple(policies),
         decisions=tuple(decisions),
+        measures=tuple(measures),
+        objectives=tuple(objectives),
         stop=stop,
         bounds=bounds,
         location=_location(path, owner_id, node, base),
@@ -452,18 +553,21 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
                 _fail(path, owner_id, child, "analysis policies may not be empty", base)
             values["policies"] = tuple(policy_ids)
             continue
+        if text == "objectives:":
+            if "objectives" in values:
+                _fail(path, owner_id, child, "analysis objectives may be declared only once", base)
+            objective_ids = []
+            for objective in child.children:
+                match = re.fullmatch(rf"-\s+({IDENTIFIER})", objective.line.text)
+                if not match or objective.children:
+                    _fail(path, owner_id, objective, "analysis objective must use - OBJECTIVE", base)
+                objective_ids.append(match.group(1))
+            if not objective_ids:
+                _fail(path, owner_id, child, "analysis objectives may not be empty", base)
+            values["objectives"] = tuple(objective_ids)
+            continue
         if child.children:
             _fail(path, owner_id, child, "analysis declaration cannot contain a block", base)
-        objective = re.fullmatch(r"(objective|then)\s+(maximize|minimize)\s+(.+)", text)
-        if objective:
-            key = objective.group(1)
-            if key in values:
-                _fail(path, owner_id, child, f"duplicate analysis {key}", base)
-            values[key] = (
-                objective.group(2),
-                ExpressionAst(objective.group(3), _location(path, owner_id, child, base)),
-            )
-            continue
         target = re.fullmatch(r"target\s*=\s*(.+)", text)
         if target:
             if "target" in values:
@@ -485,8 +589,6 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
     operation = str(values["operation"])
     if operation not in {"run", "compare", "optimize", "reach", "steady", "cycle"}:
         _fail(path, owner_id, node, f"unknown analysis operation {operation!r}", base)
-    objective_value = values.get("objective")
-    tie_value = values.get("then")
     return AnalysisAst(
         owner_id,
         analysis_id,
@@ -498,10 +600,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
             if "policy" in values
             else tuple(values.get("policies", ()))
         ),
-        objective_value[0] if isinstance(objective_value, tuple) else None,
-        objective_value[1] if isinstance(objective_value, tuple) else None,
-        tie_value[0] if isinstance(tie_value, tuple) else None,
-        tie_value[1] if isinstance(tie_value, tuple) else None,
+        tuple(values.get("objectives", ())),
         values.get("target") if isinstance(values.get("target"), ExpressionAst) else None,
         _location(path, owner_id, node, base),
     )

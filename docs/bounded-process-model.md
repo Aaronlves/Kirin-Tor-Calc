@@ -1,9 +1,9 @@
 # Kirin Tor 有界 Process 模型
 
 状态：目标设计；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
-表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证、精确时间执行器与 trace，
-以及具名 run/compare/optimize/reach/steady/cycle 分析分派已经实现；旧动态构造迁移与工作台切换尚未
-完成。
+表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证、精确时间执行器与 trace、
+公开轨迹 Measure、具名多 Objective，以及 run/compare/optimize/reach/steady/cycle 分析分派已经实现；
+连续时间自由决策、旧动态构造迁移与工作台切换尚未完成。
 
 本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
 但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以
@@ -258,8 +258,24 @@ Process 通过有方向的类型化事件端口、导出 observation 和动作�
 - `steady`：只接受可证明为有限离散马尔可夫模型的 process；
 - `cycle`：只接受满足其单调性和周期证明前提的确定 process。
 
-目标可以是最大化或最小化一个观察值，并提供有序的并列判定。例如“最大化死亡时间，其次最大化
-剩余充能”。优化器不能把未声明的偏好当作并列规则。
+Scenario 用 Measure 把整段公开轨迹归约为带类型的值。Measure 只读公开 observation 快照、公开
+output event 和引擎时间，不读 Process 私有 state。内核提供 `final`、时间极值、事件求和/计数、条件
+持续时间、带显式默认值的首次发生、停止时间、最大回撤、总变化量与时间加权方差；作者可以继续用
+普通安全表达式组合派生 Measure。
+
+具名 Objective 可以最大化或最小化一个 Measure，提供任意有限层的字典序次级目标和 Measure 约束。
+例如“最大化死亡时间，其次最大化剩余充能”。同一 Scenario 可以声明多个 Objective；同一 Analysis
+可以选择多个 Objective 分别求解。优化器必须返回每个最优策略的全部 Measure，不能把未声明的偏好
+当作并列规则。
+
+搜索结果的证明等级只有三种：
+
+- `exact_global`：模型范围内的精确全局最优已经证明；
+- `global_with_error_bound`：全局数值结果带显式误差界；
+- `best_found`：只报告声明预算内的最佳候选，不声称全局最优。
+
+当前有限决策穷举只在完整遍历所有可用 action 分支后返回 `exact_global`。未来的数值容差、作者选择的
+时间网格、搜索预算和近似剪枝必须同时进入请求、结构化结果和运行记录。
 
 每个分析器都必须先验证适用前提。无法证明符合时明确拒绝，不能把有界运行结果误报为永久周期、
 把抽样误报为精确概率，或把一个找到的策略误报为全局最优。

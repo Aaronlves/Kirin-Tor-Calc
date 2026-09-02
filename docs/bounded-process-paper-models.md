@@ -1,16 +1,18 @@
 # Kirin Tor 有界 Process 纸面模型
 
-状态：目标语义验证。本文的 Process、scenario 和 analysis 声明已经可解析、完整检查表达式类型、
-lower、验证静态批次冲突并无损往返；确定性 runtime 已可执行不含随机 branch 的场景并生成完整
-trace，具名 Analysis 分派与优化仍未实现。
+状态：目标语义与执行验证。本文的 Process、Scenario、Policy、Measure、Objective 和 Analysis 声明
+已经可解析、完整检查表达式类型、lower、验证静态批次冲突并无损往返；精确 runtime、有限随机路径、
+具名 Analysis 分派、有限策略优化、CLI 与运行记录重放已经实现。连续时间自由决策和工作台投影仍待
+后续里程碑。
 
 本文使用[有界 Process 模型](bounded-process-model.md)中的同一组游戏中立原语，检验六类差异较大的
 游戏机制能否在不增加机制专用内核关键字的情况下完整表达。示例数值都是验证数据，不代表任何真实
 游戏版本；其中伤害延迟案例使用本次讨论明确给出的规则。
 
 纸面模型的职责是验证表达能力、可读性、结算顺序和边界。当前自动化验证证明九个 Process 可以进入
-带可执行表达式节点的统一 IR，酒仙 Scenario 与 Analysis 也进入组合 IR；确定性回归验证了 phase、
-来袭伤害 reducer 和死亡 stop。它不证明优化器、CLI 或工作台动态预览已经实现。
+带可执行表达式节点的统一 IR，酒仙 Scenario 与 Analysis 也进入组合 IR；回归验证了 phase、来袭伤害
+reducer、死亡 stop、轨迹 Measure 和三个作者定义 Objective 的独立全局有限搜索。它不证明连续时间
+优化或工作台动态预览已经实现。
 
 ## 1. 候选最小表面语法
 
@@ -106,6 +108,20 @@ scenario ID ["LABEL"]:
     - ACTION
     - wait
 
+  measure ID ["LABEL"]: TYPE = final(VALUE)
+  measure ID: TYPE = minimum_over_time(VALUE)
+  measure ID: TYPE = maximum_over_time(VALUE)
+  measure ID: TYPE = sum_events(INSTANCE.OUTPUT_EVENT.PARAMETER)
+  measure ID: count = count_events(INSTANCE.OUTPUT_EVENT)
+  measure ID: time = duration_where(CONDITION)
+  measure ID: time = first_time(CONDITION, default = TIME)
+  measure ID: time = stop_time()
+
+  objective ID ["LABEL"]:
+    maximize|minimize MEASURE
+    [then maximize|minimize MEASURE, ...]
+    [require MEASURE_CONDITION, ...]
+
   stop when OBSERVATION_CONDITION
   bounds:
     horizon = DURATION
@@ -130,16 +146,21 @@ analysis ID ["LABEL"]:
   using = SCENARIO
   operation = run|compare|optimize|reach|steady|cycle
   [policy = POLICY]
-  [objective maximize|minimize OBSERVATION]
-  [then maximize|minimize OBSERVATION]
+  [objectives:]
+    [- OBJECTIVE, ...]
   [target = OBSERVATION_CONDITION]
 ```
 
 规则 Policy 按 source 顺序读取纯 observation 条件，显式的 `otherwise` 是唯一兜底；固定 sequence
 每个决策点消费一项，提前耗尽是错误。`compare` 使用 `policies:` 列出至少两个 Policy。`policy` 只用于
-需要固定策略的操作，`objective` 与 `then` 只用于优化目标和并列判定，`target` 只用于 `reach`。分析
-声明不改变 scenario 或 process；同一个 scenario 可以有多个独立分析。分析器只能读取公开 observation
-和引擎提供的 `elapsed`、事件计数等运行 observation。
+需要固定策略的操作。具名 Objective 引用具名 Measure，按声明顺序执行字典序比较，并可声明 Measure
+约束；`optimize` 的 `objectives:` 可列出多个 Objective，分别求解而不共享隐式偏好。`target` 只用于
+`reach`。分析声明不改变 Scenario 或 Process。
+
+Measure 只能读取公开 observation 快照、公开 output event 和 `elapsed`/`horizon` 等引擎观察值，不能
+读取实例私有 state。`first_time` 必须声明未发生时的默认时间。当前事件驱动轨迹聚合是精确的；若任意
+Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回撤、总变化量和方差会明确拒绝，而不会把
+端点采样误报成精确连续轨迹。有限决策穷举返回 `exact_global` 证明记录和全部 Measure。
 
 ## 2. 多资源、冷却与顺序充能
 
@@ -239,6 +260,7 @@ process delayed_damage "伤害延迟池":
   event input incoming_damage(amount: damage reduce sum)
   event input stagger_tick()
   event input purify()
+  event output purified(amount: damage)
 
   on incoming_damage(amount):
     let delayed: damage = amount * conversion
@@ -255,6 +277,7 @@ process delayed_damage "伤害延迟池":
     let restored: health = cleared * healing_ratio
     next pool = pool - cleared
     next health = min(maximum_health, health + restored)
+    emit purified(amount = cleared)
 
   observe alive: boolean = health > 0 health
   observe remaining_health: health = health
@@ -319,6 +342,24 @@ scenario brewmaster_survival "活血时机":
     - purifying_brew
     - wait
 
+  measure minimum_health: health = minimum_over_time(actor.remaining_health)
+  measure health_variation: health = total_variation(actor.remaining_health)
+  measure total_purified: damage = sum_events(actor.purified.amount)
+  measure survival_time: time = first_time(not actor.alive, default = horizon)
+  measure remaining_charges: count = final(brew.count)
+
+  objective smoothest_health:
+    minimize health_variation
+    then maximize minimum_health
+
+  objective most_purified:
+    maximize total_purified
+    then maximize minimum_health
+
+  objective longest_survival:
+    maximize survival_time
+    then maximize remaining_charges
+
   stop when not actor.alive
   bounds:
     horizon = 60 second
@@ -330,8 +371,10 @@ scenario brewmaster_survival "活血时机":
 analysis latest_death "最晚死亡":
   using = brewmaster_survival
   operation = optimize
-  objective maximize elapsed
-  then maximize brew.count
+  objectives:
+    - smoothest_health
+    - most_purified
+    - longest_survival
 ```
 
 同一时间先结算旧的周期伤害，再加入两种来袭伤害，恢复充能，最后作决策。两个 incoming 事件通过
