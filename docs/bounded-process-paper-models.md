@@ -1,16 +1,16 @@
 # Kirin Tor 有界 Process 纸面模型
 
 状态：目标语义验证。本文的 Process、scenario 和 analysis 声明已经可解析、完整检查表达式类型、
-lower、验证静态批次冲突并无损往返；执行仍未实现，因此完整片段已是合法 `.kirin` source，但尚不
-会产生运行结果。
+lower、验证静态批次冲突并无损往返；确定性 runtime 已可执行不含随机 branch 的场景并生成完整
+trace，具名 Analysis 分派与优化仍未实现。
 
 本文使用[有界 Process 模型](bounded-process-model.md)中的同一组游戏中立原语，检验六类差异较大的
 游戏机制能否在不增加机制专用内核关键字的情况下完整表达。示例数值都是验证数据，不代表任何真实
 游戏版本；其中伤害延迟案例使用本次讨论明确给出的规则。
 
 纸面模型的职责是验证表达能力、可读性、结算顺序和边界。当前自动化验证证明九个 Process 可以进入
-带可执行表达式节点的统一 IR，酒仙 Scenario 与 Analysis 也进入组合 IR；它不证明 engine、CLI 或
-工作台动态预览已经实现。
+带可执行表达式节点的统一 IR，酒仙 Scenario 与 Analysis 也进入组合 IR；确定性回归验证了 phase、
+来袭伤害 reducer 和死亡 stop。它不证明优化器、CLI 或工作台动态预览已经实现。
 
 ## 1. 候选最小表面语法
 

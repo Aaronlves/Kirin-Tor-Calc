@@ -436,9 +436,12 @@ fuel bound. It rejects statically enumerable batch conflicts, invalid phase mapp
 decision points, and schedules that already exceed their declared event/decision fuel. `analysis`
 resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests and typed objectives.
 
-No operation executes a Process yet, so these declarations currently establish and validate the
-complete composition rather than produce a trace. Runtime fuel accounting and analysis execution
-remain pending. The full contract and complete executable-target examples are documented in
+The deterministic runtime API executes a lowered scenario with exact time, simultaneous phase
+snapshots, reducers, flow, guards, stable event IDs, keyed scheduling, state/domain checks, stop
+conditions, runtime fuel enforcement, and a replay-stable trace. A scenario with ambiguous decision
+choices requires an explicit selector; random branches are rejected by this deterministic path.
+Named analysis dispatch, probabilistic search, CLI, and workbench exposure remain pending. The full
+contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
 

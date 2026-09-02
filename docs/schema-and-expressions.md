@@ -146,8 +146,9 @@ list/map 容量、状态所有权、事件参数、reducer 类型族、handler �
 
 `ScenarioAst`/`ScenarioIR` 与 `AnalysisAst`/`AnalysisIR` 同样位于 raw schema 之外。Workspace 在所有
 Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射和五项 fuel bound，并预检可枚举的
-同时间同 phase 批次冲突、外部事件数量和决策数量。当前尚无 Process 执行操作、运行时 fuel 消耗或
-trace；因此 `Workspace.load` 成功表示完整动态模型已经静态成立，仍不表示分析已经运行。
+同时间同 phase 批次冲突、外部事件数量和决策数量。确定性 runtime 在每次调度、发射、路由和决策时
+继续执行动态 fuel 检查，按 phase 起点快照同时提交 `next`，并记录 flow、reducer 来源、状态、调度、
+取消、动作和 stop trace。随机分支必须进入后续的有限分支分析器，不能由确定性运行路径暗中抽样。
 
 ## 9. 运行记录与重放
 

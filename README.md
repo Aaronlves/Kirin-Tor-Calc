@@ -4,7 +4,9 @@ Kirin Tor 是一个游戏中立、文件驱动的结构化数学工作台，面�
 
 工作区只有一种可编辑权威：`entries/**/*.kirin`。结果、图表、公式展开、诊断、关系图、索引、恢复缓存和导出文件都是源码的投影或产物，不会形成第二套计算定义。具体游戏的量纲、公式和数据由工作区或独立社区 Package 提供；Kirin Tor 核心不内置游戏、职业、技能或版本数据。
 
-Kirin Tor 不是战斗模拟器。它不执行事件队列、完整 APL、Boss 时间轴、随机战斗模拟或自动循环优化。
+Kirin Tor 不是脚本式战斗模拟器。内核只执行 source 明确声明且受 horizon、事件、决策、分支、实体和
+集合容量约束的 Process 事件场景；它不会补全完整 APL、Boss 时间轴或未声明规则，也不做隐式抽样。
+这套新运行能力尚未接入正式 CLI 与浏览器工作台。
 
 ## 安装
 
@@ -235,10 +237,10 @@ kt cycle rotation.main_rotation
 
 ## 能力边界
 
-Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推、有限状态解析模型，以及确定的多资源固定技能序列。它不会从技能说明自动推导完整战斗循环。当前没有：
+Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限递推、有限状态解析模型、确定的多资源固定技能序列，以及有明确 phase 和 fuel 的确定性 Process 场景。它不会从技能说明自动推导完整战斗循环。当前没有：
 
 - 优先级 APL、分支动作选择、完整战斗时间线或随机采样；
-- 条件优先级、共享冷却组、冷却/充能重置、触发、延迟和动态目标状态的通用调度器；
+- 已接入 CLI/工作台的 Process 策略比较、随机分支、优化、可达、稳态和周期分析；
 - 通用联合分布、动态目标集合、列表、向量或矩阵语言；
 - 连续或离散全局优化器；
 - 积分、极限和完整通用数值根搜索。
@@ -251,8 +253,8 @@ Kirin Tor 可以直接处理作者给出的有限公式、有限分布、有限�
 | --- | --- |
 | [Kirin Tor source syntax v2](docs/kirin-syntax.md) | 表面语法、类型化属性、多层访问与固定循环写法 |
 | [结构模型、表达式与安全边界](docs/schema-and-expressions.md) | 解析后的数学语义、求值、安全和固定限制 |
-| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制重构语义、统一 fuel 与迁移边界；Process/Scenario/Analysis IR 已实现，执行尚未实现 |
-| [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标验证；完整声明可加载，执行尚未实现 |
+| [有界 Process 模型](docs/bounded-process-model.md) | 动态机制重构语义、统一 fuel 与迁移边界；确定性 runtime 已实现，分析接入中 |
+| [有界 Process 纸面模型](docs/bounded-process-paper-models.md) | 六类机制的目标验证；完整声明可加载，确定性子集可执行 |
 | [浏览器工作台规范](docs/web-workbench.md) | 界面、编辑状态、保存、冲突与权威边界 |
 | [Kirin Tor community package protocol v1](docs/package-system-v1.md) | Package manifest、解析、锁定、缓存和来源 |
 | [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md) | 沙箱 UI 插件、贡献点、权限、批准、锁定和安全模式 |

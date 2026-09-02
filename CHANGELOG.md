@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added typed bounded-Process expression, Process, Scenario, and Analysis AST/IR; symbolic domains; canonical round trips; exact safe expression evaluation; transition and static batch conflict validation; explicit phase mapping; and visible event/decision fuel preflight. Process analyses are not executable yet.
+- Added the deterministic bounded-Process runtime with exact time and flow, phase-start snapshots, explicit reducers, stable event identities, keyed schedule/replace/cancel, guarded composite actions, state/domain checks, dynamic fuel enforcement, stop conditions, and replay-stable traces.
 - Replaced public `.kirin` v1 section syntax with the single-declaration `@kirin 2` grammar; migrated built-in tutorials, examples, templates, Package scaffolds, syntax help, completion, highlighting, and tests. V1 source is now rejected rather than maintained as a second public dialect.
 - Added closed reusable structure types, named typed objects, exact percentage and numeric-unit literals, and statically resolved multi-level paths such as `entry.skill.coefficient.periodic`.
 - Added author-mapped `cycle_step` and `cycle_profile` interfaces plus exact deterministic fixed-sequence analysis. `kt cycle` and the browser projection report no-wait sustainability, the first wait or terminal block, eventual wait per cycle/minute, and replayable run provenance.

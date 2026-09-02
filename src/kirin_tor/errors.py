@@ -105,6 +105,14 @@ class UnsupportedError(KTError):
     code = "unsupported"
 
 
+class ProcessExecutionError(KTError):
+    code = "process_execution_error"
+
+
+class ProcessFuelError(ProcessExecutionError):
+    code = "process_fuel_exhausted"
+
+
 class ValidationErrors(KTError):
     code = "validation_errors"
 
