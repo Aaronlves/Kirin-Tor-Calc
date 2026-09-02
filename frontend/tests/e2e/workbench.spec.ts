@@ -548,7 +548,31 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText("unknown:");
   });
 
-  test("外部修改冲突可比较、保留草稿副本并重新加载", async ({ page }) => {
+  test("外部写入自动重载干净文档并发现新文档", async ({ page }) => {
+    await openWorkbench(page);
+    await openCombo(page);
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
+    const sourcePath = resolve(".e2e-workspace", "entries", "组合模型.kirin");
+    const createdPath = resolve(".e2e-workspace", "entries", "agent_model.kirin");
+    const diskSource = await readFile(sourcePath, "utf8");
+    try {
+      await writeFile(sourcePath, `${diskSource}\n// agent external edit\n`, "utf8");
+      await expect(editor).toContainText("// agent external edit", { timeout: 8_000 });
+
+      await writeFile(
+        createdPath,
+        '@kirin 2\n@entry agent_model "Agent model"\n\noutput value: dimensionless = 1\n',
+        "utf8",
+      );
+      await expect(page.getByRole("button", { name: /^Agent model entries\/agent_model\.kirin/ })).toBeVisible({ timeout: 8_000 });
+    } finally {
+      await writeFile(sourcePath, diskSource, "utf8");
+      await rm(createdPath, { force: true });
+    }
+    await expect(editor).not.toContainText("// agent external edit", { timeout: 8_000 });
+  });
+
+  test("外部修改自动触发冲突比较、保留草稿副本并可重新加载", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
     const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
@@ -559,10 +583,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const sourcePath = resolve(".e2e-workspace", "entries", "组合模型.kirin");
     const diskSource = await readFile(sourcePath, "utf8");
     await writeFile(sourcePath, `${diskSource}\n// external edit\n`, "utf8");
-    await page.getByRole("button", { name: "保存全部" }).first().click();
 
     const conflictDialog = page.getByRole("dialog", { name: "比较外部修改" });
-    await expect(conflictDialog).toContainText("// local workbench draft");
+    await expect(conflictDialog).toContainText("// local workbench draft", { timeout: 8_000 });
     await expect(conflictDialog).toContainText("// external edit");
     const downloadPromise = page.waitForEvent("download");
     await conflictDialog.getByRole("button", { name: "保留草稿副本" }).click();

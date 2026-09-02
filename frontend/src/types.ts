@@ -153,6 +153,12 @@ export interface DocumentPayload extends DocumentItem {
   text: string;
 }
 
+export interface WorkspaceStatePayload {
+  status: "ok";
+  revision: string;
+  documents: DocumentItem[];
+}
+
 export interface ExternalChangeConflict {
   key: string;
   path: string;

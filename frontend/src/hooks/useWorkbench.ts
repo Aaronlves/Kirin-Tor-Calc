@@ -16,6 +16,7 @@ import type {
   OperationJobStatus,
   RecoveryDraft,
   ValidationResult,
+  WorkspaceStatePayload,
   WorkspaceSearchMatch,
 } from "../types";
 import { emptyAuthoringIndex } from "../authoring";
@@ -51,6 +52,8 @@ export function useWorkbench() {
   const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
   const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
+  const workspaceRevision = useRef<string | null>(null);
+  const externalSyncRunning = useRef(false);
 
   const currentDocument = useMemo(
     () => documents.find((document) => document.key === currentKey) ?? null,
@@ -223,6 +226,103 @@ export function useWorkbench() {
       if (sequence === validationSequence.current) setAsyncState("idle");
     }
   }, [dirtyOverlays]);
+
+  const syncExternalDocuments = useCallback(async () => {
+    if (externalSyncRunning.current || asyncState !== "idle" || document.visibilityState === "hidden") return;
+    externalSyncRunning.current = true;
+    try {
+      const state = await request<WorkspaceStatePayload>("/api/workspace/state");
+      if (workspaceRevision.current === state.revision) return;
+
+      const diskDocuments = new Map(state.documents.map((item) => [item.key, item]));
+      const nextBuffers = { ...buffers };
+      const nextOriginals = { ...originals };
+      const nextHashes = { ...hashes };
+      const retainedDocuments: DocumentItem[] = documents.filter((item) => item.read_only);
+      let conflict: ExternalChangeConflict | null = null;
+      let removedDrafts = 0;
+
+      for (const item of state.documents) {
+        if (!Object.prototype.hasOwnProperty.call(nextBuffers, item.key)) continue;
+        if (item.source_sha256 === nextHashes[item.key]) continue;
+        const opened = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(item.key)}`);
+        if (nextBuffers[item.key] === (nextOriginals[item.key] ?? "")) {
+          nextBuffers[item.key] = opened.text;
+          nextOriginals[item.key] = opened.text;
+          nextHashes[item.key] = opened.source_sha256;
+        } else if (!conflict) {
+          conflict = {
+            key: item.key,
+            path: opened.path,
+            base: nextOriginals[item.key] ?? null,
+            draft: nextBuffers[item.key],
+            disk: opened.text,
+            disk_sha256: opened.source_sha256,
+          };
+        }
+      }
+
+      for (const item of documents) {
+        if (item.read_only || diskDocuments.has(item.key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(nextBuffers, item.key)) continue;
+        if (nextBuffers[item.key] !== (nextOriginals[item.key] ?? "")) {
+          retainedDocuments.push({ ...item, source_sha256: null });
+          if (nextHashes[item.key] !== null) removedDrafts += 1;
+          nextOriginals[item.key] = "";
+          nextHashes[item.key] = null;
+        } else {
+          delete nextBuffers[item.key];
+          delete nextOriginals[item.key];
+          delete nextHashes[item.key];
+        }
+      }
+
+      const mergedDocuments = [...new Map(
+        [...state.documents, ...retainedDocuments].map((item) => [item.key, item]),
+      ).values()];
+      let nextCurrentKey = currentKey;
+      if (nextCurrentKey && !mergedDocuments.some((item) => item.key === nextCurrentKey)) {
+        nextCurrentKey = mergedDocuments[0]?.key ?? null;
+        if (nextCurrentKey && !Object.prototype.hasOwnProperty.call(nextBuffers, nextCurrentKey)) {
+          const opened = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(nextCurrentKey)}`);
+          nextBuffers[nextCurrentKey] = opened.text;
+          nextOriginals[nextCurrentKey] = opened.text;
+          nextHashes[nextCurrentKey] = opened.source_sha256;
+        }
+      }
+
+      setDocuments(mergedDocuments);
+      setBootstrapData((current) => current ? { ...current, documents: mergedDocuments } : current);
+      setBuffers(nextBuffers);
+      setOriginals(nextOriginals);
+      setHashes(nextHashes);
+      if (nextCurrentKey !== currentKey) setCurrentKey(nextCurrentKey);
+      if (conflict) setExternalConflict(conflict);
+      if (removedDrafts) {
+        notifications.show({
+          color: "orange",
+          title: "磁盘文档已移除",
+          message: `${removedDrafts} 个未保存草稿仍保留在工作台；保存全部会重新创建对应文档。`,
+          autoClose: false,
+        });
+      }
+      workspaceRevision.current = state.revision;
+      await validate(false);
+    } catch {
+      // External synchronization is opportunistic; ordinary workbench actions
+      // retain their existing visible error handling and retry on the next poll.
+    } finally {
+      externalSyncRunning.current = false;
+    }
+  }, [asyncState, buffers, currentKey, documents, hashes, originals, validate]);
+
+  useEffect(() => {
+    if (!bootstrapReady) return;
+    const check = () => { void syncExternalDocuments(); };
+    check();
+    const timer = window.setInterval(check, 1200);
+    return () => window.clearInterval(timer);
+  }, [bootstrapReady, syncExternalDocuments]);
 
   const dirtySignature = useMemo(() => JSON.stringify(dirtyOverlays), [dirtyOverlays]);
   useEffect(() => {

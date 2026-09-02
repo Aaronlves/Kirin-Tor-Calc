@@ -87,6 +87,12 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         ]
         assert all(item["source"].startswith("@kirin 2") for item in result["tutorials"])
 
+        status, _headers, body = running.request("/api/workspace/state")
+        workspace_state = decoded(body)
+        assert status == 200
+        assert len(workspace_state["revision"]) == 64
+        assert any(item["path"] == "entries/组合模型.kirin" for item in workspace_state["documents"])
+
         with pytest.raises(urllib.error.HTTPError) as failure:
             running.request("/api/bootstrap", token="wrong")
         assert failure.value.code == 403

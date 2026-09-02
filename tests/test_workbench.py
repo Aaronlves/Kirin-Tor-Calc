@@ -88,6 +88,31 @@ def test_workbench_projects_a_valid_unsaved_new_document_for_plugins(tmp_path: P
     assert not (root / draft["path"]).exists()
 
 
+def test_workbench_workspace_state_tracks_external_local_source_changes(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    workbench = Workbench(root)
+
+    initial = workbench.workspace_state()
+    assert initial["status"] == "ok"
+    assert [item["key"] for item in initial["documents"]] == ["entries/build_math.kirin"]
+    assert len(initial["revision"]) == 64
+
+    existing = root / "entries" / "build_math.kirin"
+    existing.write_text(existing.read_text(encoding="utf-8") + "\n// external edit\n", encoding="utf-8")
+    edited = workbench.workspace_state()
+    assert edited["revision"] != initial["revision"]
+    assert edited["documents"][0]["source_sha256"] != initial["documents"][0]["source_sha256"]
+
+    created = root / "entries" / "agent_model.kirin"
+    created.write_text("@kirin 2\n@entry agent_model\n\noutput value: dimensionless = 1\n", encoding="utf-8")
+    expanded = workbench.workspace_state()
+    assert expanded["revision"] != edited["revision"]
+    assert [item["key"] for item in expanded["documents"]] == [
+        "entries/agent_model.kirin",
+        "entries/build_math.kirin",
+    ]
+
+
 def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
     workbench = Workbench(root)

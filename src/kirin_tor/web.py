@@ -353,6 +353,8 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             if parsed.path == "/api/bootstrap":
                 self._send_json(self.server.workbench.bootstrap())
+            elif parsed.path == "/api/workspace/state":
+                self._send_json(self.server.workbench.workspace_state())
             elif parsed.path == "/api/document":
                 self._send_json(self.server.workbench.read_document(query.get("key", [""])[0]))
             elif parsed.path == "/api/artifact":

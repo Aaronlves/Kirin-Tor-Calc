@@ -252,7 +252,7 @@ class Workbench:
         parsed = self._overlays(overlays)
         return Workspace.load_with_overlays(self.root, parsed) if parsed else Workspace.load(self.root)
 
-    def _document_catalog(self) -> list[dict]:
+    def _local_document_catalog(self) -> list[dict]:
         items = []
         for folder in ("entries",):
             for path in sorted((self.root / folder).rglob("*.kirin")):
@@ -269,6 +269,10 @@ class Workbench:
                         "source_sha256": _hash_text(source),
                     }
                 )
+        return items
+
+    def _document_catalog(self) -> list[dict]:
+        items = self._local_document_catalog()
         resolution = locked_workspace_resolution(self.root)
         for package in resolution.packages:
             for path in package_source_paths(package.root):
@@ -291,6 +295,24 @@ class Workbench:
                     }
                 )
         return items
+
+    def workspace_state(self) -> dict:
+        """Return a lightweight revision for externally written local sources."""
+
+        with self._lock:
+            documents = self._local_document_catalog()
+            identity = [
+                (item["key"], item["source_sha256"])
+                for item in documents
+            ]
+            revision = hashlib.sha256(
+                json.dumps(identity, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return {
+                "status": "ok",
+                "revision": revision,
+                "documents": documents,
+            }
 
     @property
     def _recovery_path(self) -> Path:
