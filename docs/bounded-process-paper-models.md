@@ -94,6 +94,14 @@ scenario ID ["LABEL"]:
   action ID [when OBSERVATION_CONDITION]:
     send INSTANCE.EVENT_OR_ACTION(ARGUMENTS) phase PHASE
 
+  policy ID:
+    choose ACTION when OBSERVATION_CONDITION
+    otherwise ACTION_OR_WAIT
+
+  policy FIXED_ID:
+    sequence:
+      - ACTION_OR_WAIT
+
   decide every INTERVAL from START [until END] phase PHASE:
     - ACTION
     - wait
@@ -124,10 +132,13 @@ analysis ID ["LABEL"]:
   [policy = POLICY]
   [objective maximize|minimize OBSERVATION]
   [then maximize|minimize OBSERVATION]
+  [target = OBSERVATION_CONDITION]
 ```
 
-`policy` 只用于需要固定策略的操作，`objective` 与 `then` 只用于需要目标和并列判定的操作。分析声明
-不改变 scenario 或 process；同一个 scenario 可以有多个独立分析。分析器只能读取公开 observation
+规则 Policy 按 source 顺序读取纯 observation 条件，显式的 `otherwise` 是唯一兜底；固定 sequence
+每个决策点消费一项，提前耗尽是错误。`compare` 使用 `policies:` 列出至少两个 Policy。`policy` 只用于
+需要固定策略的操作，`objective` 与 `then` 只用于优化目标和并列判定，`target` 只用于 `reach`。分析
+声明不改变 scenario 或 process；同一个 scenario 可以有多个独立分析。分析器只能读取公开 observation
 和引擎提供的 `elapsed`、事件计数等运行 observation。
 
 ## 2. 多资源、冷却与顺序充能

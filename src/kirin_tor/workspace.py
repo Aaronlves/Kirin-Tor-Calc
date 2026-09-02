@@ -356,6 +356,45 @@ class Workspace:
                     analysis, f"analyses.{analysis.id}", analysis.location
                 )
 
+            allowed_sources = self.allowed_package_sources(
+                document.package_origin.source
+            ) or {document.package_origin.source}
+
+            def check_dynamic_owner(owner_id: str, field: str, location) -> None:
+                target = self.entries.get(owner_id)
+                if target is None:
+                    raise SchemaError(
+                        f"dynamic declaration references missing entry {owner_id!r}",
+                        location,
+                    )
+                if target.package_origin is None:
+                    raise SchemaError(
+                        f"package {document.package_origin.name!r} uses workspace-local "
+                        f"dynamic declaration {owner_id!r}",
+                        location,
+                    )
+                if target.package_origin.source not in allowed_sources:
+                    raise SchemaError(
+                        f"package {document.package_origin.name!r} uses dynamic declaration "
+                        f"from undeclared package source {target.package_origin.source!r}",
+                        location,
+                    )
+
+            for scenario in document.scenarios.values():
+                for instance in scenario.instances:
+                    check_dynamic_owner(
+                        instance.process.owner_id,
+                        f"scenarios.{scenario.id}",
+                        instance.location or scenario.location,
+                    )
+            for analysis in document.analyses.values():
+                scenario = self.scenarios[analysis.scenario_id]
+                check_dynamic_owner(
+                    scenario.owner_id,
+                    f"analyses.{analysis.id}",
+                    analysis.location,
+                )
+
     @classmethod
     def find_root(cls, start: Optional[Path] = None) -> Path:
         current = (start or Path.cwd()).resolve()

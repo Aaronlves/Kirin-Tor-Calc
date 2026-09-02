@@ -38,6 +38,8 @@ from .scenario_ir import (
     InstanceMemberRefIR,
     InstancePhaseIR,
     ObjectiveIR,
+    PolicyIR,
+    PolicyRuleIR,
     ProcessInstanceIR,
     ScenarioBoundsIR,
     ScenarioCallIR,
@@ -369,6 +371,40 @@ class ScenarioLowerer:
                 item.location,
             )
 
+        policies: Dict[str, PolicyIR] = {}
+        for item in source.policies:
+            if item.id in policies:
+                raise SchemaError(f"duplicate scenario policy {item.id!r}", item.location)
+            choices = tuple(rule.action_id for rule in item.rules) + item.sequence
+            unknown = sorted(
+                choice for choice in set(choices) if choice != "wait" and choice not in actions
+            )
+            if unknown:
+                raise ReferenceError(
+                    f"policy {item.id!r} references unknown action {unknown[0]!r}",
+                    item.location,
+                )
+            policies[item.id] = PolicyIR(
+                scenario_id,
+                item.id,
+                tuple(
+                    PolicyRuleIR(
+                        rule.action_id,
+                        compile_process_expression(
+                            rule.condition,
+                            self.boolean,
+                            dynamic_symbols,
+                            self.registry,
+                        )
+                        if rule.condition is not None
+                        else None,
+                    )
+                    for rule in item.rules
+                ),
+                item.sequence,
+                item.location,
+            )
+
         schedules = []
         for item in source.schedules:
             if isinstance(item, AtScheduleAst):
@@ -468,6 +504,7 @@ class ScenarioLowerer:
             tuple(connections),
             tuple(schedules),
             tuple(actions.values()),
+            tuple(policies.values()),
             tuple(decisions),
             tuple(observation_symbols.values()) + tuple(runtime_symbols.values()),
             stop,
@@ -523,8 +560,19 @@ def lower_analysis_asts(
             if source.tie_break is not None
             else None
         )
+        target = (
+            compile_process_expression(
+                source.target, BooleanTypeIR(), symbols, registry
+            )
+            if source.target is not None
+            else None
+        )
         if source.operation == "optimize" and objective is None:
             raise SchemaError("optimize analysis requires an objective", source.location)
+        if source.operation != "optimize" and objective is not None:
+            raise SchemaError(
+                "objective is only valid for optimize analysis", source.location
+            )
         if objective is not None and not isinstance(
             objective.value.result_type, NumberTypeIR
         ):
@@ -540,6 +588,35 @@ def lower_analysis_asts(
             )
         if source.operation != "optimize" and tie_break is not None:
             raise SchemaError("then is only valid for optimize analysis", source.location)
+        policy_ids = source.policy_ids
+        available_policies = {policy.id for policy in scenario.policies}
+        unknown_policies = sorted(set(policy_ids) - available_policies)
+        if unknown_policies:
+            raise ReferenceError(
+                f"analysis references unknown policy {unknown_policies[0]!r}",
+                source.location,
+            )
+        if source.operation == "compare" and len(policy_ids) < 2:
+            raise SchemaError("compare analysis requires at least two policies", source.location)
+        if source.operation != "compare" and len(policy_ids) > 1:
+            raise SchemaError(
+                f"{source.operation} analysis accepts at most one policy",
+                source.location,
+            )
+        if source.operation == "optimize" and policy_ids:
+            raise SchemaError(
+                "optimize searches decisions and cannot also select a fixed policy",
+                source.location,
+            )
+        if source.operation == "steady" and policy_ids:
+            raise SchemaError("steady does not accept a decision policy", source.location)
+        if source.operation != "reach" and target is not None:
+            raise SchemaError("target is only valid for reach analysis", source.location)
+        if source.operation == "reach" and target is None and scenario.stop is None:
+            raise SchemaError(
+                "reach analysis requires target or a scenario stop condition",
+                source.location,
+            )
         result.append(
             AnalysisIR(
                 source.owner_id,
@@ -547,9 +624,10 @@ def lower_analysis_asts(
                 source.label,
                 scenario.qualified_id,
                 source.operation,
-                source.policy_id,
+                policy_ids,
                 objective,
                 tie_break,
+                target,
                 source.location,
             )
         )

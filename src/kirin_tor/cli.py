@@ -20,6 +20,7 @@ from .errors import KTError, ParameterError, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     analyze_cycle,
+    analyze_process,
     differentiate,
     evaluate,
     explain,
@@ -666,6 +667,60 @@ def cycle_command(
                 + (f"资源 {resource_id} " if resource_id else "")
                 + f"({blocked.get('reason')})"
             )
+        _emit(result, json_output, summary)
+
+    _execute(action, json_output)
+
+
+@app.command("analyze")
+def process_analysis_command(
+    target: str,
+    no_trace: bool = typer.Option(False, "--no-trace", help="Omit event trace details."),
+    timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
+    save_run_id: Optional[str] = typer.Option(None, "--save-run"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Execute a source-declared Process analysis as ENTRY.ANALYSIS."""
+
+    def action():
+        workspace = Workspace.discover()
+        request = {
+            "target": target,
+            "include_trace": not no_trace,
+            "timeout_seconds": timeout,
+        }
+        result = _recorded_compute(
+            workspace,
+            save_run_id,
+            "process_analysis",
+            request,
+            lambda: analyze_process(
+                workspace,
+                target,
+                include_trace=not no_trace,
+                timeout_seconds=timeout,
+            ),
+        )
+        operation = result["analysis_operation"]
+        if operation == "optimize":
+            best = result["best"]
+            summary = (
+                f"最优：elapsed={best['elapsed']}；"
+                f"决策 {len(best['decisions'])} 次；"
+                f"搜索分支 {result['explored_branches']}"
+            )
+        elif operation == "reach":
+            summary = f"可达概率：{result['probability']}"
+        elif operation == "steady":
+            summary = f"稳态：{len(result['states'])} 个有限状态"
+        elif operation == "cycle":
+            summary = (
+                f"周期已证明：前段 {result['preperiod']}，周期 {result['period']}"
+            )
+        elif operation == "compare":
+            summary = f"已比较 {len(result['policies'])} 个策略"
+        else:
+            summary = f"运行完成：{len(result['outcomes'])} 个精确结果"
         _emit(result, json_output, summary)
 
     _execute(action, json_output)

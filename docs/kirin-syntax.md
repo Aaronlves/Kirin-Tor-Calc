@@ -415,6 +415,8 @@ scenario survival:
     phase periodic_tick = incoming
   every 1/2 second from 1/2 second phase incoming:
     send actor.incoming_damage(amount = 50 health)
+  policy always_wait:
+    otherwise wait
   decide every 1/2 second from 0 second phase decision:
     - wait
   stop when not actor.alive
@@ -428,6 +430,7 @@ scenario survival:
 analysis survival_run:
   using = survival
   operation = run
+  policy = always_wait
 ```
 
 `scenario` lowering resolves every Process instance, input, local-to-global phase binding, event
@@ -440,8 +443,10 @@ The deterministic runtime API executes a lowered scenario with exact time, simul
 snapshots, reducers, flow, guards, stable event IDs, keyed scheduling, state/domain checks, stop
 conditions, runtime fuel enforcement, and a replay-stable trace. A scenario with ambiguous decision
 choices requires an explicit selector; random branches are rejected by this deterministic path.
-Named analysis dispatch, probabilistic search, CLI, and workbench exposure remain pending. The full
-contract and complete examples are documented in
+`run`, source-Policy `compare`, deterministic bounded `optimize`, exact random `reach`, finite-state
+`steady`, and exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
+can be saved/replayed with embedded source snapshots. The workbench projection remains pending. The
+full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
 

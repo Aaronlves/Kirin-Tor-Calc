@@ -1,8 +1,9 @@
 # Kirin Tor 有界 Process 模型
 
 状态：目标设计；Process/Scenario/Analysis 的类型化 AST、IR、公开 workspace parser/renderer、完整
-表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证，以及确定性精确时间执行器
-和 trace 已经实现；具名分析分派、有限随机分支和搜索尚未实现。
+表达式类型检查与安全求值、lowering、process 内及静态场景批次冲突验证、精确时间执行器与 trace，
+以及具名 run/compare/optimize/reach/steady/cycle 分析分派已经实现；旧动态构造迁移与工作台切换尚未
+完成。
 
 本文是动态机制重构的语义依据。它规定 Kirin Tor 下一阶段应当提供的通用计算能力，
 但不改变当前 `.kirin` 文件的解析或求值行为。在切换完成前，当前行为仍以
@@ -321,8 +322,9 @@ Community Package 可以发布游戏通用或游戏专用 process，但不能发
    key 冲突、phase 映射与外部事件/决策 fuel 已验证；动态事件链 fuel 由执行器继续落实；
 6. **已完成内核：**实现确定性 `run` 与完整 trace；具名 Analysis/CLI 分派在步骤 10 接入；
 7. 将现有 recurrence 与 cycle 行为迁移到新 IR，并执行等价回归；
-8. 实现有限随机分支、策略比较和有界优化；
-9. 迁移稳态/可达分析，并移除旧动态语义路径；
+8. **已完成：**实现有限随机分支、source Policy、策略比较和有界优化；
+9. **分析器已完成：**实现精确可达、有限离散稳态和确定性周期证明；旧 `state_model` 动态路径仍待
+   步骤 7/9 的统一迁移后移除；
 10. 同步诊断、补全、高亮、浏览器预览、CLI、Package 校验、运行记录和公开能力文档后，才宣布
     cutover 完成。
 

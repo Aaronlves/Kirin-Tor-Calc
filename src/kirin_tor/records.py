@@ -20,6 +20,7 @@ from .kirin_syntax import parse_kirin_source
 from .limits import MAX_RUN_RECORD_BYTES
 from .operations import (
     analyze_cycle,
+    analyze_process,
     differentiate,
     evaluate,
     scan_grid,
@@ -244,6 +245,13 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             request["target"],
             preset=preset,
             overrides=parameters,
+            timeout_seconds=request["timeout_seconds"],
+        )
+    if operation == "process_analysis":
+        return analyze_process(
+            workspace,
+            request["target"],
+            include_trace=request.get("include_trace", True),
             timeout_seconds=request["timeout_seconds"],
         )
     if operation == "compare":

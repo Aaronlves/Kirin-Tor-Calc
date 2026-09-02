@@ -90,6 +90,21 @@ class CompositeActionAst:
 
 
 @dataclass(frozen=True)
+class PolicyRuleAst:
+    action_id: str
+    condition: Optional[ExpressionAst] = None
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class PolicyAst:
+    id: str
+    rules: Tuple[PolicyRuleAst, ...] = ()
+    sequence: Tuple[str, ...] = ()
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class DecisionScheduleAst:
     interval: ExpressionAst
     start: ExpressionAst
@@ -119,6 +134,7 @@ class ScenarioAst:
     connections: Tuple[ConnectionAst, ...] = ()
     schedules: Tuple[ScenarioScheduleAst, ...] = ()
     actions: Tuple[CompositeActionAst, ...] = ()
+    policies: Tuple[PolicyAst, ...] = ()
     decisions: Tuple[DecisionScheduleAst, ...] = ()
     stop: Optional[ExpressionAst] = None
     bounds: Optional[ScenarioBoundsAst] = None
@@ -136,11 +152,12 @@ class AnalysisAst:
     label: Optional[str]
     scenario_path: str
     operation: str
-    policy_id: Optional[str] = None
+    policy_ids: Tuple[str, ...] = ()
     objective_direction: Optional[str] = None
     objective: Optional[ExpressionAst] = None
     tie_break_direction: Optional[str] = None
     tie_break: Optional[ExpressionAst] = None
+    target: Optional[ExpressionAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property

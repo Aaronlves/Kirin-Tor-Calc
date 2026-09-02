@@ -26,6 +26,8 @@ from .scenario_ast import (
     EveryScheduleAst,
     InstanceInputAst,
     InstancePhaseAst,
+    PolicyAst,
+    PolicyRuleAst,
     ProcessInstanceAst,
     ScenarioAst,
     ScenarioBoundsAst,
@@ -175,6 +177,7 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     connections: List[ConnectionAst] = []
     schedules: List[object] = []
     actions: List[CompositeActionAst] = []
+    policies: List[PolicyAst] = []
     decisions: List[DecisionScheduleAst] = []
     stop = None
     bounds = None
@@ -291,6 +294,59 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
             if len(actions) > MAX_SCENARIO_ACTIONS:
                 _fail(path, owner_id, child, f"scenario exceeds {MAX_SCENARIO_ACTIONS} actions", field)
             continue
+        policy = re.fullmatch(rf"policy\s+({IDENTIFIER}):", text)
+        if policy:
+            rules = []
+            sequence = []
+            for rule in child.children:
+                if rule.line.text == "sequence:":
+                    if rules or sequence:
+                        _fail(path, owner_id, rule, "policy sequence cannot be combined with rules", field)
+                    for option in rule.children:
+                        match = re.fullmatch(rf"-\s+({IDENTIFIER}|wait)", option.line.text)
+                        if not match or option.children:
+                            _fail(path, owner_id, option, "policy sequence item must use - ACTION or - wait", field)
+                        sequence.append(match.group(1))
+                    if not sequence:
+                        _fail(path, owner_id, rule, "policy sequence may not be empty", field)
+                    continue
+                choose = re.fullmatch(
+                    rf"choose\s+({IDENTIFIER}|wait)\s+when\s+(.+)", rule.line.text
+                )
+                otherwise = re.fullmatch(
+                    rf"otherwise\s+({IDENTIFIER}|wait)", rule.line.text
+                )
+                if choose and not rule.children:
+                    rules.append(
+                        PolicyRuleAst(
+                            choose.group(1),
+                            ExpressionAst(choose.group(2), _location(path, owner_id, rule, field)),
+                            _location(path, owner_id, rule, field),
+                        )
+                    )
+                elif otherwise and not rule.children:
+                    rules.append(
+                        PolicyRuleAst(
+                            otherwise.group(1),
+                            None,
+                            _location(path, owner_id, rule, field),
+                        )
+                    )
+                else:
+                    _fail(path, owner_id, rule, "policy rule must use choose ACTION when CONDITION or otherwise ACTION", field)
+            if not rules and not sequence:
+                _fail(path, owner_id, child, "policy may not be empty", field)
+            if rules and any(rule.condition is None for rule in rules[:-1]):
+                _fail(path, owner_id, child, "otherwise must be the final policy rule", field)
+            policies.append(
+                PolicyAst(
+                    policy.group(1),
+                    tuple(rules),
+                    tuple(sequence),
+                    _location(path, owner_id, child, field),
+                )
+            )
+            continue
         decide = _DECIDE.fullmatch(text)
         if decide:
             options = []
@@ -358,18 +414,19 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
     if bounds is None:
         _fail(path, owner_id, node, "scenario must declare all execution bounds", base)
     return ScenarioAst(
-        owner_id,
-        scenario_id,
-        label,
-        tuple(phases),
-        tuple(instances),
-        tuple(connections),
-        tuple(schedules),
-        tuple(actions),
-        tuple(decisions),
-        stop,
-        bounds,
-        _location(path, owner_id, node, base),
+        owner_id=owner_id,
+        id=scenario_id,
+        label=label,
+        phases=tuple(phases),
+        instances=tuple(instances),
+        connections=tuple(connections),
+        schedules=tuple(schedules),
+        actions=tuple(actions),
+        policies=tuple(policies),
+        decisions=tuple(decisions),
+        stop=stop,
+        bounds=bounds,
+        location=_location(path, owner_id, node, base),
     )
 
 
@@ -382,8 +439,21 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
     values: Dict[str, object] = {}
     for child in node.children:
         text = child.line.text
+        if text == "policies:":
+            if "policies" in values or "policy" in values:
+                _fail(path, owner_id, child, "analysis policies may be declared only once", base)
+            policy_ids = []
+            for policy in child.children:
+                match = re.fullmatch(rf"-\s+({IDENTIFIER})", policy.line.text)
+                if not match or policy.children:
+                    _fail(path, owner_id, policy, "analysis policy must use - POLICY", base)
+                policy_ids.append(match.group(1))
+            if not policy_ids:
+                _fail(path, owner_id, child, "analysis policies may not be empty", base)
+            values["policies"] = tuple(policy_ids)
+            continue
         if child.children:
-            _fail(path, owner_id, child, "analysis declarations cannot contain blocks", base)
+            _fail(path, owner_id, child, "analysis declaration cannot contain a block", base)
         objective = re.fullmatch(r"(objective|then)\s+(maximize|minimize)\s+(.+)", text)
         if objective:
             key = objective.group(1)
@@ -394,6 +464,14 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
                 ExpressionAst(objective.group(3), _location(path, owner_id, child, base)),
             )
             continue
+        target = re.fullmatch(r"target\s*=\s*(.+)", text)
+        if target:
+            if "target" in values:
+                _fail(path, owner_id, child, "duplicate analysis target", base)
+            values["target"] = ExpressionAst(
+                target.group(1), _location(path, owner_id, child, base)
+            )
+            continue
         assignment = re.fullmatch(rf"(using|operation|policy)\s*=\s*({PATH})", text)
         if not assignment:
             _fail(path, owner_id, child, f"unknown analysis declaration: {text}", base)
@@ -402,6 +480,8 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
         values[assignment.group(1)] = assignment.group(2)
     if "using" not in values or "operation" not in values:
         _fail(path, owner_id, node, "analysis requires using and operation", base)
+    if "policy" in values and "policies" in values:
+        _fail(path, owner_id, node, "use policy or policies, not both", base)
     operation = str(values["operation"])
     if operation not in {"run", "compare", "optimize", "reach", "steady", "cycle"}:
         _fail(path, owner_id, node, f"unknown analysis operation {operation!r}", base)
@@ -413,11 +493,16 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
         _decode(header.group("label"), path, node.line) if header.group("label") else None,
         str(values["using"]),
         operation,
-        str(values["policy"]) if "policy" in values else None,
+        (
+            (str(values["policy"]),)
+            if "policy" in values
+            else tuple(values.get("policies", ()))
+        ),
         objective_value[0] if isinstance(objective_value, tuple) else None,
         objective_value[1] if isinstance(objective_value, tuple) else None,
         tie_value[0] if isinstance(tie_value, tuple) else None,
         tie_value[1] if isinstance(tie_value, tuple) else None,
+        values.get("target") if isinstance(values.get("target"), ExpressionAst) else None,
         _location(path, owner_id, node, base),
     )
 

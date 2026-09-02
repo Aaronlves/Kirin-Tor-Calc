@@ -103,6 +103,21 @@ class CompositeActionIR:
 
 
 @dataclass(frozen=True)
+class PolicyRuleIR:
+    action_id: str
+    condition: Optional[TypedExpressionIR] = None
+
+
+@dataclass(frozen=True)
+class PolicyIR:
+    scenario_id: str
+    id: str
+    rules: Tuple[PolicyRuleIR, ...] = ()
+    sequence: Tuple[str, ...] = ()
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class DecisionScheduleIR:
     interval: Fraction
     start: Fraction
@@ -132,6 +147,7 @@ class ScenarioIR:
     connections: Tuple[ConnectionIR, ...]
     schedules: Tuple[ScenarioScheduleIR, ...]
     actions: Tuple[CompositeActionIR, ...]
+    policies: Tuple[PolicyIR, ...]
     decisions: Tuple[DecisionScheduleIR, ...]
     observation_symbols: Tuple[SymbolRefIR, ...]
     stop: Optional[TypedExpressionIR]
@@ -157,9 +173,10 @@ class AnalysisIR:
     label: Optional[str]
     scenario_id: str
     operation: str
-    policy_id: Optional[str] = None
+    policy_ids: Tuple[str, ...] = ()
     objective: Optional[ObjectiveIR] = None
     tie_break: Optional[ObjectiveIR] = None
+    target: Optional[TypedExpressionIR] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
     @property

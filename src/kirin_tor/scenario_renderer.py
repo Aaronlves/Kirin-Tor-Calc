@@ -54,6 +54,19 @@ def render_scenario_ast(scenario: ScenarioAst) -> List[str]:
             line += f" when {_expression(action.guard)}"
         lines.append(line + ":")
         lines.extend(_send(send, "    ") for send in action.sends)
+    for policy in scenario.policies:
+        lines.append(f"  policy {policy.id}:")
+        if policy.sequence:
+            lines.append("    sequence:")
+            lines.extend(f"      - {option}" for option in policy.sequence)
+        else:
+            for rule in policy.rules:
+                if rule.condition is None:
+                    lines.append(f"    otherwise {rule.action_id}")
+                else:
+                    lines.append(
+                        f"    choose {rule.action_id} when {_expression(rule.condition)}"
+                    )
     for schedule in scenario.schedules:
         if isinstance(schedule, AtScheduleAst):
             lines.append(
@@ -110,8 +123,11 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
         f"  using = {analysis.scenario_path}",
         f"  operation = {analysis.operation}",
     ]
-    if analysis.policy_id is not None:
-        lines.append(f"  policy = {analysis.policy_id}")
+    if len(analysis.policy_ids) == 1:
+        lines.append(f"  policy = {analysis.policy_ids[0]}")
+    elif analysis.policy_ids:
+        lines.append("  policies:")
+        lines.extend(f"    - {policy_id}" for policy_id in analysis.policy_ids)
     if analysis.objective is not None:
         lines.append(
             f"  objective {analysis.objective_direction} {_expression(analysis.objective)}"
@@ -120,4 +136,6 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
         lines.append(
             f"  then {analysis.tie_break_direction} {_expression(analysis.tie_break)}"
         )
+    if analysis.target is not None:
+        lines.append(f"  target = {_expression(analysis.target)}")
     return lines

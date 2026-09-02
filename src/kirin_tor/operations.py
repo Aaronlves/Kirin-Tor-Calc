@@ -601,6 +601,43 @@ def analyze_cycle(
     )
 
 
+def _process_analysis_core(
+    workspace: Workspace, target: str, include_trace: bool
+) -> dict:
+    from .process_analysis import (
+        execute_process_analysis,
+        process_analysis_result_data,
+    )
+
+    parts = target.split(".")
+    if len(parts) != 2 or parts[0] not in workspace.entries:
+        raise ParameterError("Process analysis target must use ENTRY.ANALYSIS")
+    analysis = workspace.entries[parts[0]].analyses.get(parts[1])
+    if analysis is None:
+        raise ParameterError(f"entry {parts[0]!r} has no analysis {parts[1]!r}")
+    scenario = workspace.scenarios[analysis.scenario_id]
+    result = execute_process_analysis(
+        analysis, scenario, workspace.units, include_trace=include_trace
+    )
+    return process_analysis_result_data(result, analysis, scenario)
+
+
+def analyze_process(
+    workspace: Workspace,
+    target: str,
+    *,
+    include_trace: bool = True,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Execute one source-declared bounded Process analysis."""
+
+    return run_with_timeout(
+        _process_analysis_core,
+        (workspace, target, include_trace),
+        timeout_seconds,
+    )
+
+
 def _transform_core(
     workspace: Workspace,
     operation: str,

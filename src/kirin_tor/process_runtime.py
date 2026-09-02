@@ -47,6 +47,7 @@ from .scenario_ir import (
     EveryScheduleIR,
     InstanceMemberRefIR,
     ProcessInstanceIR,
+    PolicyIR,
     ScenarioCallIR,
     ScenarioIR,
     ScenarioPhaseIR,
@@ -57,6 +58,13 @@ from .units import UnitRegistry
 DecisionSelector = Callable[[
     int, Fraction, DecisionScheduleIR, Tuple[str, ...], Mapping[str, ProcessValue]
 ], str]
+BranchSelector = Callable[[
+    int,
+    "RuntimeEvent",
+    BranchEffectIR,
+    Tuple[Fraction, ...],
+    Mapping[SymbolRefIR, ProcessValue],
+], int]
 
 
 @dataclass(frozen=True)
@@ -93,6 +101,9 @@ class ProcessRunResult:
     event_count: int
     decision_count: int
     branch_count: int
+    target_reached: bool
+    pending_schedule_count: int
+    inputs: Tuple[Tuple[str, Tuple[Tuple[str, ProcessValue], ...]], ...]
     states: Tuple[Tuple[str, Tuple[Tuple[str, ProcessValue], ...]], ...]
     observations: Tuple[Tuple[str, ProcessValue], ...]
     decisions: Tuple[Tuple[Fraction, str], ...]
@@ -180,11 +191,21 @@ class DeterministicProcessExecutor:
         registry: UnitRegistry,
         *,
         selector: Optional[DecisionSelector] = None,
+        branch_selector: Optional[BranchSelector] = None,
+        reach_target=None,
+        initial_state_overrides: Optional[
+            Mapping[Tuple[str, str], ProcessValue]
+        ] = None,
+        maximum_batches: Optional[int] = None,
         include_trace: bool = True,
     ) -> None:
         self.scenario = scenario
         self.registry = registry
         self.selector = selector
+        self.branch_selector = branch_selector
+        self.reach_target = reach_target
+        self.initial_state_overrides = dict(initial_state_overrides or {})
+        self.maximum_batches = maximum_batches
         self.include_trace = include_trace
         self.instances: Dict[str, _InstanceState] = {}
         self.events: Dict[Tuple[Fraction, int], List[RuntimeEvent]] = defaultdict(list)
@@ -196,11 +217,13 @@ class DeterministicProcessExecutor:
         self.event_count = 0
         self.decision_count = 0
         self.branch_count = 1
+        self.branch_decision_count = 0
         self.trace: List[ProcessTraceEntry] = []
         self.decisions: List[Tuple[Fraction, str]] = []
         self.current_time = Fraction(0)
         self.stopped = False
         self.stop_reason = "horizon"
+        self.target_reached = False
         self.connections = defaultdict(list)
         for connection in scenario.connections:
             self.connections[
@@ -330,6 +353,30 @@ class DeterministicProcessExecutor:
         self.instances = {
             item.id: self._initialize_instance(item) for item in self.scenario.instances
         }
+        for (instance_id, state_id), value in self.initial_state_overrides.items():
+            runtime = self.instances.get(instance_id)
+            if runtime is None:
+                raise ProcessExecutionError(
+                    f"initial-state override references unknown instance {instance_id!r}"
+                )
+            declaration = next(
+                (
+                    item
+                    for item in runtime.declaration.process.states
+                    if item.ref.member_id == state_id
+                ),
+                None,
+            )
+            if declaration is None:
+                raise ProcessExecutionError(
+                    f"initial-state override references unknown state {instance_id}.{state_id}"
+                )
+            validate_process_value(
+                value, declaration.value_type, self.registry, declaration.location
+            )
+            environment = {**runtime.inputs, **runtime.states}
+            self._check_bound(value, declaration.bound, environment, declaration.location)
+            runtime.states[_state_symbol(runtime.declaration.process, declaration)] = value
         for schedule_index, schedule in enumerate(self.scenario.schedules):
             if isinstance(schedule, AtScheduleIR):
                 occurrences = (schedule.time,)
@@ -459,13 +506,52 @@ class DeterministicProcessExecutor:
         result = []
         for action_id in schedule.action_ids:
             action = declarations[action_id]
-            if action.guard is None or evaluate_process_expression(
-                action.guard, values, self.registry
-            ) is True:
+            if (
+                action.guard is None
+                or evaluate_process_expression(action.guard, values, self.registry)
+                is True
+            ) and self._process_action_guards_hold(action, values):
                 result.append(action_id)
         if schedule.allow_wait:
             result.append("wait")
         return tuple(result)
+
+    def _process_action_guards_hold(
+        self,
+        action: CompositeActionIR,
+        scenario_values: Mapping[SymbolRefIR, ProcessValue],
+    ) -> bool:
+        for call in action.sends:
+            if call.target.member.kind is not ProcessMemberKind.ACTION:
+                continue
+            runtime = self.instances[call.target.instance_id]
+            declaration = _event_declaration(
+                runtime.declaration.process, call.target.member
+            )
+            assert isinstance(declaration, ActionIR)
+            if declaration.guard is None:
+                continue
+            payload = {
+                argument.parameter_id: evaluate_process_expression(
+                    argument.value, scenario_values, self.registry
+                )
+                for argument in call.arguments
+            }
+            environment = {**runtime.inputs, **runtime.states}
+            for parameter in declaration.parameters:
+                environment[
+                    SymbolRefIR(
+                        f"{runtime.declaration.process.qualified_id}.{declaration.ref.member_id}",
+                        parameter.id,
+                        ExpressionSymbolKind.EVENT_PARAMETER,
+                        parameter.value_type,
+                    )
+                ] = payload[parameter.id]
+            if evaluate_process_expression(
+                declaration.guard, environment, self.registry
+            ) is not True:
+                return False
+        return True
 
     def _choose(
         self, time: Fraction, schedule: DecisionScheduleIR
@@ -670,9 +756,65 @@ class DeterministicProcessExecutor:
                         emits,
                     )
             elif isinstance(effect, BranchEffectIR):
-                raise UnsupportedError(
-                    "deterministic run cannot execute a random Process branch",
-                    effect.location,
+                probabilities = tuple(
+                    evaluate_process_expression(
+                        case.probability, environment, self.registry
+                    )
+                    for case in effect.cases
+                )
+                if any(
+                    not isinstance(probability, Fraction)
+                    or probability < 0
+                    or probability > 1
+                    for probability in probabilities
+                ) or sum(probabilities, Fraction(0)) != 1:
+                    raise ProcessExecutionError(
+                        f"branch {effect.id!r} probabilities must be exact values in 0..1 summing to 1",
+                        effect.location,
+                    )
+                if self.branch_selector is None:
+                    raise UnsupportedError(
+                        "deterministic run cannot execute a random Process branch",
+                        effect.location,
+                    )
+                branch_index = self.branch_selector(
+                    self.branch_decision_count,
+                    event,
+                    effect,
+                    probabilities,
+                    dict(environment),
+                )
+                if not isinstance(branch_index, int) or not 0 <= branch_index < len(effect.cases):
+                    raise ProcessExecutionError(
+                        f"branch selector returned invalid case {branch_index!r}",
+                        effect.location,
+                    )
+                if probabilities[branch_index] == 0:
+                    raise ProcessExecutionError(
+                        "branch selector chose a zero-probability case", effect.location
+                    )
+                self.branch_decision_count += 1
+                self._record(
+                    event.time,
+                    event.phase.id,
+                    "branch",
+                    event=event,
+                    member_id=effect.id,
+                    details=(
+                        ("mode", effect.mode.value),
+                        ("case", branch_index),
+                        ("probability", probabilities[branch_index]),
+                    ),
+                )
+                nested = dict(environment)
+                self._run_effects(
+                    runtime,
+                    event,
+                    effect.cases[branch_index].effects,
+                    nested,
+                    writes,
+                    schedules,
+                    emits,
                 )
             elif isinstance(effect, EmitEffectIR):
                 phase = (
@@ -987,6 +1129,14 @@ class DeterministicProcessExecutor:
                     self._record(routed.time, routed.phase.id, "route", event=routed)
 
     def _check_stop(self, phase: str) -> bool:
+        if self.reach_target is not None and evaluate_process_expression(
+            self.reach_target, self._scenario_values(), self.registry
+        ) is True:
+            self.target_reached = True
+            self.stopped = True
+            self.stop_reason = "target"
+            self._record(self.current_time, phase, "target")
+            return True
         if self.scenario.stop is None:
             return False
         if evaluate_process_expression(
@@ -1002,6 +1152,10 @@ class DeterministicProcessExecutor:
         self._initialize()
         if self._check_stop("initial"):
             return self._result()
+        if self.maximum_batches == 0:
+            self.stop_reason = "batch_limit"
+            return self._result()
+        processed_batches = 0
         while self.heap and not self.stopped:
             time, phase_index = heapq.heappop(self.heap)
             key = (time, phase_index)
@@ -1037,13 +1191,36 @@ class DeterministicProcessExecutor:
                 self._apply_emits(emits)
             if self._check_stop(phase.id):
                 break
-        if not self.stopped and self.current_time < self.scenario.bounds.horizon:
+            processed_batches += 1
+            if (
+                self.maximum_batches is not None
+                and processed_batches >= self.maximum_batches
+            ):
+                self.stop_reason = "batch_limit"
+                break
+        if (
+            not self.stopped
+            and self.maximum_batches is None
+            and self.current_time < self.scenario.bounds.horizon
+        ):
             self._advance(self.scenario.bounds.horizon)
             self._check_stop("horizon")
         return self._result()
 
     def _result(self) -> ProcessRunResult:
         observations = self._scenario_values()
+        inputs = tuple(
+            (
+                instance_id,
+                tuple(
+                    sorted(
+                        ((symbol.id, value) for symbol, value in runtime.inputs.items()),
+                        key=lambda item: item[0],
+                    )
+                ),
+            )
+            for instance_id, runtime in sorted(self.instances.items())
+        )
         states = tuple(
             (
                 instance_id,
@@ -1067,6 +1244,9 @@ class DeterministicProcessExecutor:
             self.event_count,
             self.decision_count,
             self.branch_count,
+            self.target_reached,
+            len(self.schedule_slots),
+            inputs,
             states,
             tuple(sorted(((symbol.id, value) for symbol, value in observations.items()))),
             tuple(self.decisions),
@@ -1087,8 +1267,56 @@ def run_process_scenario(
     registry: UnitRegistry,
     *,
     selector: Optional[DecisionSelector] = None,
+    branch_selector: Optional[BranchSelector] = None,
+    reach_target=None,
+    initial_state_overrides: Optional[Mapping[Tuple[str, str], ProcessValue]] = None,
+    maximum_batches: Optional[int] = None,
     include_trace: bool = True,
 ) -> ProcessRunResult:
     return DeterministicProcessExecutor(
-        scenario, registry, selector=selector, include_trace=include_trace
+        scenario,
+        registry,
+        selector=selector,
+        branch_selector=branch_selector,
+        reach_target=reach_target,
+        initial_state_overrides=initial_state_overrides,
+        maximum_batches=maximum_batches,
+        include_trace=include_trace,
     ).run()
+
+
+def selector_for_policy(policy: PolicyIR, registry: UnitRegistry) -> DecisionSelector:
+    """Compile a source Policy IR to the runtime's pure decision interface."""
+
+    def select(
+        index: int,
+        _time: Fraction,
+        _schedule: DecisionScheduleIR,
+        _available: Tuple[str, ...],
+        values: Mapping[str, ProcessValue],
+    ) -> str:
+        if policy.sequence:
+            if index >= len(policy.sequence):
+                raise ProcessExecutionError(
+                    f"policy {policy.id!r} sequence ended before decision {index + 1}",
+                    policy.location,
+                )
+            return policy.sequence[index]
+        for rule in policy.rules:
+            if rule.condition is None:
+                return rule.action_id
+            environment = {
+                reference: values[reference.id]
+                for reference in rule.condition.references
+                if reference.id in values
+            }
+            if evaluate_process_expression(
+                rule.condition, environment, registry
+            ) is True:
+                return rule.action_id
+        raise ProcessExecutionError(
+            f"policy {policy.id!r} has no matching rule at decision {index + 1}",
+            policy.location,
+        )
+
+    return select

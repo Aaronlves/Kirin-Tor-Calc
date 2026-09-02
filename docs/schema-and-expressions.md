@@ -148,12 +148,13 @@ list/map 容量、状态所有权、事件参数、reducer 类型族、handler �
 Process 都已加载后解析跨 entry 实例引用，强制完整 phase 映射和五项 fuel bound，并预检可枚举的
 同时间同 phase 批次冲突、外部事件数量和决策数量。确定性 runtime 在每次调度、发射、路由和决策时
 继续执行动态 fuel 检查，按 phase 起点快照同时提交 `next`，并记录 flow、reducer 来源、状态、调度、
-取消、动作和 stop trace。随机分支必须进入后续的有限分支分析器，不能由确定性运行路径暗中抽样。
+取消、动作和 stop trace。随机分支由精确有限分支分析器展开，`run`、`compare`、`reach`、`steady` 和
+`cycle` 都必须先满足各自前提；任何路径都不会暗中抽样或把 fuel 截断结果标成完整结果。
 
 ## 9. 运行记录与重放
 
 保存运行记录时，Kirin Tor 写入请求、结果、依赖文档原始 source、规范化内容摘要、实现摘要、Python/
-依赖版本和产物摘要。`cycle` 与 `eval`、扫描、求解等操作走同一记录路径。
+依赖版本和产物摘要。`process_analysis` 与旧 `cycle`、`eval`、扫描、求解等操作走同一记录路径。
 
 重放先校验嵌入 source 与结构内容一致，再在隔离的快照工作区执行相同操作。软件环境变化会被报告，
 不会被解释成源码变化。

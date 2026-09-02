@@ -172,7 +172,7 @@ scenario choice:
     maximum_entities = 1
 """
     workspace = _workspace(tmp_path, source)
-    with pytest.raises(ProcessExecutionError, match="Process action 'spend' is unavailable"):
+    with pytest.raises(ProcessExecutionError, match="policy selected unavailable action 'spend'"):
         run_process_scenario(
             workspace.scenarios["guard.choice"],
             workspace.units,
