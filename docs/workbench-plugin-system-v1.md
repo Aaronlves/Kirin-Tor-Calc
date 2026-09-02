@@ -181,7 +181,8 @@ Protocol v1 permissions are:
   operation service.
 
 No permission grants raw filesystem, environment, process, credential, session-token, arbitrary
-HTTP, Save All, Package mutation, or unrestricted operation access.
+HTTP, Save All, Package mutation, host-application installation or update, or unrestricted operation
+access.
 
 ## Requirements, lock, approval, and activation
 

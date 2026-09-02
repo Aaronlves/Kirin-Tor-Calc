@@ -233,6 +233,10 @@ kt package check [DIRECTORY]
 validation templates. `package check` validates the manifest, namespace, dependency closure,
 all Kirin Tor sources, and all mathematical references without publishing anything.
 
+`kt package update` updates only the selected data-only dependency in the current workspace. It does
+not check, download, or replace the installed `kirin-tor-cli` application; application installation
+and upgrades remain outside the Package protocol.
+
 Packages may additionally ship static creation templates under `templates/entries/**/*.kirin`.
 These files may contain optional `x/y` chart configuration and are included in the Package content digest and
 immutable cache snapshot. Installation and `package check` expand and validate each template

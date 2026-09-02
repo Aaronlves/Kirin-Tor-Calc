@@ -29,6 +29,36 @@ The workbench keeps the following authority boundary:
 | `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
 | Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
 
+## Launch, process, and distribution boundary
+
+The current workbench is a CLI-hosted local Web application, not an independently installed desktop
+application. `kt web` selects or remembers a workspace, starts the authenticated loopback server in
+the foreground process, and opens the session URL in the default browser. The browser is a client of
+that process: closing a browser tab does not stop the server; `Ctrl+C` performs an orderly shutdown
+of the server and its managed operation jobs, while termination of the host process ends the server
+session. There is no background daemon that can reopen the workbench after the host process has
+stopped.
+
+Application installation and command discovery are outside Workbench state. `uv tool` is the
+recommended distribution route, but adding its executable directory to the shell `PATH` is an
+operating-system configuration action, normally performed with `uv tool update-shell`. The
+Workbench cannot repair a missing `kt` command because it cannot run before the operating system has
+resolved that command.
+
+The current Workbench neither checks for nor automatically installs Kirin Tor application updates.
+Its version projection reports the already installed version only. Updating `kirin-tor-cli` is an
+explicit action performed outside the running Workbench with the installer or package manager that
+owns that installation; the server exposes no API that invokes `uv`, `pip`, or another host package
+manager, and it does not replace its own executable or Python environment. Package and Workbench
+Plugin update actions affect workspace dependencies or explicitly approved plugin snapshots, not the
+installed Kirin Tor application.
+
+A future native or Electron host, bundled Python runtime, background launcher, or application
+updater is not part of this implemented contract. Any such distribution layer requires a separate
+accepted design and verification for process supervision, matched frontend/backend versions,
+platform packaging, code signing, updates, and preservation of the loopback, session-token, source
+authority, and Plugin isolation boundaries above.
+
 ## Views and CLI parity
 
 - Documents covers CLI list/show/new/check and adds directory-grouped local sources, Package/version groups, per-document file actions, multi-document drafts, atomic Save All, explicit draft discard, external-change detection, integrated diagnostics, formula explanation, completion, result evaluation, optional chart preview/export, and creation-time templates. An empty workspace replaces the three-pane editor with a welcome surface for the bundled basic-model, preset-comparison, and scan/chart tutorials.
