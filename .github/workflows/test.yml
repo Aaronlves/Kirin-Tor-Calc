@@ -43,6 +43,8 @@ jobs:
         working-directory: frontend
       - run: npm run test:e2e
         working-directory: frontend
+        env:
+          KIRIN_PYTHON: python
       - run: npm run test:bundle
         working-directory: frontend
       - run: diff -qr frontend/dist src/kirin_tor/web_assets
