@@ -14,7 +14,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { ArrowLeft, ChevronDown, ChevronRight, FileQuestion, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileQuestion, RotateCcw } from "lucide-react";
 
 import type { OperationResult } from "../types";
 
@@ -192,7 +192,7 @@ export function Disclosure({
   return (
     <Box className="disclosure">
       <button className="disclosure-trigger" type="button" onClick={onToggle} aria-expanded={opened}>
-        {opened ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <ChevronRight className="disclosure-chevron" size={15} />
         <span>{label}</span>
       </button>
       <Collapse expanded={opened}><Box className="disclosure-body">{children}</Box></Collapse>

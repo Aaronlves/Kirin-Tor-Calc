@@ -55,6 +55,12 @@ export function RelationshipGraphCanvas({
   onSelect,
 }: RelationshipGraphCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReturnType<typeof initKirinEChart> | null>(null);
+  const selectedIndexRef = useRef<number | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  const onSelectRef = useRef(onSelect);
+  selectedIdRef.current = selectedId;
+  onSelectRef.current = onSelect;
   const sortedNodes = useMemo(
     () => [...nodes].sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id)),
     [nodes],
@@ -76,6 +82,7 @@ export function RelationshipGraphCanvas({
   useEffect(() => {
     if (!hostRef.current) return;
     const chart = initKirinEChart(hostRef.current);
+    chartRef.current = chart;
     const degree = new Map<string, number>();
     const labelCounts = new Map<string, number>();
     for (const node of sortedNodes) labelCounts.set(node.label, (labelCounts.get(node.label) || 0) + 1);
@@ -97,7 +104,9 @@ export function RelationshipGraphCanvas({
           const node = nodeMap.get(item.data.id);
           if (!node) return "";
           const scope = rootIdSet.has(node.id) ? " · 当前文档" : "";
-          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:${kirinEChartsTokens.tooltipMuted}">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}${scope}</span>`;
+          const counts = connectionCounts.get(node.id);
+          const unit = node.unit ? `<br/><span style="color:${kirinEChartsTokens.tooltipMuted}">单位：${escapeHtml(node.unit)}</span>` : "";
+          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:${kirinEChartsTokens.tooltipMuted}">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}${scope}</span>${unit}<br/><span style="color:${kirinEChartsTokens.tooltipMuted}">${counts?.dependencies || 0} 个直接依赖 · ${counts?.users || 0} 个直接使用者</span><br/>点击后在右侧查看公式、来源与上下游`;
         },
       },
       legend: compact ? undefined : [{
@@ -117,7 +126,7 @@ export function RelationshipGraphCanvas({
         data: sortedNodes.map((node) => ({
           id: node.id,
           name: (labelCounts.get(node.label) || 0) > 1 ? `${node.document_id}.${node.label}` : node.label,
-          selected: node.id === selectedId,
+          selected: node.id === selectedIdRef.current,
           category: categoryIndex.get(categoryLabels[node.kind] || node.kind) ?? 0,
           symbolSize: Math.min(compact ? 25 : 38, (compact ? 13 : 17) + Math.sqrt(degree.get(node.id) || 1) * 3 + (rootIdSet.has(node.id) ? 2 : 0)),
           itemStyle: {
@@ -154,17 +163,35 @@ export function RelationshipGraphCanvas({
       }],
     };
     chart.setOption(option, true);
+    const initiallySelected = sortedNodes.findIndex((node) => node.id === selectedIdRef.current);
+    selectedIndexRef.current = initiallySelected >= 0 ? initiallySelected : null;
     chart.on("click", (params: unknown) => {
       const item = params as { dataType?: string; data?: { id?: string } };
-      if (item.dataType === "node" && item.data?.id) onSelect?.(item.data.id);
+      if (item.dataType === "node" && item.data?.id) onSelectRef.current?.(item.data.id);
     });
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(hostRef.current);
     return () => {
       observer.disconnect();
+      if (chartRef.current === chart) chartRef.current = null;
+      selectedIndexRef.current = null;
       chart.dispose();
     };
-  }, [compact, edges, layout, nodeMap, onSelect, rootIdSet, selectedId, sortedNodes]);
+  }, [compact, connectionCounts, edges, layout, nodeMap, rootIdSet, sortedNodes]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || chart.isDisposed()) return;
+    const nextIndex = sortedNodes.findIndex((node) => node.id === selectedId);
+    const previousIndex = selectedIndexRef.current;
+    if (previousIndex !== null && previousIndex !== nextIndex) {
+      chart.dispatchAction({ type: "unselect", seriesIndex: 0, dataIndex: previousIndex });
+    }
+    if (nextIndex >= 0 && nextIndex !== previousIndex) {
+      chart.dispatchAction({ type: "select", seriesIndex: 0, dataIndex: nextIndex });
+    }
+    selectedIndexRef.current = nextIndex >= 0 ? nextIndex : null;
+  }, [selectedId, sortedNodes]);
 
   return (
     <div className={`relationship-visualization${compact ? " is-compact" : ""}`}>

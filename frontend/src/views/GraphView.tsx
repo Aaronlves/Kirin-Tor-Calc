@@ -45,6 +45,27 @@ const kindLabels: Record<string, string> = {
   analysis: "分析",
 };
 
+const kindHelp: Record<string, string> = {
+  document: "文档节点汇总该源码与其他文档之间的已校验引用。",
+  input: "输入是计算链的源值；修改它可能影响下游字段、函数与输出。",
+  field: "字段保存声明得到的值；直接依赖说明它由哪些成员计算。",
+  function: "函数把参数与上游成员组合成可复用计算；图中只显示外部成员依赖。",
+  table: "查表成员提供离散映射；使用者会在表达式中读取它。",
+  distribution: "有限分布汇集结果及概率；其上游是结果或概率表达式引用的成员。",
+  output: "输出是面向使用者的计算结果；沿上游可追溯其完整计算来源。",
+  object: "类型化对象把具名字段值组合在一起；连接来自对象值中的成员引用。",
+  process: "过程描述有状态执行；场景通过实例使用它。",
+  scenario: "场景组合一个或多个过程实例，并可被分析声明使用。",
+  analysis: "分析读取场景并生成派生的路径、统计或优化结果。",
+};
+
+function connectionHelp(label: string, dependencies: number, users: number): string {
+  if (dependencies && users) return `${label} 由 ${dependencies} 个直接上游成员计算，并影响 ${users} 个直接下游成员。`;
+  if (dependencies) return `${label} 由 ${dependencies} 个直接上游成员计算，目前没有其他成员直接使用它。`;
+  if (users) return `${label} 没有直接上游依赖，并为 ${users} 个直接下游成员提供值。`;
+  return `${label} 当前没有直接连接；它仍可作为独立声明从源码定位。`;
+}
+
 function documentNodes(graph: RelationshipGraphResult): RelationshipNode[] {
   return graph.documents.map((document) => ({
     id: document.id,
@@ -193,7 +214,12 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
           ) : (
             <EmptyState title="没有匹配的关系" description="清除搜索词，或先在文档中定义输入、公式和跨文档引用。" />
           )}
-          <div className="graph-hint"><Focus size={13} />文档使用稳定环形布局；成员可拖动。也可展开键盘节点列表。</div>
+          <div className="graph-hint" aria-live="polite">
+            <Focus size={13} />
+            {selected
+              ? `已选择“${selected.label}”；布局保持不变，右侧显示公式、来源与上下游。`
+              : "文档使用稳定环形布局；成员可拖动。点击节点查看说明，也可展开键盘节点列表。"}
+          </div>
         </Surface>
 
         <Surface component="section" ariaLabel="所选关系节点" className="graph-inspector">
@@ -210,6 +236,11 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
                   {selected.unit && <span><small>单位</small><strong>{selected.unit}</strong></span>}
                   {selected.line && <span><small>定义位置</small><strong>{selected.line}:{selected.column || 1}</strong></span>}
                 </Stack>
+                <Box className="graph-reading-help">
+                  <Text className="result-label">如何阅读</Text>
+                  <Text fz="sm" mt={7}>{kindHelp[selected.kind] || "这是工作区已校验关系投影中的一个成员。"}</Text>
+                  <Text fz="xs" c="dimmed" mt={7}>{connectionHelp(selected.label, selectedDependencies.length, selectedUsers.length)}箭头始终从依赖指向使用者。</Text>
+                </Box>
                 {selected.expression && (
                   <Box>
                     <Text className="result-label">直接公式</Text>

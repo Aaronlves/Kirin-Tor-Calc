@@ -10,6 +10,15 @@ function mantinePalette(values: string[]): MantineColorsTuple {
   return values as unknown as MantineColorsTuple;
 }
 
+const fastTransition = {
+  duration: Number.parseInt(tokens.motion.duration.fast),
+  timingFunction: tokens.motion.easing.standard,
+};
+const standardTransition = {
+  duration: Number.parseInt(tokens.motion.duration.standard),
+  timingFunction: tokens.motion.easing.standard,
+};
+
 export const kirinTheme = createTheme({
   primaryColor: "ember",
   primaryShade: 5,
@@ -68,6 +77,7 @@ export const kirinTheme = createTheme({
       defaultProps: {
         closeButtonProps: { "aria-label": "关闭抽屉" },
         overlayProps: { zIndex: Number(tokens.layer.overlay) },
+        transitionProps: standardTransition,
         zIndex: Number(tokens.layer.drawer),
       },
     }),
@@ -75,18 +85,21 @@ export const kirinTheme = createTheme({
       defaultProps: {
         closeButtonProps: { "aria-label": "关闭对话框" },
         overlayProps: { zIndex: Number(tokens.layer.overlay) },
+        transitionProps: standardTransition,
         zIndex: Number(tokens.layer.modal),
       },
     }),
     Menu: Menu.extend({
       defaultProps: {
         shadow: "md",
+        transitionProps: fastTransition,
         width: tokens.size.scale["280"],
         zIndex: Number(tokens.layer.popover),
       },
     }),
     Popover: Popover.extend({
       defaultProps: {
+        transitionProps: fastTransition,
         zIndex: Number(tokens.layer.popover),
       },
     }),
@@ -95,10 +108,7 @@ export const kirinTheme = createTheme({
         multiline: true,
         openDelay: Number.parseInt(tokens.motion.duration.standard),
         zIndex: Number(tokens.layer.tooltip),
-        transitionProps: {
-          duration: Number.parseInt(tokens.motion.duration.fast),
-          timingFunction: tokens.motion.easing.standard,
-        },
+        transitionProps: fastTransition,
       },
     }),
   },

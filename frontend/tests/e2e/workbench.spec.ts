@@ -15,7 +15,9 @@ async function openWorkbench(page: Page) {
 
 async function openCombo(page: Page) {
   await page.getByRole("button", { name: comboButtonName }).click();
-  await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" })).toBeVisible();
+  const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
+  await expect(editor).toBeVisible();
+  await expect(editor).toContainText("@entry combo");
 }
 
 function waitForCompletionResponse(page: Page, prefix: string, explicit: boolean) {
@@ -234,12 +236,18 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("region", { name: "文档索引" })).toBeVisible();
   });
 
-  test("菜单、分段控件与语法参考使用统一的稳定布局", async ({ page }) => {
+  test("悬停、菜单、分段控件与语法参考使用统一的稳定布局", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await openWorkbench(page);
 
     const focusModes = page.getByRole("radiogroup", { name: "文档专注模式" });
     await expect(focusModes.locator(".mantine-SegmentedControl-indicator")).toHaveCSS("display", "none");
     await expect(focusModes.locator('.mantine-SegmentedControl-label[data-active]')).toHaveCSS("background-color", "rgb(51, 36, 31)");
+
+    const relationshipNavigation = page.getByRole("button", { name: "关系图", exact: true });
+    await relationshipNavigation.hover();
+    await expect(relationshipNavigation).toHaveCSS("background-color", "rgb(37, 40, 33)");
+    await expect(relationshipNavigation).toHaveCSS("transition-duration", /0\.12s/);
 
     await page.getByRole("button", { name: "工作区工具" }).click();
     const toolMenu = page.locator(".mantine-Menu-dropdown:visible");
@@ -248,6 +256,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     expect((await toolMenu.boundingBox())?.width).toBeGreaterThanOrEqual(275);
     expect((await searchItem.boundingBox())?.height).toBeGreaterThanOrEqual(40);
     await searchItem.hover();
+    await expect(searchItem).toHaveCSS("background-color", "rgb(37, 40, 33)");
     await expect(page.getByRole("tooltip")).toContainText("搜索当前草稿和 Package 源码");
     await page.keyboard.press("Escape");
 
@@ -701,6 +710,18 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await firstNode.focus();
     await page.keyboard.press("Enter");
     await expect(page.locator(".graph-inspector")).toContainText("所属文档");
+
+    await page.locator(".graph-toolbar .mantine-SegmentedControl-label").filter({ hasText: "公式成员" }).click();
+    const graphCanvas = page.locator(".graph-surface .relationship-canvas canvas");
+    await expect(graphCanvas).toHaveCount(1);
+    await graphCanvas.evaluate((element) => { element.setAttribute("data-layout-instance", "stable"); });
+    if (!(await fallback.evaluate((element) => element.hasAttribute("open")))) await fallback.locator("summary").click();
+    await fallback.getByRole("button").filter({ hasText: "combo.total" }).click();
+    await expect(graphCanvas).toHaveAttribute("data-layout-instance", "stable");
+    await expect(inspector).toContainText("如何阅读");
+    await expect(inspector).toContainText("输出是面向使用者的计算结果");
+    await expect(inspector).toContainText("箭头始终从依赖指向使用者");
+    await expect(page.locator(".graph-hint")).toContainText("布局保持不变");
   });
 
   test("补全片段替换前缀并把光标放进参数", async ({ page }) => {

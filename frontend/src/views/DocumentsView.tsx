@@ -27,7 +27,6 @@ import {
   BookTemplate,
   Box as PackageIcon,
   Braces,
-  ChevronDown,
   ChevronRight,
   CircleAlert,
   CircleCheck,
@@ -530,7 +529,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       aria-expanded={!collapsed}
                       onClick={() => setCollapsedDocumentGroups((current) => ({ ...current, [group.id]: !collapsed }))}
                     >
-                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      <ChevronRight className="document-directory-chevron" size={13} />
                       <span>{group.label}</span>
                       <small>{group.documents.length}</small>
                     </button>
@@ -589,7 +588,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       aria-expanded={!collapsed}
                       onClick={() => setCollapsedDocumentGroups((current) => ({ ...current, [group.id]: !collapsed }))}
                     >
-                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                      <ChevronRight className="document-directory-chevron" size={13} />
                       <span>{group.label}</span>
                       <small>{group.documents.length}</small>
                     </button>

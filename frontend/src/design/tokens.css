@@ -229,6 +229,7 @@
   --kt-sh-header-blur: 14px;
   --kt-mo-d-instant: 0ms;
   --kt-mo-d-fast: 120ms;
+  --kt-mo-d-standard: 180ms;
   --kt-mo-e-standard: ease;
   --kt-z-selection: 1;
   --kt-z-focus: 2;

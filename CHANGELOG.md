@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unified neutral hover feedback and token-driven component transitions, and made relationship-node
+  selection preserve the current layout while exposing role, source, formula, and lineage guidance.
 - Stabilized all segmented-control selection surfaces without runtime geometry, expanded and
   highlighted Mantine menus with tool descriptions, widened and reflowed the Syntax Reference,
   and removed the bundled tutorial catalog, sources, API projection, and tutorial-only UI.
