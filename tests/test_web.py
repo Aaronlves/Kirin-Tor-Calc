@@ -14,6 +14,7 @@ import pytest
 from kirin_tor.package_authoring import add_path_package, create_package_template
 from kirin_tor.web import create_web_server
 from kirin_tor.plugin_store import PluginManager
+from kirin_tor.workspace import initialize
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -27,11 +28,13 @@ class RunningServer:
         *,
         safe_mode: bool = False,
         plugin_approval_home: Path | None = None,
+        preference_home: Path | None = None,
     ):
         self.server = create_web_server(
             root,
             safe_mode=safe_mode,
             plugin_approval_home=plugin_approval_home,
+            preference_home=preference_home,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
@@ -154,6 +157,73 @@ def test_web_bootstrap_degrades_when_the_package_graph_is_unavailable(
         assert status == 200
         assert decoded(body)["packages"] == []
         assert decoded(running.request("/api/bootstrap")[2])["package_state"]["status"] == "ok"
+
+
+def test_web_switches_workspaces_atomically_and_preserves_session_boundaries(
+    example_workspace: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = initialize(tmp_path / "另一个工作区")
+    target_source = target / "entries" / "target.kirin"
+    target_source.write_text(
+        '@kirin 2\n@entry target "另一个工作区"\n\noutput value: dimensionless = 2\n',
+        encoding="utf-8",
+    )
+    preference_home = tmp_path / "workbench-user"
+    plugin_approval_home = tmp_path / "plugin-user"
+
+    with RunningServer(
+        example_workspace,
+        safe_mode=True,
+        plugin_approval_home=plugin_approval_home,
+        preference_home=preference_home,
+    ) as running:
+        status, _headers, body = running.request(
+            "/api/workspace/open",
+            {"path": str(target_source)},
+        )
+        switched = decoded(body)
+
+        assert status == 200
+        assert switched == {
+            "status": "ok",
+            "workspace": str(target.resolve()),
+            "previous_workspace": str(example_workspace.resolve()),
+            "changed": True,
+        }
+        assert running.server.operation_jobs.root == target.resolve()
+        bootstrap = decoded(running.request("/api/bootstrap")[2])
+        assert bootstrap["workspace"] == str(target.resolve())
+        assert bootstrap["plugins"]["safe_mode"] is True
+        assert [item["path"] for item in bootstrap["documents"]] == ["entries/target.kirin"]
+        assert json.loads(
+            (preference_home / "workbench-preferences.json").read_text(encoding="utf-8")
+        ) == {
+            "schema": 1,
+            "default_workspace": str(target.resolve()),
+        }
+
+        unchanged = decoded(
+            running.request("/api/workspace/open", {"path": str(target)})[2]
+        )
+        assert unchanged["changed"] is False
+
+        ordinary = tmp_path / "ordinary-directory"
+        ordinary.mkdir()
+        with pytest.raises(urllib.error.HTTPError) as invalid:
+            running.request("/api/workspace/open", {"path": str(ordinary)})
+        assert invalid.value.code == 400
+        assert decoded(running.request("/api/bootstrap")[2])["workspace"] == str(target.resolve())
+
+        monkeypatch.setattr(running.server.operation_jobs, "has_running_jobs", lambda: True)
+        with pytest.raises(urllib.error.HTTPError) as busy:
+            running.request(
+                "/api/workspace/open",
+                {"path": str(example_workspace)},
+            )
+        assert busy.value.code == 400
+        assert decoded(running.request("/api/bootstrap")[2])["workspace"] == str(target.resolve())
 
 
 def test_web_serves_only_active_sandboxed_plugin_assets_and_projections(

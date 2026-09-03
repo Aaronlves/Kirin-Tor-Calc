@@ -20,7 +20,7 @@ const budgets = [
   ["initial JavaScript", entry?.[1] ?? Infinity, 650_000],
   ["largest JavaScript chunk", largestChunk?.[1] ?? Infinity, 700_000],
   ["total JavaScript", totalJavaScript, 2_400_000],
-  ["total CSS", totalCss, 300_000],
+  ["total CSS", totalCss, 180_000],
 ];
 
 let failed = false;

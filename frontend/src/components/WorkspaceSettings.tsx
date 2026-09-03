@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Badge,
   Box,
@@ -11,12 +12,16 @@ import {
   Stack,
   Table,
   Text,
+  TextInput,
 } from "@mantine/core";
-import { Box as PackageIcon, Check, Copy, Plug, Settings2 } from "lucide-react";
+import { notifications } from "@mantine/notifications";
+import { ArrowRightLeft, Box as PackageIcon, Check, Copy, Plug, Settings2 } from "lucide-react";
 
+import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import { isApplePlatform, primaryShortcut } from "../platform";
 import type { DocumentFocusMode, WorkspaceTool } from "../types";
+import { ToolSubview } from "./ui";
 
 interface WorkbenchProfileInfo {
   id: string;
@@ -59,6 +64,9 @@ export function WorkspaceSettings({
   onOpenTool,
 }: WorkspaceSettingsProps) {
   const workspace = controller.bootstrapData?.workspace ?? "正在连接";
+  const [workspacePath, setWorkspacePath] = useState("");
+  const [confirmSwitchOpened, setConfirmSwitchOpened] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const platform = isApplePlatform() ? "macOS" : "Windows / Linux";
   const shortcuts = [
     ["保存全部", primaryShortcut("S")],
@@ -70,6 +78,54 @@ export function WorkspaceSettings({
     ["成员重命名", "F2（编辑器）"],
     ["文件重命名 / 移动", "F2（文档列表）"],
   ];
+  const targetWorkspace = workspacePath.trim();
+  const workspaceBusy = controller.asyncState !== "idle" || controller.operationJobs.length > 0;
+  const canSwitch = Boolean(targetWorkspace) && targetWorkspace !== workspace && !workspaceBusy && !switching;
+
+  const performSwitch = async () => {
+    if (!canSwitch) return;
+    setSwitching(true);
+    try {
+      await controller.switchWorkspace(targetWorkspace);
+    } catch (error) {
+      setSwitching(false);
+      setConfirmSwitchOpened(false);
+      notifications.show({
+        color: "red",
+        title: "无法切换工作区",
+        message: errorMessage(error),
+        autoClose: false,
+      });
+    }
+  };
+
+  const requestSwitch = () => {
+    if (!canSwitch) return;
+    if (controller.dirtyCount) {
+      setConfirmSwitchOpened(true);
+      return;
+    }
+    void performSwitch();
+  };
+
+  if (confirmSwitchOpened) {
+    return <ToolSubview
+      title="保留草稿并切换工作区"
+      description="确认后先把草稿写入当前工作区的恢复缓存，再打开目标工作区。"
+      onBack={() => setConfirmSwitchOpened(false)}
+      backDisabled={switching}
+    >
+      <Stack gap="md" maw={620}>
+        <Text fz="sm">当前有 {controller.dirtyCount} 个未保存草稿。</Text>
+        <Text c="dimmed" fz="xs">这些草稿不会写入权威 `.kirin` 源码；下次返回当前工作区时会自动恢复。</Text>
+        <Code block>{targetWorkspace}</Code>
+        <Group justify="flex-end">
+          <Button variant="default" disabled={switching} onClick={() => setConfirmSwitchOpened(false)}>取消</Button>
+          <Button disabled={!canSwitch} loading={switching} onClick={() => { void performSwitch(); }}>保留草稿并切换</Button>
+        </Group>
+      </Stack>
+    </ToolSubview>;
+  }
 
   return (
     <div className="workspace-settings-tool">
@@ -77,15 +133,15 @@ export function WorkspaceSettings({
         <Box>
           <Group gap="xs">
             <Settings2 size={18} />
-            <Text fw={700}>工作台设置</Text>
+            <Text className="page-kicker">WORKBENCH PREFERENCES</Text>
           </Group>
-          <Text c="dimmed" fz="xs" mt={4}>这些设置只保存在当前浏览器，不会写入 `.kirin`、锁文件或运行记录。</Text>
+          <Text c="dimmed" fz="xs" mt={4}>界面偏好只保存在当前浏览器；工作区选择记录在用户本地，不会写入 `.kirin`、锁文件或运行记录。</Text>
         </Box>
 
         <section className="settings-section" aria-labelledby="workspace-settings-identity">
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Box>
-              <Text id="workspace-settings-identity" fw={650}>当前工作区</Text>
+              <Text component="h3" id="workspace-settings-identity" fw={650}>当前工作区</Text>
               <Text c="dimmed" fz="xs" mt={3}>所有保存操作都写入这个本地工作区。</Text>
             </Box>
             <Badge color={controller.validationItems.length ? "red" : controller.dirtyCount ? "orange" : "green"} variant="light">
@@ -99,11 +155,35 @@ export function WorkspaceSettings({
             </CopyButton>
           </Group>
           <Text c="dimmed" fz="xs" mt="xs">Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
+          <Box mt="lg">
+            <Text component="h4" fw={620} fz="sm">打开另一个工作区</Text>
+            <Text c="dimmed" fz="xs" mt={3}>填写已有 Kirin Tor 工作区或其子目录；切换成功后会成为下次启动的默认工作区。</Text>
+            <Group mt="sm" align="flex-end" wrap="nowrap">
+              <TextInput
+                label="工作区目录"
+                placeholder="/path/to/workspace"
+                value={workspacePath}
+                onChange={(event) => setWorkspacePath(event.currentTarget.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") requestSwitch(); }}
+                style={{ flex: 1 }}
+              />
+              <Button
+                variant="default"
+                leftSection={<ArrowRightLeft size={14} />}
+                loading={switching}
+                disabled={!canSwitch}
+                onClick={requestSwitch}
+              >
+                切换工作区
+              </Button>
+            </Group>
+            {workspaceBusy && <Text c="orange" fz="xs" mt="xs">请先等待当前操作结束，或取消正在运行的计算。</Text>}
+          </Box>
         </section>
 
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <section className="settings-section" aria-labelledby="workspace-settings-interface">
-            <Text id="workspace-settings-interface" fw={650}>界面布局</Text>
+            <Text component="h3" id="workspace-settings-interface" fw={650}>界面布局</Text>
             <Stack gap="md" mt="md">
               <Select
                 label="界面 Profile"
@@ -133,7 +213,7 @@ export function WorkspaceSettings({
           </section>
 
           <section className="settings-section" aria-labelledby="workspace-settings-feedback">
-            <Text id="workspace-settings-feedback" fw={650}>反馈与通知</Text>
+            <Text component="h3" id="workspace-settings-feedback" fw={650}>反馈与通知</Text>
             <Select
               mt="md"
               label="普通通知停留时间"
@@ -146,7 +226,7 @@ export function WorkspaceSettings({
         </SimpleGrid>
 
         <section className="settings-section" aria-labelledby="workspace-settings-extensions">
-          <Text id="workspace-settings-extensions" fw={650}>依赖与扩展</Text>
+          <Text component="h3" id="workspace-settings-extensions" fw={650}>依赖与扩展</Text>
           <Text c="dimmed" fz="xs" mt={3}>Package 提供只读模型数据，Workbench Plugin 提供受沙箱约束的界面扩展。</Text>
           <Group mt="md">
             <Button variant="default" leftSection={<PackageIcon size={14} />} onClick={() => onOpenTool("packages")}>Package 管理</Button>
@@ -156,7 +236,7 @@ export function WorkspaceSettings({
 
         <section className="settings-section" aria-labelledby="workspace-settings-shortcuts">
           <Group justify="space-between">
-            <Text id="workspace-settings-shortcuts" fw={650}>快捷键</Text>
+            <Text component="h3" id="workspace-settings-shortcuts" fw={650}>快捷键</Text>
             <Badge variant="outline" color="gray">{platform}</Badge>
           </Group>
           <Table mt="sm" striped withRowBorders>
@@ -169,4 +249,3 @@ export function WorkspaceSettings({
     </div>
   );
 }
-

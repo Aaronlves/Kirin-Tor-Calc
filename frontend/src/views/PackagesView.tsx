@@ -6,16 +6,13 @@ import {
   Button,
   Code,
   Divider,
-  Drawer,
   Group,
-  Modal,
   ScrollArea,
   SimpleGrid,
   Stack,
   Tabs,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -38,7 +35,7 @@ import { errorMessage, request } from "../api";
 import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { InstalledPackage, OperationResult, PackageRequirement } from "../types";
-import { EmptyState, Surface, TechnicalResult } from "../components/ui";
+import { EmptyState, PageIntro, Surface, TechnicalResult, ToolSubview } from "../components/ui";
 
 type InstallMode = "github" | "local";
 type ManagedPackage = InstalledPackage | PackageRequirement;
@@ -126,20 +123,102 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
     }
   };
 
+  if (installOpened) {
+    return <ToolSubview title="安装 Package" description="选择精确 GitHub 版本，或冻结本地目录为不可变快照。" onBack={() => setInstallOpened(false)} backDisabled={working}>
+      <Stack gap="lg" maw={720}>
+        <Tabs value={installMode} onChange={(value) => setInstallMode(value as InstallMode)}>
+          <Tabs.List grow><Tabs.Tab value="github" leftSection={<Download size={14} />}>GitHub 精确版本</Tabs.Tab><Tabs.Tab value="local" leftSection={<FolderInput size={14} />}>本地不可变快照</Tabs.Tab></Tabs.List>
+        </Tabs>
+        <TextInput label="工作区别名" description="在当前工作区内引用这个 Package 的稳定名称。" placeholder="example" value={alias} onChange={(event) => setAlias(event.currentTarget.value)} />
+        {installMode === "github" ? (
+          <>
+            <TextInput label="来源" placeholder="github:OWNER/REPOSITORY" value={source} onChange={(event) => setSource(event.currentTarget.value)} />
+            <TextInput label="精确版本" description="必须指定可解析的精确版本。" placeholder="1.0.0" value={version} onChange={(event) => setVersion(event.currentTarget.value)} />
+          </>
+        ) : (
+          <TextInput label="Package 目录" description="目录内容会复制到内容寻址缓存，而不是保持活动链接。" placeholder="/path/to/package" value={path} onChange={(event) => setPath(event.currentTarget.value)} />
+        )}
+        <Divider />
+        <Group justify="flex-end"><Button variant="default" disabled={working} onClick={() => setInstallOpened(false)}>取消</Button><Button loading={working} disabled={!alias || installMode === "github" ? !alias || !source || !version : !alias || !path} onClick={() => { void install(); }}>安装并锁定</Button></Group>
+      </Stack>
+    </ToolSubview>;
+  }
+
+  if (updatePackage) {
+    return <ToolSubview title={`更新 ${updatePackage.alias || "Package"}`} description="重新解析当前约束，或明确切换到新的精确版本。" onBack={() => setUpdatePackage(null)} backDisabled={working}>
+      <Stack gap="md" maw={620}>
+        <Text c="dimmed" fz="xs">留空版本会重新解析当前约束；填写版本则更新到新的精确版本。</Text>
+        <TextInput label="精确版本" placeholder={updatePackage.version || "1.0.0"} value={updateVersion} onChange={(event) => setUpdateVersion(event.currentTarget.value)} />
+        <Group justify="flex-end"><Button variant="default" disabled={working} onClick={() => setUpdatePackage(null)}>取消</Button><Button loading={working} onClick={() => { void update(); }}>更新并重新锁定</Button></Group>
+      </Stack>
+    </ToolSubview>;
+  }
+
+  if (removePackage) {
+    return <ToolSubview title="移除直接依赖" description="确认后只改变当前工作区的依赖声明与锁定图。" onBack={() => setRemovePackage(null)} backDisabled={working}>
+      <Stack gap="md" maw={620}>
+        <Text fz="sm">移除 <strong>{removePackage.alias}</strong>？</Text>
+        <Text c="dimmed" fz="xs">不再可达的传递依赖也会从锁文件中移除；内容缓存仍可由其他工作区复用。</Text>
+        <Group justify="flex-end"><Button variant="default" disabled={working} onClick={() => setRemovePackage(null)}>取消</Button><Button className="danger-button" leftSection={<Trash2 size={14} />} loading={working} onClick={() => { void remove(); }}>移除依赖</Button></Group>
+      </Stack>
+    </ToolSubview>;
+  }
+
+  if (authorToolsOpened) {
+    return <ToolSubview title="Package 与工作区作者工具" description="创建或检查 Package 骨架，并初始化新的工作区目录。" onBack={() => setAuthorToolsOpened(false)} backDisabled={working}>
+      <Tabs value={authorTab} onChange={setAuthorTab} orientation="vertical" className="author-tools-tabs">
+        <Tabs.List>
+          <Tabs.Tab value="new-package">新建 Package</Tabs.Tab>
+          <Tabs.Tab value="check-package">检查 Package</Tabs.Tab>
+          <Tabs.Tab value="new-workspace">初始化工作区</Tabs.Tab>
+        </Tabs.List>
+        <Tabs.Panel value="new-package" pl="lg">
+          <Stack>
+            <Box><Text component="h4" fw={650}>创建 Package 骨架</Text><Text c="dimmed" fz="xs" mt={3}>生成 manifest、entries 和消费者模板示例。</Text></Box>
+            <TextInput label="目录" value={packageDirectory} onChange={(event) => setPackageDirectory(event.currentTarget.value)} />
+            <TextInput label="名称" placeholder="community.example" value={packageName} onChange={(event) => setPackageName(event.currentTarget.value)} />
+            <TextInput label="namespace" placeholder="community_example" value={packageNamespace} onChange={(event) => setPackageNamespace(event.currentTarget.value)} />
+            <TextInput label="版本" value={packageVersion} onChange={(event) => setPackageVersion(event.currentTarget.value)} />
+            <Button loading={working} disabled={!packageDirectory || !packageName || !packageNamespace || !packageVersion} onClick={() => { void act("new", { directory: packageDirectory, name: packageName, namespace: packageNamespace, version: packageVersion }, "Package 骨架已创建"); }}>创建 Package</Button>
+          </Stack>
+        </Tabs.Panel>
+        <Tabs.Panel value="check-package" pl="lg">
+          <Stack>
+            <Box><Text component="h4" fw={650}>完整检查 Package</Text><Text c="dimmed" fz="xs" mt={3}>验证 manifest、源码、依赖和模板。</Text></Box>
+            <TextInput label="Package 目录" value={checkDirectory} onChange={(event) => setCheckDirectory(event.currentTarget.value)} />
+            <Button loading={working} disabled={!checkDirectory} onClick={() => { void act("check", { directory: checkDirectory }, "Package 检查完成"); }}>开始检查</Button>
+          </Stack>
+        </Tabs.Panel>
+        <Tabs.Panel value="new-workspace" pl="lg">
+          <Stack>
+            <Box><Text component="h4" fw={650}>初始化新工作区</Text><Text c="dimmed" fz="xs" mt={3}>在指定目录创建 Kirin Tor 工作区结构。</Text></Box>
+            <TextInput label="目标目录" value={workspacePath} onChange={(event) => setWorkspacePath(event.currentTarget.value)} />
+            <Button loading={working} disabled={!workspacePath} onClick={() => { void initializeWorkspace(); }}>初始化工作区</Button>
+          </Stack>
+        </Tabs.Panel>
+      </Tabs>
+    </ToolSubview>;
+  }
+
+  if (discoverOpened) {
+    return <ToolSubview title="发现社区 Packages" description="候选项目保持只读；安装仍需返回 Package 管理后明确执行。" onBack={() => setDiscoverOpened(false)}>
+      <CommunityDiscoveryPanel kind="package" />
+    </ToolSubview>;
+  }
+
   return (
     <div className="content-page packages-page">
-      <div className="page-intro compact">
-        <Box>
-          <Text className="page-kicker">PACKAGE ECOSYSTEM</Text>
-          <Title order={1}>可复现的社区预设</Title>
-          <Text c="dimmed" fz="sm" mt={5}>每个 Package 都以精确版本和内容哈希锁定；模板只在创建文档时展开。</Text>
-        </Box>
-        <Group gap="xs">
+      <PageIntro
+        kicker="PACKAGE ECOSYSTEM"
+        title="可复现的社区预设"
+        description="每个 Package 都以精确版本和内容哈希锁定；模板只在创建文档时展开。"
+        headingOrder={3}
+        actions={<Group gap="xs">
           <Button variant="default" size="xs" leftSection={<Compass size={14} />} onClick={() => setDiscoverOpened(true)}>发现 Package</Button>
           <Button variant="default" size="xs" leftSection={<Wrench size={14} />} onClick={() => setAuthorToolsOpened(true)}>作者工具</Button>
           <Button size="xs" leftSection={<Plus size={14} />} onClick={() => setInstallOpened(true)}>安装 Package</Button>
-        </Group>
-      </div>
+        </Group>}
+      />
 
       <ScrollArea h="calc(100vh - var(--kt-sz-158))" type="auto">
         <Stack gap="lg" pb="xl">
@@ -170,14 +249,14 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
           {packages.length ? (
             <div className="package-card-grid">
               {packages.map((item) => (
-                <Surface className="package-card-modern" key={`${item.source}-${item.content_sha256}`}>
+                <Surface component="article" ariaLabel={item.name} className="package-card-modern" key={`${item.source}-${item.content_sha256}`}>
                   <Stack gap="md" h="100%">
                     <Group justify="space-between" align="flex-start" wrap="nowrap">
                       <div className="package-icon"><PackageIcon size={19} strokeWidth={1.6} /></div>
                       <Badge size="xs" variant="light" color={item.direct ? "orange" : "gray"}>{item.direct ? item.alias : "传递依赖"}</Badge>
                     </Group>
                     <Box>
-                      <Group gap={6} wrap="nowrap"><Text fw={680} fz="sm" truncate>{item.name}</Text><Code>{item.version}</Code></Group>
+                      <Group gap={6} wrap="nowrap"><Text component="h4" fw={680} fz="sm" truncate>{item.name}</Text><Code>{item.version}</Code></Group>
                       <Text c="dimmed" fz="xs" mt={7} lineClamp={3}>{item.description || "这个 Package 没有提供说明。"}</Text>
                     </Box>
                     <Stack gap={5} className="package-facts">
@@ -200,14 +279,14 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
           ) : unavailableRequirements.length ? (
             <div className="package-card-grid">
               {unavailableRequirements.map((item) => (
-                <Surface className="package-card-modern" key={`${item.alias}-${item.source}`}>
+                <Surface component="article" ariaLabel={item.alias} className="package-card-modern" key={`${item.alias}-${item.source}`}>
                   <Stack gap="md" h="100%">
                     <Group justify="space-between" align="flex-start" wrap="nowrap">
                       <div className="package-icon"><PackageIcon size={19} strokeWidth={1.6} /></div>
                       <Badge size="xs" variant="light" color="red">未载入</Badge>
                     </Group>
                     <Box>
-                      <Group gap={6} wrap="nowrap"><Text fw={680} fz="sm" truncate>{item.alias}</Text><Code>{item.version}</Code></Group>
+                      <Group gap={6} wrap="nowrap"><Text component="h4" fw={680} fz="sm" truncate>{item.alias}</Text><Code>{item.version}</Code></Group>
                       <Text c="dimmed" fz="xs" mt={7} lineClamp={3}>{item.source}</Text>
                     </Box>
                     <Group mt="auto" gap="xs">
@@ -226,78 +305,6 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
         </Stack>
       </ScrollArea>
 
-      <Modal opened={installOpened} onClose={() => setInstallOpened(false)} title="安装 Package" centered size="lg">
-        <Stack gap="lg">
-          <Tabs value={installMode} onChange={(value) => setInstallMode(value as InstallMode)}>
-            <Tabs.List grow><Tabs.Tab value="github" leftSection={<Download size={14} />}>GitHub 精确版本</Tabs.Tab><Tabs.Tab value="local" leftSection={<FolderInput size={14} />}>本地不可变快照</Tabs.Tab></Tabs.List>
-          </Tabs>
-          <TextInput label="工作区别名" description="在当前工作区内引用这个 Package 的稳定名称。" placeholder="example" value={alias} onChange={(event) => setAlias(event.currentTarget.value)} />
-          {installMode === "github" ? (
-            <>
-              <TextInput label="来源" placeholder="github:OWNER/REPOSITORY" value={source} onChange={(event) => setSource(event.currentTarget.value)} />
-              <TextInput label="精确版本" description="必须指定可解析的精确版本。" placeholder="1.0.0" value={version} onChange={(event) => setVersion(event.currentTarget.value)} />
-            </>
-          ) : (
-            <TextInput label="Package 目录" description="目录内容会复制到内容寻址缓存，而不是保持活动链接。" placeholder="/path/to/package" value={path} onChange={(event) => setPath(event.currentTarget.value)} />
-          )}
-          <Divider />
-          <Group justify="flex-end"><Button variant="default" onClick={() => setInstallOpened(false)}>取消</Button><Button loading={working} disabled={!alias || installMode === "github" ? !alias || !source || !version : !alias || !path} onClick={() => { void install(); }}>安装并锁定</Button></Group>
-        </Stack>
-      </Modal>
-
-      <Modal opened={Boolean(updatePackage)} onClose={() => setUpdatePackage(null)} title={`更新 ${updatePackage?.alias || "Package"}`} centered>
-        <Stack>
-          <Text c="dimmed" fz="xs">留空版本会重新解析当前约束；填写版本则更新到新的精确版本。</Text>
-          <TextInput label="精确版本" placeholder={updatePackage?.version || "1.0.0"} value={updateVersion} onChange={(event) => setUpdateVersion(event.currentTarget.value)} />
-          <Group justify="flex-end"><Button variant="default" onClick={() => setUpdatePackage(null)}>取消</Button><Button loading={working} onClick={() => { void update(); }}>更新并重新锁定</Button></Group>
-        </Stack>
-      </Modal>
-
-      <Modal opened={Boolean(removePackage)} onClose={() => setRemovePackage(null)} title="移除直接依赖" centered>
-        <Stack>
-          <Text fz="sm">移除 <strong>{removePackage?.alias}</strong>？</Text>
-          <Text c="dimmed" fz="xs">不再可达的传递依赖也会从锁文件中移除；内容缓存仍可由其他工作区复用。</Text>
-          <Group justify="flex-end"><Button variant="default" onClick={() => setRemovePackage(null)}>取消</Button><Button className="danger-button" leftSection={<Trash2 size={14} />} loading={working} onClick={() => { void remove(); }}>移除依赖</Button></Group>
-        </Stack>
-      </Modal>
-
-      <Drawer opened={authorToolsOpened} onClose={() => setAuthorToolsOpened(false)} position="right" size="lg" title="Package 与工作区作者工具">
-        <Tabs value={authorTab} onChange={setAuthorTab} orientation="vertical" className="author-tools-tabs">
-          <Tabs.List>
-            <Tabs.Tab value="new-package">新建 Package</Tabs.Tab>
-            <Tabs.Tab value="check-package">检查 Package</Tabs.Tab>
-            <Tabs.Tab value="new-workspace">初始化工作区</Tabs.Tab>
-          </Tabs.List>
-          <Tabs.Panel value="new-package" pl="lg">
-            <Stack>
-              <Box><Text fw={650}>创建 Package 骨架</Text><Text c="dimmed" fz="xs" mt={3}>生成 manifest、entries 和消费者模板示例。</Text></Box>
-              <TextInput label="目录" value={packageDirectory} onChange={(event) => setPackageDirectory(event.currentTarget.value)} />
-              <TextInput label="名称" placeholder="community.example" value={packageName} onChange={(event) => setPackageName(event.currentTarget.value)} />
-              <TextInput label="namespace" placeholder="community_example" value={packageNamespace} onChange={(event) => setPackageNamespace(event.currentTarget.value)} />
-              <TextInput label="版本" value={packageVersion} onChange={(event) => setPackageVersion(event.currentTarget.value)} />
-              <Button loading={working} disabled={!packageDirectory || !packageName || !packageNamespace || !packageVersion} onClick={() => { void act("new", { directory: packageDirectory, name: packageName, namespace: packageNamespace, version: packageVersion }, "Package 骨架已创建"); }}>创建 Package</Button>
-            </Stack>
-          </Tabs.Panel>
-          <Tabs.Panel value="check-package" pl="lg">
-            <Stack>
-              <Box><Text fw={650}>完整检查 Package</Text><Text c="dimmed" fz="xs" mt={3}>验证 manifest、源码、依赖和模板。</Text></Box>
-              <TextInput label="Package 目录" value={checkDirectory} onChange={(event) => setCheckDirectory(event.currentTarget.value)} />
-              <Button loading={working} disabled={!checkDirectory} onClick={() => { void act("check", { directory: checkDirectory }, "Package 检查完成"); }}>开始检查</Button>
-            </Stack>
-          </Tabs.Panel>
-          <Tabs.Panel value="new-workspace" pl="lg">
-            <Stack>
-              <Box><Text fw={650}>初始化新工作区</Text><Text c="dimmed" fz="xs" mt={3}>在指定目录创建 Kirin Tor 工作区结构。</Text></Box>
-              <TextInput label="目标目录" value={workspacePath} onChange={(event) => setWorkspacePath(event.currentTarget.value)} />
-              <Button loading={working} disabled={!workspacePath} onClick={() => { void initializeWorkspace(); }}>初始化工作区</Button>
-            </Stack>
-          </Tabs.Panel>
-        </Tabs>
-      </Drawer>
-
-      <Drawer opened={discoverOpened} onClose={() => setDiscoverOpened(false)} position="right" size="xl" title="发现社区 Packages">
-        <CommunityDiscoveryPanel kind="package" />
-      </Drawer>
     </div>
   );
 }

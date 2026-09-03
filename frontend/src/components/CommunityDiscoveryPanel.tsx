@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Alert, Badge, Box, Button, Code, Group, SimpleGrid, Stack, Text, TextInput } from "@mantine/core";
 import { ExternalLink, GitFork, RefreshCw, Search, ShieldAlert, Star } from "lucide-react";
 
@@ -20,12 +20,13 @@ function compatibilityFacts(item: CommunityDiscoveryCandidate): string[] {
 }
 
 function CandidateCard({ item }: { item: CommunityDiscoveryCandidate }) {
+  const titleId = useId();
   return (
-    <Surface>
+    <Surface component="article" ariaLabelledby={titleId}>
       <Stack gap="sm" h="100%">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Box>
-            <Text fw={700} fz="sm">{item.name}</Text>
+            <Text component="h5" id={titleId} fw={700} fz="sm">{item.name}</Text>
             <Text c="dimmed" fz="xs" mt={3}>{item.repository}</Text>
           </Box>
           <Code>{item.version}</Code>
@@ -97,7 +98,7 @@ export function CommunityDiscoveryPanel({ kind }: { kind: DiscoveryKind }) {
   return (
     <Stack gap="lg">
       <Box>
-        <Text fw={700}>{title}</Text>
+        <Text component="h4" fw={700}>{title}</Text>
         <Text c="dimmed" fz="xs" mt={4}>
           GitHub topic 只生成候选；这里只读取并检查 manifest，不会下载、安装、批准或启用任何内容。
         </Text>

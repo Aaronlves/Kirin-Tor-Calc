@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Box, Group, Text } from "@mantine/core";
+import { Badge, Box, Group, Text, Title } from "@mantine/core";
 import { Puzzle, ShieldAlert } from "lucide-react";
 
 import type { WorkbenchController } from "../hooks/useWorkbench";
@@ -15,6 +15,7 @@ interface PluginSurfaceProps {
   projection?: DocumentProjection | null;
   onNavigateToSource(key: string, line?: number | null, column?: number | null): void;
   compact?: boolean;
+  headingOrder?: 2 | 3 | 4;
 }
 
 function safeMessage(value: unknown): value is Record<string, unknown> {
@@ -32,6 +33,7 @@ export function PluginSurface({
   projection,
   onNavigateToSource,
   compact = false,
+  headingOrder,
 }: PluginSurfaceProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
@@ -213,7 +215,12 @@ export function PluginSurface({
   }, [activation, contribution.permissions, controller, onNavigateToSource, post]);
 
   if (!contribution.entry_url.startsWith("/plugins/")) {
-    return <EmptyState icon={<ShieldAlert size={22} />} title="插件入口被拒绝" description="插件入口不属于已验证的不可变内容存储。" />;
+    return <EmptyState
+      icon={<ShieldAlert size={22} />}
+      title="插件入口被拒绝"
+      description="插件入口不属于已验证的不可变内容存储。"
+      headingOrder={headingOrder ?? (compact ? 3 : 2)}
+    />;
   }
 
   return (
@@ -221,7 +228,7 @@ export function PluginSurface({
       <Group className="plugin-surface-header" justify="space-between" wrap="nowrap">
         <Group gap={7} wrap="nowrap">
           <Puzzle size={14} />
-          <Text fz="xs" fw={650}>{contribution.title}</Text>
+          <Title className="plugin-surface-title" order={headingOrder ?? (compact ? 3 : 2)}>{contribution.title}</Title>
         </Group>
         <Badge variant="outline" color="gray" size="xs">{contribution.plugin_name} {contribution.plugin_version}</Badge>
       </Group>

@@ -2,12 +2,13 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Drawer } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 
-import { LoadingState } from "./components/ui";
+import { LoadingState, WorkspaceToolFrame } from "./components/ui";
 import { PluginSurface } from "./components/PluginSurface";
 import { WorkspaceShell } from "./components/WorkspaceShell";
 import tokens from "./design/tokens.json";
 import { useWorkbench } from "./hooks/useWorkbench";
 import type { DocumentFocusMode, PluginCommandContribution, PluginProfileContribution, ViewId, WorkspaceTool } from "./types";
+import { builtinDestinationById, builtinToolIds, builtinViewIds, type BuiltinDestinationId } from "./workbenchDestinations";
 
 const DocumentsView = lazy(() => import("./views/DocumentsView").then((module) => ({ default: module.DocumentsView })));
 const GraphView = lazy(() => import("./views/GraphView").then((module) => ({ default: module.GraphView })));
@@ -19,17 +20,6 @@ const WorkspaceSearch = lazy(() => import("./components/WorkspaceSearch").then((
 const ChangeReview = lazy(() => import("./components/ChangeReview").then((module) => ({ default: module.ChangeReview })));
 const WorkspaceSettings = lazy(() => import("./components/WorkspaceSettings").then((module) => ({ default: module.WorkspaceSettings })));
 
-const builtinToolTitles: Record<string, string> = {
-  runs: "运行记录",
-  packages: "Package 管理",
-  syntax: "Kirin Tor 语法参考",
-  search: "工作区搜索与替换",
-  changes: "保存前变更审查",
-  plugins: "Workbench Plugins",
-  settings: "工作台设置",
-};
-
-const builtinTools = ["runs", "packages", "plugins", "syntax", "search", "changes", "settings"];
 const notificationDurations = new Set([3000, 4000, 6000, 8000]);
 
 interface WorkbenchProfile {
@@ -47,6 +37,7 @@ export function App() {
   const controller = useWorkbench();
   const [activeView, setActiveView] = useState<ViewId>(() => localStorage.getItem("kirin:active-view") || "documents");
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
+  const [workspaceToolParent, setWorkspaceToolParent] = useState<WorkspaceTool | null>(null);
   const [syntaxTopic, setSyntaxTopic] = useState<string | null>(null);
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
@@ -66,8 +57,8 @@ export function App() {
     id: "default",
     title: "Kirin Tor 默认",
     description: "显示官方工作台以及所有已启用插件贡献。",
-    views: ["documents", "graph", ...pluginContributions.views.map((item) => item.id)],
-    tools: [...builtinTools, ...pluginContributions.tools.map((item) => item.id)],
+    views: [...builtinViewIds, ...pluginContributions.views.map((item) => item.id)],
+    tools: [...builtinToolIds, ...pluginContributions.tools.map((item) => item.id)],
     default_view: "documents",
     document_focus_mode: "split",
   }), [pluginContributions.tools, pluginContributions.views]);
@@ -113,10 +104,11 @@ export function App() {
   useEffect(() => {
     if (
       workspaceTool
-      && !builtinTools.includes(workspaceTool)
+      && !builtinToolIds.includes(workspaceTool as BuiltinDestinationId)
       && !pluginContributions.tools.some((item) => item.id === workspaceTool)
     ) {
       setWorkspaceTool(null);
+      setWorkspaceToolParent(null);
     }
   }, [pluginContributions.tools, workspaceTool]);
 
@@ -124,6 +116,7 @@ export function App() {
     const openSyntaxReference = (event: Event) => {
       const detail = (event as CustomEvent<{ topic?: string }>).detail;
       setSyntaxTopic(detail?.topic ?? null);
+      setWorkspaceToolParent(null);
       setWorkspaceTool("syntax");
     };
     window.addEventListener("kirin:open-syntax-reference", openSyntaxReference);
@@ -147,7 +140,10 @@ export function App() {
     localStorage.setItem("kirin:workbench-profile", profile.id);
     setDocumentFocusMode(profile.document_focus_mode);
     setActiveView(profile.default_view);
-    if (!keepToolOpen) setWorkspaceTool(null);
+    if (!keepToolOpen) {
+      setWorkspaceTool(null);
+      setWorkspaceToolParent(null);
+    }
   };
 
   const changeView = (viewId: string) => {
@@ -157,13 +153,36 @@ export function App() {
     }
     setActiveView(viewId);
     setWorkspaceTool(null);
+    setWorkspaceToolParent(null);
   };
+
+  const openWorkspaceTool = (tool: WorkspaceTool, parent: WorkspaceTool | null = null) => {
+    if (tool === "syntax") setSyntaxTopic(null);
+    setWorkspaceToolParent(parent);
+    setWorkspaceTool(tool);
+  };
+  const toolCloseBlocked = workspaceTool === "settings" && controller.asyncState === "connecting";
+
+  const closeWorkspaceTool = () => {
+    setWorkspaceTool(null);
+    setWorkspaceToolParent(null);
+  };
+
+  useEffect(() => {
+    if (!workspaceTool) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || toolCloseBlocked) return;
+      closeWorkspaceTool();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [toolCloseBlocked, workspaceTool]);
 
   const runPluginCommand = (command: PluginCommandContribution) => {
     if (command.action === "open-view") {
       changeView(command.target);
     } else if (command.action === "open-tool") {
-      setWorkspaceTool(command.target);
+      openWorkspaceTool(command.target);
     } else {
       activateProfile(command.target);
     }
@@ -171,13 +190,17 @@ export function App() {
 
   const pluginView = pluginContributions.views.find((item) => item.id === activeView);
   const pluginTool = pluginContributions.tools.find((item) => item.id === workspaceTool);
+  const toolMetadata = workspaceTool ? builtinDestinationById.get(workspaceTool as BuiltinDestinationId) : undefined;
   const toolTitle = workspaceTool
-    ? builtinToolTitles[workspaceTool] ?? pluginTool?.title ?? "工作区工具"
+    ? toolMetadata?.title ?? pluginTool?.title ?? "工作区工具"
     : "工作区工具";
+  const toolParentTitle = workspaceToolParent
+    ? builtinDestinationById.get(workspaceToolParent as BuiltinDestinationId)?.title ?? "上一层工具"
+    : undefined;
 
   return (
     <>
-      <Notifications position="top-right" autoClose={notificationDuration} limit={3} />
+      <Notifications position="top-right" autoClose={notificationDuration} limit={3} zIndex={Number(tokens.layer.notification)} />
       <WorkspaceShell
         activeView={activeView}
         activeTool={workspaceTool}
@@ -186,7 +209,7 @@ export function App() {
         documentFocusMode={documentFocusMode}
         onDocumentFocusModeChange={setDocumentFocusMode}
         onViewChange={changeView}
-        onOpenTool={(tool) => { if (tool === "syntax") setSyntaxTopic(null); setWorkspaceTool(tool); }}
+        onOpenTool={(tool) => openWorkspaceTool(tool)}
         onNavigateToSource={(key, line, column) => { void navigateToSource(key, line, column); }}
         activeProfile={activeProfile}
         pluginViews={pluginContributions.views}
@@ -206,39 +229,47 @@ export function App() {
       </WorkspaceShell>
       <Drawer
         opened={workspaceTool !== null}
-        onClose={() => setWorkspaceTool(null)}
+        onClose={() => { if (!toolCloseBlocked) closeWorkspaceTool(); }}
         position="right"
-        size={workspaceTool === "settings" ? 760 : workspaceTool === "syntax" ? 820 : "92%"}
+        size={toolMetadata?.drawerSize ?? "92%"}
         title={<span className="workspace-tool-title">{toolTitle}</span>}
-        closeButtonProps={{ "aria-label": "关闭工作区工具" }}
+        closeButtonProps={{ "aria-label": "关闭工作区工具", disabled: toolCloseBlocked }}
+        closeOnClickOutside={!toolCloseBlocked}
+        closeOnEscape={false}
         className="workspace-tool-drawer"
       >
-        <Suspense fallback={<LoadingState label="正在打开工作区工具…" />}>
-          {workspaceTool === "runs" && <RunsView controller={controller} />}
-          {workspaceTool === "packages" && <PackagesView controller={controller} />}
-          {workspaceTool === "plugins" && <PluginsView controller={controller} />}
-          {workspaceTool === "syntax" && <SyntaxReference initialTopic={syntaxTopic} />}
-          {workspaceTool === "search" && <WorkspaceSearch controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} onReviewChanges={() => setWorkspaceTool("changes")} />}
-          {workspaceTool === "changes" && <ChangeReview controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
-          {workspaceTool === "settings" && <WorkspaceSettings
-            controller={controller}
-            compactNavigation={compactNavigation}
-            onCompactNavigationChange={setCompactNavigation}
-            documentFocusMode={documentFocusMode}
-            onDocumentFocusModeChange={setDocumentFocusMode}
-            notificationDuration={notificationDuration}
-            onNotificationDurationChange={setNotificationDuration}
-            activeProfileId={activeProfile.id}
-            profiles={profiles}
-            onProfileChange={(profileId) => activateProfile(profileId, true)}
-            onOpenTool={setWorkspaceTool}
-          />}
-          {pluginTool && <PluginSurface
-            controller={controller}
-            contribution={pluginTool}
-            onNavigateToSource={(key, line, column) => { void navigateToSource(key, line, column); }}
-          />}
-        </Suspense>
+        <WorkspaceToolFrame
+          returnLabel={toolParentTitle}
+          onReturn={workspaceToolParent ? () => openWorkspaceTool(workspaceToolParent) : undefined}
+        >
+          <Suspense fallback={<LoadingState label="正在打开工作区工具…" />}>
+            {workspaceTool === "runs" && <RunsView controller={controller} />}
+            {workspaceTool === "packages" && <PackagesView controller={controller} />}
+            {workspaceTool === "plugins" && <PluginsView controller={controller} />}
+            {workspaceTool === "syntax" && <SyntaxReference initialTopic={syntaxTopic} />}
+            {workspaceTool === "search" && <WorkspaceSearch controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} onReviewChanges={() => openWorkspaceTool("changes", "search")} />}
+            {workspaceTool === "changes" && <ChangeReview controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
+            {workspaceTool === "settings" && <WorkspaceSettings
+              controller={controller}
+              compactNavigation={compactNavigation}
+              onCompactNavigationChange={setCompactNavigation}
+              documentFocusMode={documentFocusMode}
+              onDocumentFocusModeChange={setDocumentFocusMode}
+              notificationDuration={notificationDuration}
+              onNotificationDurationChange={setNotificationDuration}
+              activeProfileId={activeProfile.id}
+              profiles={profiles}
+              onProfileChange={(profileId) => activateProfile(profileId, true)}
+              onOpenTool={(tool) => openWorkspaceTool(tool, "settings")}
+            />}
+            {pluginTool && <PluginSurface
+              controller={controller}
+              contribution={pluginTool}
+              headingOrder={3}
+              onNavigateToSource={(key, line, column) => { void navigateToSource(key, line, column); }}
+            />}
+          </Suspense>
+        </WorkspaceToolFrame>
       </Drawer>
     </>
   );

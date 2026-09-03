@@ -7,6 +7,11 @@
 - Kept the browser workbench available when a locked Package graph cannot load: local documents,
   recovery, built-in/workspace templates, and Package repair controls remain accessible while
   validation-dependent operations stay blocked and the Package error remains visible.
+- Added authenticated in-session workspace switching with staged server replacement, running-job
+  exclusion, user-local launch preference updates, explicit dirty-draft recovery, and complete
+  client-state isolation across the switch.
+- Unified Workbench destination metadata, semantic heading and landmark levels, named floating-layer
+  tokens, and in-Drawer subviews so management and confirmation flows no longer stack modal Drawers.
 
 ## 0.4.0 — 2026-09-03
 

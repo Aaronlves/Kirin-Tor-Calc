@@ -16,7 +16,7 @@ import { ExternalLink, Focus, Network, RefreshCw, Search } from "lucide-react";
 
 import { errorMessage } from "../api";
 import { RelationshipGraphCanvas } from "../components/RelationshipGraphCanvas";
-import { EmptyState, LoadingState, Surface } from "../components/ui";
+import { EmptyState, LoadingState, PageIntro, Surface } from "../components/ui";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type {
   RelationshipEdge,
@@ -152,21 +152,19 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
 
   return (
     <div className="content-page graph-page">
-      <div className="page-intro compact">
-        <Box>
-          <Text className="page-kicker">SEMANTIC RELATIONSHIPS</Text>
-          <Title order={1}>关系图</Title>
-          <Text c="dimmed" fz="sm" mt={5}>边由已校验的表达式引用与 Process 组合生成；包含静态成员、过程、场景与分析。</Text>
-        </Box>
-        <Group gap="xs">
+      <PageIntro
+        kicker="SEMANTIC RELATIONSHIPS"
+        title="关系图"
+        description="边由已校验的表达式引用与 Process 组合生成；包含静态成员、过程、场景与分析。"
+        actions={<Group gap="xs">
           <Badge variant="outline" color="gray">{graph?.documents.length || 0} 文档</Badge>
           <Badge variant="outline" color="gray">{graph?.nodes.length || 0} 成员</Badge>
           <Button variant="default" size="xs" leftSection={<RefreshCw size={14} />} loading={loading} onClick={() => { void load(); }}>刷新投影</Button>
-        </Group>
-      </div>
+        </Group>}
+      />
 
       <div className="graph-layout">
-        <Surface className="graph-surface">
+        <Surface component="section" ariaLabel="关系图画布" className="graph-surface">
           <div className="graph-toolbar">
             <SegmentedControl
               size="xs"
@@ -198,7 +196,7 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
           <div className="graph-hint"><Focus size={13} />文档使用稳定环形布局；成员可拖动。也可展开键盘节点列表。</div>
         </Surface>
 
-        <Surface className="graph-inspector">
+        <Surface component="section" ariaLabel="所选关系节点" className="graph-inspector">
           {selected ? (
             <ScrollArea h="100%" type="auto">
               <Stack p="lg" gap="lg">

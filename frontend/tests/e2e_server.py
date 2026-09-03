@@ -9,18 +9,26 @@ import kirin_tor.web as web
 from kirin_tor.web import WorkbenchHTTPServer
 from kirin_tor.workbench import Workbench
 from kirin_tor.plugin_store import PluginManager
+from kirin_tor.workspace import initialize
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = PROJECT_ROOT / "frontend"
 WORKSPACE_ROOT = FRONTEND_ROOT / ".e2e-workspace"
+OTHER_WORKSPACE_ROOT = FRONTEND_ROOT / ".e2e-workspace-other"
 SOURCE_WORKSPACE = PROJECT_ROOT / "examples" / "虚构技能工作区"
 SOURCE_PLUGIN = PROJECT_ROOT / "examples" / "plugins" / "fictional-talent-tree"
 
 
 def main() -> None:
     shutil.rmtree(WORKSPACE_ROOT, ignore_errors=True)
+    shutil.rmtree(OTHER_WORKSPACE_ROOT, ignore_errors=True)
     shutil.copytree(SOURCE_WORKSPACE, WORKSPACE_ROOT)
+    initialize(OTHER_WORKSPACE_ROOT)
+    (OTHER_WORKSPACE_ROOT / "entries" / "alternate.kirin").write_text(
+        '@kirin 2\n@entry alternate "另一个工作区"\n\noutput value: dimensionless = 2\n',
+        encoding="utf-8",
+    )
     combo_path = WORKSPACE_ROOT / "entries" / "组合模型.kirin"
     combo_path.write_text(
         combo_path.read_text(encoding="utf-8")
@@ -66,12 +74,14 @@ chart broad "宽区间组合曲线":
         ("127.0.0.1", 8766),
         Workbench(WORKSPACE_ROOT, plugin_approval_home=approval_home),
         "kirin-e2e-token",
+        preference_home=WORKSPACE_ROOT / ".e2e-workbench-user",
     )
     try:
         server.serve_forever()
     finally:
         server.server_close()
         shutil.rmtree(WORKSPACE_ROOT, ignore_errors=True)
+        shutil.rmtree(OTHER_WORKSPACE_ROOT, ignore_errors=True)
 
 
 if __name__ == "__main__":

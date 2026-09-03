@@ -17,7 +17,7 @@ import { Check, History, Play, RefreshCw, RotateCcw, Search, X } from "lucide-re
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { OperationResult } from "../types";
-import { Disclosure, EmptyState, Surface, TechnicalResult } from "../components/ui";
+import { Disclosure, EmptyState, PageIntro, Surface, TechnicalResult } from "../components/ui";
 
 export function RunsView({ controller }: { controller: WorkbenchController }) {
   const [filter, setFilter] = useState("");
@@ -61,16 +61,15 @@ export function RunsView({ controller }: { controller: WorkbenchController }) {
 
   return (
     <div className="content-page runs-page">
-      <div className="page-intro compact">
-        <Box>
-          <Text className="page-kicker">REPRODUCIBLE RUNS</Text>
-          <Title order={1}>运行记录</Title>
-          <Text c="dimmed" fz="sm" mt={5}>记录保存请求、结果与定义快照；重放会明确报告是否与原结果一致。</Text>
-        </Box>
-        <Button variant="default" size="xs" leftSection={<RefreshCw size={14} />} loading={controller.asyncState === "connecting"} onClick={() => { void controller.refresh(true); }}>刷新</Button>
-      </div>
+      <PageIntro
+        kicker="REPRODUCIBLE RUNS"
+        title="记录与重放"
+        description="记录保存请求、结果与定义快照；重放会明确报告是否与原结果一致。"
+        headingOrder={3}
+        actions={<Button variant="default" size="xs" leftSection={<RefreshCw size={14} />} loading={controller.asyncState === "connecting"} onClick={() => { void controller.refresh(true); }}>刷新</Button>}
+      />
       <div className="runs-layout-modern">
-        <Surface className="runs-list-surface">
+        <Surface component="section" ariaLabel="运行记录列表" className="runs-list-surface">
           <Box p="sm" className="surface-toolbar"><TextInput size="xs" placeholder="搜索记录" leftSection={<Search size={14} />} value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></Box>
           <ScrollArea h="calc(100vh - var(--kt-sz-236))" type="auto">
             {filteredRuns.map((run) => (
@@ -89,12 +88,12 @@ export function RunsView({ controller }: { controller: WorkbenchController }) {
           </ScrollArea>
         </Surface>
 
-        <Surface className="run-detail-surface">
+        <Surface component="section" ariaLabel="运行记录详情" className="run-detail-surface">
           {selected ? (
             <ScrollArea h="calc(100vh - var(--kt-sz-178))" type="auto">
               <Stack p="xl" gap="xl">
                 <Group justify="space-between" align="flex-start">
-                  <Box><Text className="result-label">RUN RECORD</Text><Title order={2}>{selected.id}</Title><Group gap={6} mt={8}><Badge variant="outline" color="gray">{selected.operation || "未知操作"}</Badge><Badge variant="light" color={selected.status === "error" ? "red" : "green"}>{selected.status || "—"}</Badge></Group></Box>
+                  <Box><Text className="result-label">RUN RECORD</Text><Title order={4}>{selected.id}</Title><Group gap={6} mt={8}><Badge variant="outline" color="gray">{selected.operation || "未知操作"}</Badge><Badge variant="light" color={selected.status === "error" ? "red" : "green"}>{selected.status || "—"}</Badge></Group></Box>
                   <Button leftSection={<Play size={14} />} loading={replaying} onClick={() => { void replay(); }}>重放</Button>
                 </Group>
                 <Box className="run-metadata"><span><small>创建时间</small><strong>{selected.created_at ? new Date(selected.created_at).toLocaleString() : "—"}</strong></span><span><small>记录 ID</small><Code>{selected.id}</Code></span></Box>

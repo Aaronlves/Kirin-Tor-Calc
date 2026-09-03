@@ -135,7 +135,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                     <Badge variant="outline" color="gray">Kirin Tor v2</Badge>
                     <Badge variant="light" color="orange">只读参考</Badge>
                   </Group>
-                  <Text id={`syntax-reference-${selected.id}`} component="h2" fw={700} fz="xl">
+                  <Text id={`syntax-reference-${selected.id}`} component="h3" fw={700} fz="xl">
                     {selected.title}
                   </Text>
                   <Text c="dimmed" fz="sm" mt="xs" lh={1.65}>{selected.summary}</Text>

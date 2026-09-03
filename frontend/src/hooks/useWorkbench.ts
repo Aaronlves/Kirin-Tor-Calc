@@ -79,6 +79,8 @@ export function useWorkbench() {
   const validationSequence = useRef(0);
   const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
   const recoveryWriteChain = useRef<Promise<void>>(Promise.resolve());
+  const switchingWorkspaceRef = useRef(false);
+  const workspaceReloadRef = useRef(false);
   const workspaceRevision = useRef<string | null>(null);
   const externalSyncRunning = useRef(false);
   const asyncStateRef = useRef(asyncState);
@@ -277,11 +279,12 @@ export function useWorkbench() {
   }, [dirtyOverlays]);
 
   const syncExternalDocuments = useCallback(async () => {
-    if (externalSyncRunning.current || asyncState !== "idle" || document.visibilityState === "hidden") return;
+    if (switchingWorkspaceRef.current || externalSyncRunning.current || asyncState !== "idle" || document.visibilityState === "hidden") return;
     externalSyncRunning.current = true;
     const snapshot = workspaceDataRef.current;
     try {
       const state = await request<WorkspaceStatePayload>("/api/workspace/state");
+      if (switchingWorkspaceRef.current) return;
       if (workspaceRevision.current === state.revision) return;
 
       const diskDocuments = new Map(state.documents.map((item) => [item.key, item]));
@@ -345,7 +348,7 @@ export function useWorkbench() {
       // the network requests above were in flight. Never replace that newer
       // local state with this stale snapshot; the next polling cycle will
       // reconcile the same disk revision against the latest local state.
-      if (workspaceDataRef.current !== snapshot) return;
+      if (switchingWorkspaceRef.current || workspaceDataRef.current !== snapshot) return;
 
       setDocuments(mergedDocuments);
       setBootstrapData((current) => current ? { ...current, documents: mergedDocuments } : current);
@@ -832,6 +835,13 @@ export function useWorkbench() {
     name: string,
     payload: Record<string, unknown>,
   ): Promise<OperationResult> => {
+    if (switchingWorkspaceRef.current) {
+      throw new ApiError(
+        { code: "workspace_switching", message: "工作区切换已经开始，不能再启动新的计算。" },
+        "工作区正在切换",
+      );
+    }
+    asyncStateRef.current = "running";
     setAsyncState("running");
     try {
       const result = await runOperation(name, payload, dirtyOverlays, (job) => {
@@ -849,7 +859,10 @@ export function useWorkbench() {
       }
       throw error;
     } finally {
-      if (!operationJobsRef.current.size) setAsyncState("idle");
+      if (!operationJobsRef.current.size) {
+        asyncStateRef.current = "idle";
+        setAsyncState("idle");
+      }
     }
   }, [dirtyOverlays, refresh]);
 
@@ -894,10 +907,39 @@ export function useWorkbench() {
     return result;
   }, [refresh]);
 
+  const switchWorkspace = useCallback(async (path: string): Promise<void> => {
+    if (asyncStateRef.current !== "idle" || operationJobsRef.current.size) {
+      throw new ApiError(
+        { code: "workspace_busy", message: "请先等待当前工作区操作结束或取消正在运行的计算。" },
+        "工作区正忙",
+      );
+    }
+    switchingWorkspaceRef.current = true;
+    asyncStateRef.current = "connecting";
+    setAsyncState("connecting");
+    try {
+      if (Object.keys(dirtyOverlays).length) {
+        await persistRecovery(recoveryPayload(dirtyOverlays, documents, hashes));
+      } else {
+        await recoveryWriteChain.current.catch(() => undefined);
+      }
+      await request<OperationResult>("/api/workspace/open", { path });
+      workspaceReloadRef.current = true;
+      window.location.reload();
+    } catch (error) {
+      switchingWorkspaceRef.current = false;
+      workspaceReloadRef.current = false;
+      asyncStateRef.current = "idle";
+      setAsyncState("idle");
+      throw error;
+    }
+  }, [dirtyOverlays, documents, hashes, persistRecovery]);
+
   useEffect(() => {
     if (!bootstrapReady || !recoveryReady) return;
     const drafts = recoveryPayload(dirtyOverlays, documents, hashes);
     const timer = window.setTimeout(() => {
+      if (switchingWorkspaceRef.current) return;
       void persistRecovery(drafts).catch(() => undefined);
     }, 800);
     return () => window.clearTimeout(timer);
@@ -910,6 +952,7 @@ export function useWorkbench() {
 
   useEffect(() => {
     const preventLoss = (event: BeforeUnloadEvent) => {
+      if (workspaceReloadRef.current) return;
       if (!Object.keys(dirtyOverlays).length) return;
       event.preventDefault();
       event.returnValue = "";
@@ -961,6 +1004,7 @@ export function useWorkbench() {
     replaceWorkspace,
     saveAll,
     searchWorkspace,
+    switchWorkspace,
     gitHistory,
     templateAction,
     updateBuffer,

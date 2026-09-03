@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Badge, Box, Button, Code, Drawer, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Box, Button, Code, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { CircleAlert, Compass, Plug, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
 
@@ -7,6 +7,7 @@ import { errorMessage } from "../api";
 import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { InstalledPlugin } from "../types";
+import { ToolSubview } from "../components/ui";
 
 function statusColor(plugin: InstalledPlugin): string {
   if (plugin.status === "active") return "green";
@@ -58,11 +59,17 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
     profiles: contributions.profiles.length,
   };
 
+  if (discoverOpened) {
+    return <ToolSubview title="发现社区 Workbench Plugins" description="候选项目保持只读；安装和批准仍需返回插件管理后明确执行。" onBack={() => setDiscoverOpened(false)}>
+      <CommunityDiscoveryPanel kind="plugin" />
+    </ToolSubview>;
+  }
+
   return (
-    <Stack gap="lg" p="lg">
+    <Stack className="plugin-manager-tool" gap="lg" p="lg">
       <Group justify="space-between" align="flex-start">
         <Box>
-          <Group gap="sm"><Plug size={20} /><Title order={3}>Workbench Plugins</Title></Group>
+          <Group gap="sm"><Plug size={20} /><Title order={3}>本地插件与激活贡献</Title></Group>
           <Text c="dimmed" fz="sm" mt={5}>安装经过内容摘要锁定的本地 UI 插件；插件在无同源权限的沙箱 iframe 中运行。</Text>
         </Box>
         <Button variant="default" size="xs" leftSection={<Compass size={14} />} onClick={() => setDiscoverOpened(true)}>发现社区插件</Button>
@@ -76,7 +83,7 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
       </Alert>}
 
       <Box className="plugin-manager-install">
-        <Text fw={650} fz="sm">安装本地插件快照</Text>
+        <Text component="h4" fw={650} fz="sm">安装本地插件快照</Text>
         <Text c="dimmed" fz="xs" mt={3}>此操作会读取并批准当前目录内容。以后源目录发生变化时，必须显式“接受更新”。</Text>
         <SimpleGrid cols={{ base: 1, md: 2 }} mt="md">
           <TextInput label="别名" placeholder="talents" value={alias} onChange={(event) => setAlias(event.currentTarget.value)} />
@@ -93,7 +100,7 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
       </Box>
 
       <Group justify="space-between">
-        <Text fw={650} fz="sm">已请求插件</Text>
+        <Text component="h4" fw={650} fz="sm">已请求插件</Text>
         <Button
           variant="default"
           size="xs"
@@ -109,7 +116,7 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
             <Group justify="space-between" align="flex-start" wrap="nowrap">
               <Box>
                 <Group gap={7}>
-                  <Text fw={700}>{plugin.name || plugin.id || plugin.alias}</Text>
+                  <Text component="h5" fw={700}>{plugin.name || plugin.id || plugin.alias}</Text>
                   <Badge color={statusColor(plugin)} variant="light">{statusLabel(plugin)}</Badge>
                 </Group>
                 <Text c="dimmed" fz="xs" mt={4}>{plugin.id || "身份不可用"}@{plugin.version || plugin.requested_version} · 别名 {plugin.alias}</Text>
@@ -147,7 +154,7 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
       </Stack> : <Text c="dimmed" fz="sm">尚未安装 Workbench Plugin。</Text>}
 
       <Box>
-        <Text fw={650} fz="sm">当前激活贡献</Text>
+        <Text component="h4" fw={650} fz="sm">当前激活贡献</Text>
         <Group gap={6} mt="sm">
           <Badge variant="outline">{counts.renderers} 个呈现器</Badge>
           <Badge variant="outline">{counts.views} 个页面</Badge>
@@ -156,10 +163,6 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
           <Badge variant="outline">{counts.profiles} 个 Profile</Badge>
         </Group>
       </Box>
-
-      <Drawer opened={discoverOpened} onClose={() => setDiscoverOpened(false)} position="right" size="xl" title="发现社区 Workbench Plugins">
-        <CommunityDiscoveryPanel kind="plugin" />
-      </Drawer>
     </Stack>
   );
 }

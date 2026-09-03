@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import {
   ActionIcon,
   Box,
@@ -14,12 +14,112 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core";
-import { ChevronDown, ChevronRight, FileQuestion, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FileQuestion, RotateCcw } from "lucide-react";
 
 import type { OperationResult } from "../types";
 
-export function Surface({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <Paper className={`surface ${className}`.trim()}>{children}</Paper>;
+export function Surface({
+  children,
+  className = "",
+  component = "div",
+  ariaLabel,
+  ariaLabelledby,
+}: {
+  children: ReactNode;
+  className?: string;
+  component?: "article" | "div" | "section";
+  ariaLabel?: string;
+  ariaLabelledby?: string;
+}) {
+  return <Paper component={component} aria-label={ariaLabel} aria-labelledby={ariaLabelledby} className={`surface ${className}`.trim()}>{children}</Paper>;
+}
+
+export function PageIntro({
+  kicker,
+  title,
+  description,
+  actions,
+  headingOrder = 2,
+  compact = true,
+}: {
+  kicker: string;
+  title: string;
+  description: string;
+  actions?: ReactNode;
+  headingOrder?: 2 | 3;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`page-intro${compact ? " compact" : ""}`}>
+      <Box>
+        <Text className="page-kicker">{kicker}</Text>
+        <Title order={headingOrder}>{title}</Title>
+        <Text c="dimmed" fz="sm" mt={5}>{description}</Text>
+      </Box>
+      {actions}
+    </div>
+  );
+}
+
+export function ToolSubview({
+  title,
+  description,
+  backLabel = "返回",
+  backDisabled = false,
+  onBack,
+  children,
+}: {
+  title: string;
+  description?: string;
+  backLabel?: string;
+  backDisabled?: boolean;
+  onBack(): void;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!backDisabled) onBack();
+    };
+    document.addEventListener("keydown", handleEscape, true);
+    return () => document.removeEventListener("keydown", handleEscape, true);
+  }, [backDisabled, onBack]);
+  return (
+    <section className="tool-subview" aria-labelledby={titleId}>
+      <header className="tool-subview-header">
+        <Button variant="subtle" color="gray" leftSection={<ArrowLeft size={14} />} disabled={backDisabled} onClick={onBack}>{backLabel}</Button>
+        <Box>
+          <Title id={titleId} order={3}>{title}</Title>
+          {description && <Text c="dimmed" fz="xs" mt={3}>{description}</Text>}
+        </Box>
+      </header>
+      <div className="tool-subview-body">{children}</div>
+    </section>
+  );
+}
+
+export function WorkspaceToolFrame({
+  returnLabel,
+  onReturn,
+  children,
+}: {
+  returnLabel?: string;
+  onReturn?(): void;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`workspace-tool-frame${returnLabel && onReturn ? " has-parent" : ""}`}>
+      {returnLabel && onReturn && (
+        <div className="workspace-tool-parent-bar">
+          <Button variant="subtle" color="gray" size="xs" leftSection={<ArrowLeft size={13} />} onClick={onReturn}>返回{returnLabel}</Button>
+        </div>
+      )}
+      <div className="workspace-tool-frame-content">{children}</div>
+    </div>
+  );
 }
 
 export function SectionHeading({
@@ -47,17 +147,19 @@ export function EmptyState({
   description,
   action,
   icon = <FileQuestion size={22} strokeWidth={1.5} />,
+  headingOrder = 3,
 }: {
   title: string;
   description: string;
   action?: ReactNode;
   icon?: ReactNode;
+  headingOrder?: 2 | 3 | 4 | 5 | 6;
 }) {
   return (
     <Center className="empty-state">
       <Stack align="center" gap="xs">
         <div className="empty-state-icon">{icon}</div>
-        <Text fw={620} fz="sm">{title}</Text>
+        <Title order={headingOrder} className="empty-state-title">{title}</Title>
         <Text c="dimmed" fz="xs" ta="center" maw={380}>{description}</Text>
         {action}
       </Stack>

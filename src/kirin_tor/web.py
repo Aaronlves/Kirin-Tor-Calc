@@ -21,8 +21,10 @@ from pathlib import Path
 from typing import Optional
 
 from .diagnostics import author_error_payload
-from .errors import KTError, ParameterError
+from .errors import KTError, ParameterError, WorkspaceError
 from .workbench import Workbench
+from .workbench_preferences import save_default_workspace
+from .workspace import Workspace
 
 
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
@@ -182,6 +184,14 @@ class OperationJobManager:
                 }
             return self.status(job_id)
 
+    def has_running_jobs(self) -> bool:
+        """Return whether a live operation still belongs to this workspace."""
+
+        with self._lock:
+            for job_id in list(self._jobs):
+                self.status(job_id)
+            return any(job["state"] in {"queued", "running"} for job in self._jobs.values())
+
     def close(self) -> None:
         with self._lock:
             for job in self._jobs.values():
@@ -198,11 +208,70 @@ class WorkbenchHTTPServer(ThreadingHTTPServer):
     # connections during startup or rapid reloads.
     request_queue_size = 128
 
-    def __init__(self, address, workbench: Workbench, token: str):
+    def __init__(
+        self,
+        address,
+        workbench: Workbench,
+        token: str,
+        *,
+        preference_home: Optional[Path] = None,
+    ):
+        self.workspace_lock = threading.RLock()
         self.workbench = workbench
         self.token = token
+        self.safe_mode = workbench.plugins.safe_mode
+        self.plugin_approval_home = workbench.plugins.approvals.home
+        self.preference_home = preference_home
         self.operation_jobs = OperationJobManager(workbench.root)
         super().__init__(address, WorkbenchRequestHandler)
+
+    def switch_workspace(self, path: str) -> dict:
+        """Atomically replace the workspace owned by this authenticated session."""
+
+        if not path.strip():
+            raise ParameterError("workspace path must be non-empty")
+        candidate = Path(path).expanduser().resolve()
+        if not candidate.exists():
+            raise WorkspaceError(f"workspace path does not exist: {candidate}")
+        if candidate.is_file():
+            if candidate.suffix.lower() != ".kirin":
+                raise WorkspaceError(f"workspace source must be a .kirin file: {candidate}")
+            candidate = candidate.parent
+        elif not candidate.is_dir():
+            raise WorkspaceError(f"workspace path must be a directory: {candidate}")
+        root = Workspace.find_root(candidate)
+
+        with self.workspace_lock:
+            previous = self.workbench.root
+            if root == previous:
+                save_default_workspace(root, self.preference_home)
+                return {
+                    "status": "ok",
+                    "workspace": str(root),
+                    "previous_workspace": str(previous),
+                    "changed": False,
+                }
+            if self.operation_jobs.has_running_jobs():
+                raise WorkspaceError(
+                    "finish or cancel running workbench operations before switching workspaces"
+                )
+
+            replacement = Workbench(
+                root,
+                safe_mode=self.safe_mode,
+                plugin_approval_home=self.plugin_approval_home,
+            )
+            save_default_workspace(root, self.preference_home)
+            previous_jobs = self.operation_jobs
+            self.workbench = replacement
+            self.operation_jobs = OperationJobManager(root)
+            previous_jobs.close()
+            return {
+                "status": "ok",
+                "workspace": str(root),
+                "previous_workspace": str(previous),
+                "changed": True,
+            }
 
     def server_close(self) -> None:
         self.operation_jobs.close()
@@ -355,17 +424,18 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     self.send_error(HTTPStatus.NOT_FOUND)
                 return
             query = urllib.parse.parse_qs(parsed.query)
-            if parsed.path == "/api/bootstrap":
-                self._send_json(self.server.workbench.bootstrap())
-            elif parsed.path == "/api/workspace/state":
-                self._send_json(self.server.workbench.workspace_state())
-            elif parsed.path == "/api/document":
-                self._send_json(self.server.workbench.read_document(query.get("key", [""])[0]))
-            elif parsed.path == "/api/artifact":
-                path, media = self.server.workbench.artifact(query.get("path", [""])[0])
-                self._send_bytes(path.read_bytes(), media)
-            else:
-                self.send_error(HTTPStatus.NOT_FOUND)
+            with self.server.workspace_lock:
+                if parsed.path == "/api/bootstrap":
+                    self._send_json(self.server.workbench.bootstrap())
+                elif parsed.path == "/api/workspace/state":
+                    self._send_json(self.server.workbench.workspace_state())
+                elif parsed.path == "/api/document":
+                    self._send_json(self.server.workbench.read_document(query.get("key", [""])[0]))
+                elif parsed.path == "/api/artifact":
+                    path, media = self.server.workbench.artifact(query.get("path", [""])[0])
+                    self._send_bytes(path.read_bytes(), media)
+                else:
+                    self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as exc:  # product boundary translates all failures
             self._handle_error(exc)
 
@@ -410,65 +480,68 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             overlays = payload.get("overlays")
-            if parsed.path == "/api/validate":
-                result = self.server.workbench.validate(overlays)
-            elif parsed.path == "/api/save":
-                result = self.server.workbench.save(overlays or {}, payload.get("expected"))
-            elif parsed.path == "/api/document/create":
-                result = self.server.workbench.create_document(
-                    str(payload.get("template", "")), str(payload.get("document_id", ""))
-                )
-            elif parsed.path == "/api/document/action":
-                result = self.server.workbench.document_action(
-                    str(payload.get("action", "")), payload.get("payload"), overlays
-                )
-            elif parsed.path == "/api/document/projection":
-                result = self.server.workbench.document_projection(
-                    str(payload.get("key", "")), overlays
-                )
-            elif parsed.path == "/api/completions":
-                result = self.server.workbench.completions(
-                    str(payload.get("key", "")), str(payload.get("prefix", "")), overlays
-                )
-            elif parsed.path == "/api/authoring":
-                result = self.server.workbench.authoring_action(
-                    str(payload.get("action", "")), payload.get("payload"), overlays
-                )
-            elif parsed.path == "/api/recovery":
-                result = self.server.workbench.save_recovery(payload.get("drafts"))
-            elif parsed.path == "/api/operation":
-                result = self.server.workbench.execute(
-                    str(payload.get("operation", "")), payload.get("payload"), overlays
-                )
-            elif parsed.path == "/api/operation/job":
-                action = str(payload.get("action", ""))
-                if action == "start":
-                    result = self.server.operation_jobs.start(
+            with self.server.workspace_lock:
+                if parsed.path == "/api/validate":
+                    result = self.server.workbench.validate(overlays)
+                elif parsed.path == "/api/save":
+                    result = self.server.workbench.save(overlays or {}, payload.get("expected"))
+                elif parsed.path == "/api/document/create":
+                    result = self.server.workbench.create_document(
+                        str(payload.get("template", "")), str(payload.get("document_id", ""))
+                    )
+                elif parsed.path == "/api/document/action":
+                    result = self.server.workbench.document_action(
+                        str(payload.get("action", "")), payload.get("payload"), overlays
+                    )
+                elif parsed.path == "/api/document/projection":
+                    result = self.server.workbench.document_projection(
+                        str(payload.get("key", "")), overlays
+                    )
+                elif parsed.path == "/api/completions":
+                    result = self.server.workbench.completions(
+                        str(payload.get("key", "")), str(payload.get("prefix", "")), overlays
+                    )
+                elif parsed.path == "/api/authoring":
+                    result = self.server.workbench.authoring_action(
+                        str(payload.get("action", "")), payload.get("payload"), overlays
+                    )
+                elif parsed.path == "/api/recovery":
+                    result = self.server.workbench.save_recovery(payload.get("drafts"))
+                elif parsed.path == "/api/operation":
+                    result = self.server.workbench.execute(
                         str(payload.get("operation", "")), payload.get("payload"), overlays
                     )
-                elif action == "status":
-                    result = self.server.operation_jobs.status(str(payload.get("job_id", "")))
-                elif action == "cancel":
-                    result = self.server.operation_jobs.cancel(str(payload.get("job_id", "")))
+                elif parsed.path == "/api/operation/job":
+                    action = str(payload.get("action", ""))
+                    if action == "start":
+                        result = self.server.operation_jobs.start(
+                            str(payload.get("operation", "")), payload.get("payload"), overlays
+                        )
+                    elif action == "status":
+                        result = self.server.operation_jobs.status(str(payload.get("job_id", "")))
+                    elif action == "cancel":
+                        result = self.server.operation_jobs.cancel(str(payload.get("job_id", "")))
+                    else:
+                        raise ParameterError(f"unknown operation job action: {action}")
+                elif parsed.path == "/api/package":
+                    result = self.server.workbench.package_action(
+                        str(payload.get("action", "")), payload.get("payload")
+                    )
+                elif parsed.path == "/api/plugin":
+                    result = self.server.workbench.plugin_action(
+                        str(payload.get("action", "")), payload.get("payload")
+                    )
+                elif parsed.path == "/api/template":
+                    result = self.server.workbench.template_action(
+                        str(payload.get("action", "")), payload.get("payload")
+                    )
+                elif parsed.path == "/api/workspace/init":
+                    result = Workbench.initialize_workspace(str(payload.get("path", "")))
+                elif parsed.path == "/api/workspace/open":
+                    result = self.server.switch_workspace(str(payload.get("path", "")))
                 else:
-                    raise ParameterError(f"unknown operation job action: {action}")
-            elif parsed.path == "/api/package":
-                result = self.server.workbench.package_action(
-                    str(payload.get("action", "")), payload.get("payload")
-                )
-            elif parsed.path == "/api/plugin":
-                result = self.server.workbench.plugin_action(
-                    str(payload.get("action", "")), payload.get("payload")
-                )
-            elif parsed.path == "/api/template":
-                result = self.server.workbench.template_action(
-                    str(payload.get("action", "")), payload.get("payload")
-                )
-            elif parsed.path == "/api/workspace/init":
-                result = Workbench.initialize_workspace(str(payload.get("path", "")))
-            else:
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
             status = (
                 HTTPStatus.OK
                 if parsed.path == "/api/validate"
@@ -488,6 +561,7 @@ def create_web_server(
     *,
     safe_mode: bool = False,
     plugin_approval_home: Optional[Path] = None,
+    preference_home: Optional[Path] = None,
 ) -> WorkbenchHTTPServer:
     """Create a loopback workbench server without starting its request loop."""
     if host not in {"127.0.0.1", "localhost", "::1"}:
@@ -502,6 +576,7 @@ def create_web_server(
             plugin_approval_home=plugin_approval_home,
         ),
         secrets.token_urlsafe(32),
+        preference_home=preference_home,
     )
 
 

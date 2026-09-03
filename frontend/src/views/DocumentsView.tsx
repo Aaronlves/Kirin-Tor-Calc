@@ -551,7 +551,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         {!emptyWorkspace && focusMode === "split" && <section className="workspace-panel explorer-panel" aria-label="文档索引">
           <div className="panel-toolbar">
             <Group justify="space-between" wrap="nowrap">
-              <Text fw={650} fz="sm">工作区文档</Text>
+              <Text component="h2" id="document-index-heading" fw={650} fz="sm">工作区文档</Text>
               <Group gap={4} wrap="nowrap">
                 <Tooltip label="教程与示例"><ActionIcon variant="subtle" color="gray" aria-label="教程与示例" onClick={() => openTutorial()}><BookOpen size={14} /></ActionIcon></Tooltip>
                 <Tooltip label="管理创建模板"><ActionIcon variant="subtle" color="gray" aria-label="管理创建模板" onClick={() => setTemplateDrawerOpened(true)}><BookTemplate size={14} /></ActionIcon></Tooltip>
@@ -669,11 +669,12 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         </section>}
 
         <section className="workspace-panel editor-panel" aria-label="源码编辑器">
+          <h2 id="document-editor-heading" className="visually-hidden">源码编辑器{current ? `：${current.title}` : ""}</h2>
           {emptyWorkspace ? (
             <div className="workspace-welcome" aria-label="Kirin Tor 入门">
               <section className="workspace-welcome-intro">
                 <Text className="page-kicker">GET STARTED</Text>
-                <Title order={1}>从一份真正的 Kirin Tor 源码开始</Title>
+                <Title order={3}>从一份真正的 Kirin Tor 源码开始</Title>
                 <Text c="dimmed" maw={720}>
                   当前工作区仍然为空。可以复制只读教程、新建草稿，或让本地 Agent 直接创建 `entries/**/*.kirin`；工作台只显示写入后的源码与结果。
                 </Text>
@@ -689,7 +690,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 <Group justify="space-between" align="end" mb="md">
                   <Box>
                     <Text className="page-kicker">BUILT-IN TUTORIALS</Text>
-                    <Title id="workspace-tutorial-heading" order={2}>三个虚构、游戏中立的练习</Title>
+                    <Title id="workspace-tutorial-heading" order={4}>三个虚构、游戏中立的练习</Title>
                   </Box>
                   <Text c="dimmed" fz="xs">查看源码不会修改工作区</Text>
                 </Group>
@@ -700,7 +701,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         <span className="workspace-tutorial-number">0{index + 1}</span>
                         <Badge size="xs" color="gray" variant="light">{tutorial.duration}</Badge>
                       </Group>
-                      <Title order={3}>{tutorial.title}</Title>
+                      <Title order={5}>{tutorial.title}</Title>
                       <Text c="dimmed" fz="xs">{tutorial.description}</Text>
                       <ul>
                         {tutorial.learning_points.map((point) => <li key={point}>{point}</li>)}
@@ -900,7 +901,8 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           )}
         </section>
 
-        {!emptyWorkspace && focusMode !== "editor" && <aside className={`workspace-panel inspector-panel${effectiveInspectorCollapsed ? " is-collapsed" : ""}`} aria-label="文档检查器">
+        {!emptyWorkspace && focusMode !== "editor" && <aside className={`workspace-panel inspector-panel${effectiveInspectorCollapsed ? " is-collapsed" : ""}`} aria-labelledby="document-inspector-heading">
+          <h2 id="document-inspector-heading" className="visually-hidden">文档检查器</h2>
           {effectiveInspectorCollapsed ? (
             <div className="inspector-collapsed-rail">
               <Tooltip label="展开检查器" position="left">
@@ -1226,7 +1228,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
             {selectedTutorial && (
               <article>
                 <Text className="page-kicker">READ-ONLY KIRIN SOURCE</Text>
-                <Title order={2}>{selectedTutorial.title}</Title>
+                <Title order={3}>{selectedTutorial.title}</Title>
                 <Text c="dimmed" fz="sm" mt="xs">{selectedTutorial.description}</Text>
                 <ol className="tutorial-learning-points">
                   {selectedTutorial.learning_points.map((point) => <li key={point}>{point}</li>)}

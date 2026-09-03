@@ -55,7 +55,7 @@ export function WorkspaceSearch({ controller, onNavigate, onReviewChanges }: Wor
     <div className="workspace-search-tool">
       <Stack gap="md">
         <Box>
-          <Text fw={680}>搜索整个工作区</Text>
+          <Text component="h3" fw={680}>搜索整个工作区</Text>
           <Text c="dimmed" fz="xs" mt={3}>搜索会读取当前未保存草稿与 Package 源码；替换只生成本地文档草稿，不直接写盘。</Text>
         </Box>
         <Group align="flex-end" wrap="nowrap">
@@ -103,19 +103,20 @@ export function WorkspaceSearch({ controller, onNavigate, onReviewChanges }: Wor
       <ScrollArea className="workspace-search-results" type="auto">
         <div role="list" aria-label="工作区搜索结果">
           {matches.map((match, index) => (
-            <button
-              type="button"
-              role="listitem"
-              className="workspace-search-result"
-              key={`${match.key}-${match.line}-${match.column}-${index}`}
-              onClick={() => onNavigate(match.key, match.line, match.column)}
-            >
-              <Group justify="space-between" wrap="nowrap">
-                <strong>{match.path}:{match.line}:{match.column}</strong>
-                {match.read_only && <Badge size="xs" variant="outline" color="gray">只读</Badge>}
-              </Group>
-              <small>{match.preview}</small>
-            </button>
+            <div role="listitem" key={`${match.key}-${match.line}-${match.column}-${index}`}>
+              <button
+                type="button"
+                className="workspace-search-result"
+                aria-label={`打开搜索结果 ${match.path}:${match.line}:${match.column}`}
+                onClick={() => onNavigate(match.key, match.line, match.column)}
+              >
+                <Group justify="space-between" wrap="nowrap">
+                  <strong>{match.path}:{match.line}:{match.column}</strong>
+                  {match.read_only && <Badge size="xs" variant="outline" color="gray">只读</Badge>}
+                </Group>
+                <small>{match.preview}</small>
+              </button>
+            </div>
           ))}
           {!matches.length && <Text c="dimmed" fz="sm" ta="center" py="xl">输入文本后搜索当前草稿、磁盘文档与 Package 源码。</Text>}
         </div>

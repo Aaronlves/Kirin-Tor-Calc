@@ -2,7 +2,7 @@
 
 ## Product boundary
 
-`kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. An explicit path takes precedence, followed by the workspace containing the current directory and then the last remembered workspace. If none exists, the command asks for a folder and requires confirmation before initializing an ordinary directory; `kt web --choose` forces that selection again. The remembered path is user-local launch preference, not workspace or model authority. The workbench is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
+`kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. An explicit path takes precedence, followed by the workspace containing the current directory and then the last remembered workspace. If none exists, the command asks for a folder and requires confirmation before initializing an ordinary directory; `kt web --choose` forces that selection again. The running workbench can open another existing workspace from Settings without starting a second server. The remembered path is user-local launch preference, not workspace or model authority. The workbench is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
 
 Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
 
@@ -48,6 +48,21 @@ that process: closing a browser tab does not stop the server; `Ctrl+C` performs 
 of the server and its managed operation jobs, while termination of the host process ends the server
 session. There is no background daemon that can reopen the workbench after the host process has
 stopped.
+
+An in-session workspace switch accepts an existing workspace root, one of its child directories, or
+a `.kirin` source inside it. The server validates and constructs the replacement Workbench before
+changing the active root, refuses to switch while a calculation job is running, remembers the new
+root in the same user-local launch preference, and atomically replaces both the Workbench and its
+operation-job manager. Authenticated API requests are serialized across that boundary so a
+concurrent save or mutation cannot land in the previous workspace after the switch. The loopback
+address and session token remain unchanged; the browser reloads its application state after success.
+An invalid target leaves the current workspace untouched.
+
+If local drafts are dirty, the browser requires explicit confirmation and flushes them to the
+current workspace's bounded recovery cache before requesting the switch. They are not written to
+authoritative `.kirin` files and are restored when that workspace is opened again. A deliberate
+switch reload bypasses the ordinary unload warning only after the server has accepted the new
+workspace; failed switches retain the current buffers and their normal unload protection.
 
 Application installation and command discovery are outside Workbench state. `uv tool` is the
 recommended distribution route, but adding its executable directory to the shell `PATH` is an
@@ -154,8 +169,15 @@ The workbench uses one explicit grid hierarchy rather than stacking framework of
 
 - the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 72 px compact state with visible labels, and the author choice is remembered locally and can also be changed in Settings;
 - the document view is a three-track grid with a 216–260 px source index, a flexible editor, and a 320–420 px inspector; the inspector collapses to a 40 px rail when the current document has no useful projection, while the header also switches between Editor Only, Split, and Preview Only focus modes and remembers the author's choice locally;
-- page-level tools use twelve-part proportions, including 9/3 for the relationship graph and 4/8 for run history;
+- built-in destinations share one metadata registry for navigation groups, header identity, command-palette actions, tool-menu entries, titles, and presentation mode; Documents belongs to Creation, the relationship graph to Understanding, syntax to Reference, and workspace operations or extension management to their corresponding tool-menu groups;
+- the relationship graph uses a 9/3 page grid; contextual tools use one right-side modal Drawer, while run history retains a 4/8 list/detail grid inside it;
+- a tool may replace its own body with an in-Drawer subview for discovery, authoring, forms, or confirmation, but it never opens another modal Drawer on top of the tool;
 - adjacent workbench tracks share a single 1 px divider and never add their own outer margins.
+
+The shell owns the single level-one page heading. Main-view sections begin at level two; a tool
+Drawer owns level two and its body begins at level three. Document index, editor, inspector,
+relationship graph, and run-history panes expose stable labelled landmarks even when their visual
+contents are empty or loading. Lists retain separate list-item and interactive-button semantics.
 
 The spacing scale is 4, 8, 12, 16, 24, and 32 px. Toolbars are 48 px high; buttons, inputs, and icon buttons are 32 px high. Actions have four stable levels: ember-filled primary, neutral-outline secondary, borderless toolbar, and red destructive. Green, amber, and red are reserved for success, dirty/warning, and error states. All controls are rectangular and use the same focus outline. The minimum supported content width is 1120 px; smaller layouts are not treated as an independent mobile product.
 

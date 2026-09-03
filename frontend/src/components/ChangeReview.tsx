@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Box, Button, Code, Group, Modal, ScrollArea, Select, Stack, Tabs, Text } from "@mantine/core";
+import { Badge, Box, Button, Code, Group, ScrollArea, Select, Stack, Tabs, Text } from "@mantine/core";
 import { GitCommitHorizontal, RotateCcw, Save, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { GitSummary } from "../types";
+import { ToolSubview } from "./ui";
 
 interface ChangeReviewProps {
   controller: WorkbenchController;
@@ -49,11 +50,31 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
     }
   };
 
+  if (discardTarget !== null) {
+    const title = discardTarget === "all" ? "放弃全部未保存草稿" : targetIsNew ? "放弃新文档草稿" : "恢复磁盘基线";
+    return <ToolSubview title={title} description="这个确认步骤仍在变更审查工具内部，不会打开第二个模态层。" onBack={() => setDiscardTarget(null)} backDisabled={discarding}>
+      <Stack gap="md" maw={620}>
+        <Text fz="sm">
+          {discardTarget === "all"
+            ? `将放弃 ${dirtyKeys.length} 个未保存草稿。已有文档恢复到打开时的磁盘基线，新文档草稿从工作台移除。`
+            : targetIsNew
+              ? `${targetDocument?.path ?? "这个新文档"} 尚未写入磁盘；放弃后会从工作台移除。`
+              : `${targetDocument?.path ?? "这个文档"} 将恢复到打开时的磁盘内容。`}
+        </Text>
+        <Text c="dimmed" fz="xs">此操作不会修改磁盘上的 `.kirin` 文件，但会清除对应浏览器草稿和恢复缓存。</Text>
+        <Group justify="flex-end">
+          <Button variant="default" disabled={discarding} onClick={() => setDiscardTarget(null)}>取消</Button>
+          <Button className="danger-button" loading={discarding} onClick={() => { void confirmDiscard(); }}>确认放弃</Button>
+        </Group>
+      </Stack>
+    </ToolSubview>;
+  }
+
   return (
     <div className="change-review-tool">
       <Group justify="space-between" align="flex-start">
         <Box>
-          <Text fw={680}>保存前审查</Text>
+          <Text component="h3" fw={680}>保存前审查</Text>
           <Text c="dimmed" fz="xs" mt={3}>左侧是打开或创建时的基线，右侧是当前草稿。这里只审查，不会改写内容。</Text>
         </Box>
         <Group gap="xs">
@@ -126,27 +147,6 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
           </Stack>}
         </Tabs.Panel>
       </Tabs>
-      <Modal
-        opened={discardTarget !== null}
-        onClose={() => setDiscardTarget(null)}
-        title={discardTarget === "all" ? "放弃全部未保存草稿" : targetIsNew ? "放弃新文档草稿" : "恢复磁盘基线"}
-        centered
-      >
-        <Stack gap="md">
-          <Text fz="sm">
-            {discardTarget === "all"
-              ? `将放弃 ${dirtyKeys.length} 个未保存草稿。已有文档恢复到打开时的磁盘基线，新文档草稿从工作台移除。`
-              : targetIsNew
-                ? `${targetDocument?.path ?? "这个新文档"} 尚未写入磁盘；放弃后会从工作台移除。`
-                : `${targetDocument?.path ?? "这个文档"} 将恢复到打开时的磁盘内容。`}
-          </Text>
-          <Text c="dimmed" fz="xs">此操作不会修改磁盘上的 `.kirin` 文件，但会清除对应浏览器草稿和恢复缓存。</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setDiscardTarget(null)}>取消</Button>
-            <Button className="danger-button" loading={discarding} onClick={() => { void confirmDiscard(); }}>确认放弃</Button>
-          </Group>
-        </Stack>
-      </Modal>
     </div>
   );
 }
