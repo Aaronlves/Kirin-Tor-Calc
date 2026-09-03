@@ -337,7 +337,9 @@ for _candidate in BUILTIN_COMPLETIONS:
         _contexts = ("static_expr", "process_expr", "measure_expr")
         _topic, _symbol = "semantics", "scalar-expression"
     elif _candidate.kind == "keyword":
-        _contexts = ("type", "static_expr", "process_expr", "measure_expr")
+        _contexts = (
+            "type", "process_type", "static_expr", "process_expr", "measure_expr"
+        )
         _topic, _symbol = "semantics", "scalar-expression"
     else:
         _contexts = ("static_expr",)
@@ -376,7 +378,8 @@ for _name, _signature in PROCESS_EXPRESSION_BUILTINS.items():
 
 for _type_name in TYPE_KEYWORDS:
     if any(
-        _completion_name(candidate) == _type_name and "type" in candidate.contexts
+        _completion_name(candidate) == _type_name
+        and {"type", "process_type"}.issubset(candidate.contexts)
         for candidate in _enriched_builtins
     ):
         continue
@@ -392,9 +395,11 @@ for _type_name in TYPE_KEYWORDS:
         "type",
         (_type_name, "类型"),
         27,
-        ("type", "static_expr", "process_expr", "measure_expr")
+        ("process_type",)
+        if _type_name in {"event_id", "list", "map"}
+        else ("type", "process_type", "static_expr", "process_expr", "measure_expr")
         if _type_name in {"second", "millisecond"}
-        else ("type",),
+        else ("type", "process_type"),
         "process" if _type_name in {"event_id", "list", "map"} else "semantics",
         "process-types" if _type_name in {"event_id", "list", "map"} else "scalar-expression",
         _type_name,
@@ -528,6 +533,12 @@ def _unclosed_delimiter_line(
         if indent == 0 and _FENCE_RE.fullmatch(stripped):
             prose_fence = stripped
             continue
+        if stack and stripped and not stripped.startswith("//"):
+            opening_line = stack[-1][1]
+            opening_raw = lines[opening_line - 1]
+            opening_indent = len(opening_raw) - len(opening_raw.lstrip())
+            if line_number > opening_line and indent <= opening_indent:
+                stack.clear()
         quoted = False
         escaped = False
         index = 0
@@ -582,7 +593,7 @@ def _indented_expression_owner(
 def completion_site(source: str, line: int, column: int) -> CompletionSite:
     """Classify one incomplete cursor position without accepting invalid source."""
 
-    lines = source.splitlines() or [""]
+    lines = source.split("\n")
     entry_match = next(
         (match for item in lines if (match := _ENTRY_RE.fullmatch(item.strip()))),
         None,
@@ -629,7 +640,9 @@ def completion_site(source: str, line: int, column: int) -> CompletionSite:
             and "=" not in continuation_text
         )
         if type_continuation:
-            continuation_context = ("type",)
+            continuation_context = (
+                ("process_type",) if top_kind == "process" else ("type",)
+            )
         elif top_kind == "process":
             continuation_context = ("process_expr",)
         elif top_kind == "scenario":
@@ -671,10 +684,13 @@ def completion_site(source: str, line: int, column: int) -> CompletionSite:
             contexts = ("process_state_target",)
         elif re.search(r"\bphase\s+[A-Za-z_]*$", stripped_before):
             contexts = ("process_phase_target",)
-        elif re.search(r"\bkey\s+[A-Za-z_]*$", stripped_before):
-            contexts = ("process_key_target", "process_expr")
+        elif re.match(
+            r"^(?:schedule|replace)\b.*\bkey\s+[A-Za-z0-9_.]*$",
+            stripped_before,
+        ):
+            contexts = ("process_key_target",)
         elif re.match(r"^cancel\s+", stripped_before):
-            contexts = ("process_key_target", "process_expr")
+            contexts = ("process_key_target",)
         elif re.match(r"^(?:emit|schedule|replace)\b.*\(", stripped_before):
             contexts = ("process_expr",)
         elif re.match(r"^(?:schedule|replace)\b.*\bafter\s+", stripped_before):
@@ -694,7 +710,7 @@ def completion_site(source: str, line: int, column: int) -> CompletionSite:
         elif nearest.startswith(("on ", "when ", "probability ")):
             contexts = ("process_effect",)
         elif ":" in stripped_before and stripped_before.startswith(("input ", "state ", "event ", "action ", "let ", "observe ")):
-            contexts = ("type",)
+            contexts = ("process_type",)
         else:
             contexts = ("process_decl",)
     elif top_kind == "scenario":
@@ -814,11 +830,16 @@ def _process_local_candidates(
 
     current_text = lines[site.line - 1][: max(0, site.column - 1)]
     current_indent = len(current_text) - len(current_text.lstrip())
-    locals_by_name: dict[str, tuple[str, str]] = {}
+    locals_by_name: dict[str, tuple[str, str, Tuple[str, ...]]] = {}
 
-    def add(name: str, detail: str, signature: str) -> None:
+    def add(
+        name: str,
+        detail: str,
+        signature: str,
+        contexts: Tuple[str, ...] = ("process_expr",),
+    ) -> None:
         if re.fullmatch(_IDENTIFIER, name):
-            locals_by_name[name] = (detail, signature)
+            locals_by_name[name] = (detail, signature, contexts)
 
     # Action parameters and flow locals exist only in their declaration expression.
     action = re.match(
@@ -862,8 +883,16 @@ def _process_local_candidates(
         assert handler is not None
         for name in re.findall(_IDENTIFIER, handler.group("bindings")):
             add(name, "Process handler 参数", handler_signature)
-        locals_by_name["event.id"] = ("Process handler 事件身份", "event.id")
-        locals_by_name["event.time"] = ("Process handler 事件时间", "event.time")
+        locals_by_name["event.id"] = (
+            "Process handler 事件身份",
+            "event.id",
+            ("process_expr", "process_key_target"),
+        )
+        locals_by_name["event.time"] = (
+            "Process handler 事件时间",
+            "event.time",
+            ("process_expr",),
+        )
 
         # A let is visible after its declaration while the cursor remains in the
         # same effect sequence (or one of that sequence's nested blocks).
@@ -906,12 +935,12 @@ def _process_local_candidates(
             "variable",
             (name, detail, "局部"),
             4,
-            ("process_expr", "process_key_target"),
+            contexts,
             "process",
             "process-declarations",
             signature,
         )
-        for name, (detail, signature) in locals_by_name.items()
+        for name, (detail, signature, contexts) in locals_by_name.items()
     ]
 
 
@@ -1136,8 +1165,15 @@ def _dynamic_declarations(source: str, entry_id: Optional[str]) -> list[dict[str
             if use:
                 add(line_number, line, indent, use, "scenario_instance", label_group=None)
                 continue
+            action = re.match(
+                rf"^action\s+(?P<name>{_IDENTIFIER})(?:\s+when\s+.+)?:$",
+                stripped,
+            )
+            if action:
+                add(line_number, line, indent, action, "scenario_action", label_group=None)
+                continue
             named = re.match(
-                rf"^(?P<kind>variant|action|policy|objective)\s+(?P<name>{_IDENTIFIER})"
+                rf"^(?P<kind>variant|policy|objective)\s+(?P<name>{_IDENTIFIER})"
                 rf"(?:\s+(?P<label>{_QUOTED}))?\s*:",
                 stripped,
             )
@@ -1170,9 +1206,17 @@ def _dynamic_bindings(source: str, entry_id: Optional[str]) -> tuple[dict[str, d
     active_kind: Optional[str] = None
     active_container: Optional[str] = None
     child_indent: Optional[int] = None
+    prose_fence: Optional[str] = None
     for line in source.splitlines():
         stripped = line.lstrip()
         indent = len(line) - len(stripped)
+        if prose_fence is not None:
+            if indent == 0 and stripped == prose_fence:
+                prose_fence = None
+            continue
+        if indent == 0 and _FENCE_RE.fullmatch(stripped):
+            prose_fence = stripped
+            continue
         if not stripped or stripped.startswith("//"):
             continue
         if indent == 0:
@@ -2153,7 +2197,7 @@ def build_completion_candidates(
             else member.name if local and not typed_qualified_local and member.container is None
             else member.canonical
         )
-        call_kinds = {"functions", "process_events", "process_actions", "scenario_actions"}
+        call_kinds = {"functions", "process_events", "process_actions"}
         inserted = f"{reference}($0)" if member.kind in call_kinds else reference
         dynamic_contexts = {
             "process_inputs": ("process_expr",),
@@ -2194,7 +2238,7 @@ def build_completion_candidates(
                 ),
                 30 if local else 50,
                 contexts if contexts is not None else (
-                    ("type", "reference")
+                    ("type", "process_type", "reference")
                     if member.kind == "types"
                     else ("scenario_reference", "reference")
                     if member.kind == "scenarios"
@@ -2360,9 +2404,12 @@ def build_completion_candidates(
                 ))
     for name, kind, label in all_semantics:
         semantic_contexts = (
-            ("type", "static_expr", "process_expr", "measure_expr", "reference")
+            (
+                "type", "process_type", "static_expr", "process_expr",
+                "measure_expr", "reference",
+            )
             if kind == "units"
-            else ("type", "reference")
+            else ("type", "process_type", "reference")
         )
         candidates.append(
             CompletionCandidate(

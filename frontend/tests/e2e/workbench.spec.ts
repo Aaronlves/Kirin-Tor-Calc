@@ -717,6 +717,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText("// state name");
     await editor.press("Control+Space");
     await expect(page.getByRole("listbox")).toHaveCount(0);
+    await editor.press("End");
+    await editor.type(":");
+    await editor.press("Enter");
+    await editor.type("key comment_key");
+    expect(await page.locator(".cm-activeLine").textContent()).toBe("  key comment_key");
   });
 
   test("光标、活动行和文本选择具有可见且可读的交互状态", async ({ page }) => {

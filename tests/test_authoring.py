@@ -417,6 +417,128 @@ analysis run:
     assert cross_source_items[0].insert_text == "actor.current"
 
 
+def test_contextual_completion_keeps_process_only_types_out_of_static_declarations(
+    tmp_path: Path,
+) -> None:
+    static_path = tmp_path / "entries" / "static.kirin"
+    static_source = """@kirin 2
+@entry static
+
+input values: ma
+"""
+    static_items = build_completion_candidates(
+        {static_path: static_source}, static_path, "ma", 4, 17
+    )
+    assert "map[$0, value_type, capacity]" not in {
+        item.insert_text for item in static_items
+    }
+
+    process_path = tmp_path / "entries" / "process.kirin"
+    process_source = """@kirin 2
+@entry process_types
+
+process machine:
+  state values: ma
+"""
+    process_items = build_completion_candidates(
+        {process_path: process_source}, process_path, "ma", 5, 19
+    )
+    assert "map[$0, value_type, capacity]" in {
+        item.insert_text for item in process_items
+    }
+
+
+def test_contextual_completion_preserves_trailing_lines_and_stops_at_new_declarations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "entries" / "incomplete.kirin"
+    after_prose = """@kirin 2
+@entry after_prose
+
+---
+author notes
+---
+"""
+    trailing_items = build_completion_candidates(
+        {path: after_prose}, path, "", 7, 1
+    )
+    assert any(item.insert_text.startswith("process ") for item in trailing_items)
+
+    after_incomplete_expression = """@kirin 2
+@entry incomplete
+
+output broken: dimensionless = max(
+
+pro
+"""
+    declaration_items = build_completion_candidates(
+        {path: after_incomplete_expression}, path, "pro", 6, 4
+    )
+    assert any(item.insert_text.startswith("process ") for item in declaration_items)
+    assert not any(
+        item.insert_text.startswith("product(") for item in declaration_items
+    )
+
+
+def test_prose_examples_do_not_override_scenario_instance_bindings(tmp_path: Path) -> None:
+    path = tmp_path / "entries" / "opaque.kirin"
+    source = """@kirin 2
+@entry opaque
+
+process real:
+  state value: count = 0
+  observe actual: count = value
+
+process fake:
+  state value: count = 0
+  observe phantom: count = value
+
+scenario trial:
+  phases:
+    - event
+  use actor = real:
+  measure result: count = final(actor.actual)
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+
+---
+scenario trial:
+  use actor = fake:
+---
+"""
+    index = build_authoring_index([
+        AuthoringSource(str(path), str(path), source)
+    ])
+    actual = next(
+        item for item in index["symbols"]
+        if item["kind"] == "process_observation" and item["name"] == "actual"
+    )
+    reference = next(
+        item for item in index["references"]
+        if item["text"] == "actor.actual"
+    )
+    assert reference["symbol_id"] == actual["id"]
+
+    draft = source.replace("actor.actual", "actor.ac")
+    line_number, line_text = next(
+        (number, line)
+        for number, line in enumerate(draft.splitlines(), 1)
+        if "actor.ac" in line
+    )
+    insertions = {
+        item.insert_text
+        for item in build_completion_candidates(
+            {path: draft}, path, "actor.ac", line_number, len(line_text) + 1
+        )
+    }
+    assert "actor.actual" in insertions
+    assert "actor.phantom" not in insertions
+
+
 def test_dynamic_authoring_index_tracks_process_and_scenario_symbols() -> None:
     source = AuthoringSource(
         "entries/dynamic.kirin",
@@ -466,6 +588,64 @@ analysis optimize_trial:
     assert ("actor.current", by_kind["process_observation"]["id"]) in references
     assert ("result", by_kind["scenario_measure"]["id"]) in references
     assert ("best", by_kind["scenario_objective"]["id"]) in references
+
+
+def test_guarded_scenario_action_is_indexed_referenced_and_completed(tmp_path: Path) -> None:
+    path = tmp_path / "entries" / "guarded.kirin"
+    source = """@kirin 2
+@entry guarded
+
+process machine:
+  event input tick()
+
+scenario trial:
+  phases:
+    - decision
+  use actor = machine:
+  action guarded_action when true:
+    send actor.tick() phase decision
+  policy default:
+    choose guarded_action when true
+  decide every 1 second from 0 second until 0 second phase decision:
+    - guarded_action
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+"""
+    index = build_authoring_index([
+        AuthoringSource(str(path), str(path), source)
+    ])
+    action = next(
+        item for item in index["symbols"]
+        if item["kind"] == "scenario_action"
+    )
+    assert action["name"] == "guarded_action"
+    assert [
+        item["text"]
+        for item in index["references"]
+        if item["symbol_id"] == action["id"]
+    ] == ["guarded_action", "guarded_action"]
+
+    draft = source.replace(
+        "choose guarded_action when true",
+        "choose guarded",
+    )
+    line_number, line_text = next(
+        (number, line)
+        for number, line in enumerate(draft.splitlines(), 1)
+        if "choose guarded" in line
+    )
+    insertions = {
+        item.insert_text
+        for item in build_completion_candidates(
+            {path: draft}, path, "guarded", line_number, len(line_text) + 1
+        )
+    }
+    assert "guarded_action" in insertions
+    assert "guarded_action($0)" not in insertions
 
 
 def test_contextual_completion_respects_event_directions_and_process_locals(
@@ -580,6 +760,42 @@ analysis view:
     assert insertions("inner", "emit cha") == set()
     assert "value" in insertions("val", "action apply")
     assert "current" in insertions("cur", "flow total")
+
+    key_source = source.replace(
+        "replace wake() after loc phase local_phase key timer_key",
+        "replace wake() after loc phase local_phase key ",
+    )
+    key_line_number, key_line_text = next(
+        (number, line)
+        for number, line in enumerate(key_source.splitlines(), 1)
+        if "replace wake() after loc" in line
+    )
+    key_insertions = {
+        item.insert_text
+        for item in build_completion_candidates(
+            {path: key_source}, path, "", key_line_number, len(key_line_text) + 1
+        )
+    }
+    assert {"timer_key", "event.id"} <= key_insertions
+    assert {"local", "total", "size($0)"}.isdisjoint(key_insertions)
+
+    event_key_source = key_source.replace(
+        "phase local_phase key ",
+        "phase local_phase key event.",
+    )
+    event_key_line = event_key_source.splitlines()[key_line_number - 1]
+    event_key_insertions = {
+        item.insert_text
+        for item in build_completion_candidates(
+            {path: event_key_source},
+            path,
+            "event.",
+            key_line_number,
+            len(event_key_line) + 1,
+        )
+    }
+    assert "event.id" in event_key_insertions
+    assert "event.time" not in event_key_insertions
 
     assert "actor.changed" in insertions("actor.cha", "connect actor.cha")
     assert insertions("actor.inc", "connect actor.cha") == set()

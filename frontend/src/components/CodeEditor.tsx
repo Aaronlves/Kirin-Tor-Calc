@@ -397,6 +397,7 @@ function createKirinLanguage(contract: AuthoringContract) {
 }
 
 function kirinIndentation(contract: AuthoringContract) {
+  const proseFencePattern = new RegExp(contract.prose_fence_pattern);
   return indentService.of((context, position) => {
     const current = context.state.doc.lineAt(position);
     const beforeCursor = current.text.slice(0, Math.max(0, position - current.from));
@@ -410,6 +411,18 @@ function kirinIndentation(contract: AuthoringContract) {
     const previousTrimmed = previous.text.trim();
     const currentTrimmed = current.text.trim();
     if (/^-{3,}$/.test(previousTrimmed) || /^-{3,}$/.test(currentTrimmed)) return 0;
+    let proseFence: string | null = null;
+    for (let number = 1; number < current.number; number += 1) {
+      const line = context.state.doc.line(number);
+      if (line.text.length !== line.text.trimStart().length) continue;
+      const fence = line.text.match(proseFencePattern)?.[0];
+      if (!fence) continue;
+      if (proseFence === null) proseFence = fence;
+      else if (proseFence === fence) proseFence = null;
+    }
+    if (proseFence !== null || previousTrimmed.startsWith(contract.line_comment)) {
+      return previousIndent;
+    }
     return previousIndent + (previousTrimmed.endsWith(":") ? contract.indent_width : 0);
   });
 }
