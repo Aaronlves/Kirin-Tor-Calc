@@ -1210,7 +1210,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     }
   });
 
-  test("切换工作区时保留当前草稿并隔离新工作区状态", async ({ page }) => {
+  test("切换工作区时保留当前草稿并隔离新工作区状态", async ({ page, request }) => {
     const originalWorkspace = resolve(".e2e-workspace");
     const alternateWorkspace = resolve(".e2e-workspace-other");
     await openWorkbench(page);
@@ -1220,7 +1220,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.type("\n// workspace switch recovery");
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
-    let settings = page.getByRole("dialog", { name: "工作台设置" });
+    const settings = page.getByRole("dialog", { name: "工作台设置" });
     await settings.getByRole("textbox", { name: "工作区目录" }).fill(alternateWorkspace);
     await settings.getByRole("button", { name: "切换工作区" }).click();
     const confirmation = settings.getByRole("region", { name: "保留草稿并切换工作区" });
@@ -1235,13 +1235,12 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: /^另一个工作区 entries\/alternate\.kirin/ })).toBeVisible();
     await expect(page.getByRole("button", { name: comboButtonName })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    settings = page.getByRole("dialog", { name: "工作台设置" });
-    await settings.getByRole("textbox", { name: "工作区目录" }).fill(originalWorkspace);
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-      settings.getByRole("button", { name: "切换工作区" }).click(),
-    ]);
+    const returned = await request.post("/api/workspace/open", {
+      headers: { "X-Kirin-Token": "kirin-e2e-token" },
+      data: { path: originalWorkspace },
+    });
+    expect(returned.ok()).toBeTruthy();
+    await page.reload({ waitUntil: "domcontentloaded" });
 
     await expect(page.getByLabel(/^当前工作区：.*\.e2e-workspace$/).first()).toBeVisible();
     await expect(page.getByText("已恢复 1 个草稿", { exact: true })).toBeVisible();
