@@ -100,12 +100,13 @@ kt eval basic_model.total
 
 ## 工作台与 CLI
 
-浏览器工作台提供源码编辑、补全、诊断、原子保存、结果试算、多图排列与导出、公式解释、关系导航、外部修改检测和有界 Process Analysis。Agent 或其他本地编辑器可以直接修改 `.kirin` 文件；工作台会重新加载没有未保存草稿的文档，并在发生并发修改时保留冲突供作者处理。
+浏览器工作台提供源码编辑、补全、诊断、原子保存、结果试算、多图排列与导出、公式解释、关系导航、外部修改检测和有界 Process Analysis。Agent 或其他本地编辑器可以直接修改 `.kirin` 文件；也可以通过 `kt mcp WORKSPACE` 使用只暴露资源、校验、解释、静态求值和单文件校验写入的薄 MCP。工作台会重新加载没有未保存草稿的文档，并在发生并发修改时保留冲突供作者处理。
 
 CLI 与工作台使用同一个工作区、解析器和计算服务。常用入口是：
 
 ```bash
 kt web
+kt mcp /absolute/path/to/workspace
 kt check
 kt eval ENTRY.OUTPUT
 kt analyze ENTRY.ANALYSIS
@@ -126,6 +127,7 @@ Kirin Tor 支持精确数值、用户声明的量纲和单位、参数方案、�
 - [结构模型、表达式与安全边界](docs/schema-and-expressions.md)：数学语义、求值规则和固定限制。
 - [有界 Process 模型](docs/bounded-process-model.md)：动态机制、运行语义和分析边界。
 - [浏览器工作台规范](docs/web-workbench.md)：界面、保存、冲突、Agent 协作和安全边界。
+- [MCP server](docs/mcp-server.md)：Agent 资源、工具、stdio 配置、哈希写入和权威边界。
 - [Community Package protocol v1](docs/package-system-v1.md)：只含数据的依赖、锁定与缓存协议。
 - [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md)：沙箱扩展、权限和安全模式。
 - [游戏机制计算能力边界](docs/game-mechanics-capability-audit.md)：适用问题与明确非目标。

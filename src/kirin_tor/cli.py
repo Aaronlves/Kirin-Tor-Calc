@@ -152,6 +152,28 @@ def version_command() -> None:
     typer.echo(__version__)
 
 
+@app.command("mcp")
+def mcp_command(
+    workspace: Optional[Path] = typer.Argument(
+        None,
+        help="Workspace directory or path inside one; defaults to the current directory.",
+    ),
+) -> None:
+    """Serve one Kirin Tor workspace as a thin MCP server over stdio."""
+
+    def action():
+        requested = (workspace or Path.cwd()).expanduser().resolve()
+        if not requested.exists():
+            raise WorkspaceError(f"MCP workspace path does not exist: {requested}")
+        start = requested.parent if requested.is_file() else requested
+        root = requested if (requested / "kirin.workspace").is_file() else Workspace.find_root(start)
+        from .mcp_server import run_mcp_server
+
+        run_mcp_server(root)
+
+    _execute(action)
+
+
 @app.command("web")
 def web_command(
     source: Optional[Path] = typer.Argument(

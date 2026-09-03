@@ -400,11 +400,14 @@ onto continuation lines.
 Unknown top-level declarations receive the ordinary v2 syntax diagnostic and no compatibility path.
 
 A local Agent or another text editor may write the same `entries/**/*.kirin` files without an
-Agent-specific extension to Kirin Tor syntax or the Kirin Tor CLI. While the workbench page is
-visible, it discovers new local documents and reloads externally changed clean buffers; a dirty
-browser buffer is never overwritten
+Agent-specific extension to Kirin Tor syntax. An MCP host may instead launch the thin `kt mcp`
+adapter to read durable resources, validate proposals, evaluate or explain static targets, and
+validate-and-atomically-write one hash-guarded source. While the workbench page is visible, it
+discovers new local documents and reloads externally changed clean buffers; a dirty browser buffer
+is never overwritten
 and instead enters explicit conflict comparison. The Agent identity, prompts, editing operations,
 and transcript are not source declarations and are not displayed or recorded by Kirin Tor. Direct
 external writes still pass through the ordinary parser and validator before they can be evaluated.
 The synchronization and multi-file-write limits are defined by the
-[browser workbench contract](web-workbench.md#external-agent-authoring).
+[browser workbench contract](web-workbench.md#external-agent-authoring) and
+[MCP server contract](mcp-server.md).

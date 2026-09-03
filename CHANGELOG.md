@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a thin `kt mcp [WORKSPACE]` stdio server for durable source resources, the validated
+  workspace index, the authoring contract, workspace/draft validation, exact static evaluation,
+  target explanation, and single-source hash-guarded atomic writes. It reuses existing Kirin Tor
+  services, exposes no browser-unsaved state or general execution surface, and adds no runtime
+  dependency or second source authority.
 - Replaced the prefix-only editor-assistance path with one versioned authoring contract and
   cursor-contextual completion; added complete Process expression/runtime reference entries,
   dynamic Process/Scenario/Analysis symbols and direction-aware instance paths, Process locals,

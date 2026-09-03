@@ -203,10 +203,11 @@ Package templates are data-only authoritative Package content: they participate 
 ## External Agent authoring
 
 An external Agent is an ordinary local authoring tool to which the host environment has separately
-granted filesystem access. It is not a Process actor, Workbench Plugin, authenticated browser
-client, or new Kirin Tor authority layer. The workbench does not grant that access and exposes no Agent
-control protocol. The Agent may create or edit writable `entries/**/*.kirin` directly; it does not
-need to drive the browser or invoke the Kirin Tor CLI to write a document.
+granted filesystem access or an MCP connection. It is not a Process actor, Workbench Plugin,
+authenticated browser client, or new Kirin Tor authority layer. The workbench does not grant Agent
+access. An Agent may create or edit writable `entries/**/*.kirin` directly, or a host may launch the
+separate thin `kt mcp WORKSPACE` stdio adapter for bounded resources and tools; neither path requires
+driving the browser. The MCP surface is specified in [MCP server](mcp-server.md).
 
 The author sees the resulting source, diagnostics, and derived projections. The workbench does not
 embed an Agent activity feed, prompt history, CLI transcript, terminal, file-operation log, or
@@ -221,8 +222,10 @@ atomic multi-document update or suppress a temporarily incomplete source while a
 writing several files. Every observed disk state is parsed and validated normally; invalid or
 incomplete source remains visible with diagnostics and cannot be evaluated as if it were valid. An
 external tool that needs a single coherent multi-file cutover must provide its own atomic write
-discipline. This file-mediated contract is not simultaneous cursor sharing, CRDT collaboration, or
-a general Agent execution protocol.
+discipline. `kirin_apply_source` narrows this risk for one file by validating the complete candidate
+workspace, requiring the expected disk hash, and using the shared atomic source writer. Neither the
+file-mediated nor MCP contract is simultaneous cursor sharing, CRDT collaboration, or a general
+Agent execution protocol.
 
 ## Saving and conflicts
 
@@ -250,6 +253,6 @@ Closing or refreshing the browser with dirty buffers triggers the browser's unsa
 
 ## Verification boundary
 
-The Playwright acceptance suite verifies the empty-workspace tutorial flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium, Firefox, and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, while Chromium and WebKit retain visual layout baselines. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web adapter, authoring index, source validation, and strict validation of every bundled tutorial and syntax-reference example.
+The Playwright acceptance suite verifies the empty-workspace tutorial flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium, Firefox, and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, while Chromium and WebKit retain visual layout baselines. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web and MCP adapters, authoring index, source validation, and strict validation of every bundled tutorial and syntax-reference example.
 
 CI runs the Python matrix plus TypeScript checking, all three browser projects, accessibility checks, visual baselines, packaged-asset synchronization, explicit JavaScript/CSS bundle budgets, and a 100-document validation benchmark. These establish regression and bounded performance evidence for the tested fixtures. They do not by themselves establish human usability acceptance, every operating-system/browser combination, or a mobile product contract below the documented minimum width.

@@ -208,6 +208,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
     await expect(reference).toContainText("不显示 Agent 提示词、活动记录、终端或文件操作过程");
+    await expect(reference).toContainText("kt mcp WORKSPACE");
+    await expect(reference).toContainText("SHA-256 乐观锁");
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("minimum_where");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有界 Process、场景与策略分析" })).toBeVisible();

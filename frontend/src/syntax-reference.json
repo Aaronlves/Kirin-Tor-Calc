@@ -24,9 +24,11 @@
   {
     "id": "external-authoring",
     "title": "Agent 与外部编辑器",
-    "summary": "Agent 可以直接编写同一份 .kirin 权威源码；工作台只同步文件结果，不显示操作过程，也不会覆盖浏览器中的未保存草稿。",
+    "summary": "Agent 可以直接编写同一份 .kirin 权威源码，也可以通过薄 MCP 校验、解释、求值和安全写入；工作台不显示操作过程，也不会覆盖浏览器中的未保存草稿。",
     "keywords": [
       "Agent",
+      "MCP",
+      "stdio",
       "外部编辑器",
       "协作",
       "external",
@@ -38,7 +40,8 @@
     ],
     "rules": [
       "Agent 不是 Kirin Tor 关键字；写入者身份不会进入语法、AST、运行记录或证明等级。",
-      "Agent 或普通编辑器可以直接创建、修改 entries/**/*.kirin，不需要操作浏览器或通过 Kirin Tor CLI 写文档。",
+      "Agent 或普通编辑器可以直接创建、修改 entries/**/*.kirin；MCP host 也可以用 kt mcp WORKSPACE 启动独立 stdio 适配器，不需要操作浏览器。",
+      "MCP 只公开持久源码、校验索引、authoring contract、草稿校验、静态求值、解释和带 SHA-256 乐观锁的单文件原子写入；不提供 shell、删除、Package/Plugin 管理或通用 Agent 执行。",
       "页面可见时，新文档会自动出现；没有未保存修改的已打开文档会重新加载并校验。",
       "浏览器中的未保存草稿不会暴露给 Agent；双方修改同一文档时进入 base/draft/disk 冲突比较。",
       "工作台不显示 Agent 提示词、活动记录、终端或文件操作过程，只显示源码、诊断和派生结果。",

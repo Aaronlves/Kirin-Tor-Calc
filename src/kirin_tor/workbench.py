@@ -362,6 +362,12 @@ class Workbench:
                 "documents": documents,
             }
 
+    def list_documents(self) -> dict:
+        """Return the current local and locked-Package source catalog."""
+
+        with self._lock:
+            return {"status": "ok", "documents": self._document_catalog()}
+
     @property
     def _recovery_path(self) -> Path:
         return self.root / ".kirin" / "workbench-recovery.json"
