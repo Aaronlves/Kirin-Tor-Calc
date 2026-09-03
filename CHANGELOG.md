@@ -2,11 +2,15 @@
 
 ## Unreleased
 
+- Raised the supported runtime to Python 3.12 or newer as a clean cutover, moved the
+  cross-platform test matrix to Python 3.12 and 3.14, upgraded Matplotlib to the 3.11 line,
+  removed the Python 3.9 `tomli` compatibility path, adopted the official MCP Python SDK v2,
+  and moved package licensing metadata to the current SPDX form.
 - Added a thin `kt mcp [WORKSPACE]` stdio server for durable source resources, the validated
   workspace index, the authoring contract, workspace/draft validation, exact static evaluation,
   target explanation, and single-source hash-guarded atomic writes. It reuses existing Kirin Tor
-  services, exposes no browser-unsaved state or general execution surface, and adds no runtime
-  dependency or second source authority.
+  services, exposes no browser-unsaved state or general execution surface, and creates no second
+  source authority.
 - Replaced the prefix-only editor-assistance path with one versioned authoring contract and
   cursor-contextual completion; added complete Process expression/runtime reference entries,
   dynamic Process/Scenario/Analysis symbols and direction-aware instance paths, Process locals,

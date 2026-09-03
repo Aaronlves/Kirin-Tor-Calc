@@ -6,7 +6,7 @@ Kirin Tor 不内置任何游戏、职业或技能数据，也不会从自然语�
 
 ## 安装
 
-Kirin Tor 支持 Python 3.9 或更新版本。推荐使用 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)；它会维护独立环境，不需要手动激活虚拟环境。
+Kirin Tor 支持 Python 3.12 或更新版本。推荐使用 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)；它会维护独立环境，不需要手动激活虚拟环境。
 
 Windows 推荐通过 WinGet 安装 `uv`：
 

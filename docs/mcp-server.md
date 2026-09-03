@@ -20,9 +20,10 @@ An MCP host can launch it with a configuration equivalent to:
 
 If `WORKSPACE` is omitted, Kirin Tor discovers the workspace from the server process's current
 directory. The configured path may also be a file or nested directory inside the workspace. The
-server uses newline-delimited UTF-8 JSON-RPC on stdin/stdout and implements the MCP `2025-11-25`
-initialization lifecycle. Standard error is reserved for operator diagnostics; standard output never
-contains banners, prompts, or non-protocol text.
+server uses the official MCP Python SDK v2 stdio transport. New clients negotiate the MCP
+`2026-07-28` protocol; the SDK also handles its supported legacy initialization flow. Standard error
+is reserved for operator diagnostics; standard output never contains banners, prompts, or
+non-protocol text.
 
 ## Resources
 

@@ -10,10 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
 
-try:  # Python 3.11+
-    import tomllib  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.9 CI job
-    import tomli as tomllib  # type: ignore
+import tomllib
 
 from . import __version__
 from .errors import PluginError, SourceLocation
