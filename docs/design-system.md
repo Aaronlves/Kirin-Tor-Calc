@@ -1,0 +1,46 @@
+# Kirin Tor Workbench design system
+
+The browser workbench has one visual authority: `frontend/src/design/tokens.json`. It contains exactly eight token families. `npm run tokens:generate` turns that source into `frontend/src/design/tokens.css`; the generated file is checked in so the first rendered frame and packaged runtime use the same values. It must not be edited by hand.
+
+| Family | Owns | Does not own |
+| --- | --- | --- |
+| `color` | palettes and semantic surface, text, border, accent, state, syntax, chart, and shadow colors | spacing, opacity used as interaction state, or data values |
+| `typography` | sans/mono families, type scale, weights, line heights, and tracking | box dimensions or icon geometry |
+| `space` | the shared spacing scale used by gap, padding, and margin | component height and layout width |
+| `size` | primitive dimensions plus semantic control, toolbar, navigation, chart, reading-width, and editor dimensions | spacing between elements |
+| `shape` | radius, border thickness, and focus-ring offsets | border color or elevation |
+| `shadow` | focus, active, popover, menu, notification, dialog, and backdrop treatments | the colors used by those treatments, which remain in `color` |
+| `motion` | durations and easing curves | state changes or calculation progress semantics |
+| `layer` | named stacking levels | DOM order or document authority |
+
+The JSON source has two levels. Primitive palettes and scales make the available vocabulary finite; semantic roles such as `color.surface.panel`, `typography.size.meta`, and `size.control` state why a value is used. New components consume semantic roles where one exists. A new primitive is justified only when no existing scale value can express the requirement.
+
+## Renderer adapters
+
+- Mantine receives its palettes, font families, type sizes, line heights, spacing, radii, and shadows from the JSON source in `frontend/src/theme.ts`.
+- Ordinary component styling consumes generated `--kt-*` custom properties in `frontend/src/styles.css`.
+- CodeMirror consumes the same custom properties for editor typography, syntax roles, selection, focus, shape, and elevation.
+- ECharts receives concrete canvas values from the same JSON source through the registered `kirin-tor` theme. Chart-specific option objects may choose layout and interaction behavior, but cannot create another palette or type scale.
+
+The design system changes presentation only. It does not create state, modify `.kirin`, or allow Workbench Plugins to override host authority. Plugin iframe contents remain responsible for their own internal styling; their host frame and management surfaces use the Kirin system.
+
+## Motion and accessibility
+
+Motion is productive rather than decorative. Color and surface transitions use the fast duration; a future spatial transition must use the standard duration and productive easing. Data values must not tween in a way that implies recalculation. Under `prefers-reduced-motion: reduce`, host transitions become instant. Pointer-only presentation must retain a keyboard-readable or keyboard-operable equivalent.
+
+Focus rings use the shared shape, color, shadow, and layer tokens. Text and state colors remain semantic roles rather than component-local literals. Passing automated accessibility checks is implementation evidence, not human visual acceptance.
+
+## Enforcement and workflow
+
+The production build runs both token gates before TypeScript and Vite:
+
+```bash
+cd frontend
+npm run tokens:generate  # only after editing tokens.json
+npm run tokens:check     # generated CSS is current
+npm run design:check     # eight families, resolved references, no unmanaged literals
+npm run build
+```
+
+`design:check` rejects raw colors, pixel dimensions, typography values, shadows, stacking values, or motion constants outside the token source. The two responsive media-query thresholds remain literal in CSS because custom properties are not resolved in media-query conditions; their matching application-side query imports the corresponding `size.scale` token.
+

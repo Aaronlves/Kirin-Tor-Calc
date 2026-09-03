@@ -72,7 +72,7 @@ export function RunsView({ controller }: { controller: WorkbenchController }) {
       <div className="runs-layout-modern">
         <Surface className="runs-list-surface">
           <Box p="sm" className="surface-toolbar"><TextInput size="xs" placeholder="搜索记录" leftSection={<Search size={14} />} value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></Box>
-          <ScrollArea h="calc(100vh - 236px)" type="auto">
+          <ScrollArea h="calc(100vh - var(--kt-sz-236))" type="auto">
             {filteredRuns.map((run) => (
               <button
                 className={`run-row${selectedId === run.id ? " is-active" : ""}`}
@@ -91,7 +91,7 @@ export function RunsView({ controller }: { controller: WorkbenchController }) {
 
         <Surface className="run-detail-surface">
           {selected ? (
-            <ScrollArea h="calc(100vh - 178px)" type="auto">
+            <ScrollArea h="calc(100vh - var(--kt-sz-178))" type="auto">
               <Stack p="xl" gap="xl">
                 <Group justify="space-between" align="flex-start">
                   <Box><Text className="result-label">RUN RECORD</Text><Title order={2}>{selected.id}</Title><Group gap={6} mt={8}><Badge variant="outline" color="gray">{selected.operation || "未知操作"}</Badge><Badge variant="light" color={selected.status === "error" ? "red" : "green"}>{selected.status || "—"}</Badge></Group></Box>

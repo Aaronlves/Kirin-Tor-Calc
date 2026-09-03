@@ -5,6 +5,7 @@ import { Notifications } from "@mantine/notifications";
 import { LoadingState } from "./components/ui";
 import { PluginSurface } from "./components/PluginSurface";
 import { WorkspaceShell } from "./components/WorkspaceShell";
+import tokens from "./design/tokens.json";
 import { useWorkbench } from "./hooks/useWorkbench";
 import type { DocumentFocusMode, PluginCommandContribution, PluginProfileContribution, ViewId, WorkspaceTool } from "./types";
 
@@ -49,7 +50,7 @@ export function App() {
   const [syntaxTopic, setSyntaxTopic] = useState<string | null>(null);
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
-    return stored === null ? window.matchMedia("(max-width: 1320px)").matches : stored === "true";
+    return stored === null ? window.matchMedia(`(max-width: ${tokens.size.scale["1320"]})`).matches : stored === "true";
   });
   const [notificationDuration, setNotificationDuration] = useState(() => {
     const stored = Number(localStorage.getItem("kirin:notification-duration"));
@@ -208,7 +209,7 @@ export function App() {
         onClose={() => setWorkspaceTool(null)}
         position="right"
         size={workspaceTool === "settings" ? 760 : workspaceTool === "syntax" ? 820 : "92%"}
-        title={<span style={{ color: "#eeeae1", fontWeight: 650 }}>{toolTitle}</span>}
+        title={<span className="workspace-tool-title">{toolTitle}</span>}
         closeButtonProps={{ "aria-label": "关闭工作区工具" }}
         className="workspace-tool-drawer"
       >

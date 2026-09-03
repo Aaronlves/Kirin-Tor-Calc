@@ -256,6 +256,27 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     expect(results.violations).toEqual([]);
   });
 
+  test("八类设计 token 在运行时生效并尊重减少动态效果", async ({ page }) => {
+    await openWorkbench(page);
+    const representativeTokens = await page.evaluate(() => {
+      const styles = getComputedStyle(document.documentElement);
+      return [
+        "--kt-c-s-workspace",
+        "--kt-t-f-sans",
+        "--kt-sp-2",
+        "--kt-sz-control",
+        "--kt-shp-border",
+        "--kt-sh-dialog",
+        "--kt-mo-d-fast",
+        "--kt-z-header",
+      ].map((name) => styles.getPropertyValue(name).trim());
+    });
+    expect(representativeTokens.every(Boolean)).toBe(true);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(page.getByRole("button", { name: "工作区工具" })).toHaveCSS("transition-duration", /^0s(?:, 0s)*$/);
+  });
+
   test("刷新后恢复当前页面与工作区文档", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);

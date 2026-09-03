@@ -438,7 +438,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
               {!compactNavigation && (
                 <Box className="brand-copy">
                   <Text className="brand-wordmark">KIRIN TOR</Text>
-                  <Text c="dimmed" fz="10px">结构化计算工作台</Text>
+                  <Text c="dimmed" fz="var(--kt-t-s-caption)">结构化计算工作台</Text>
                 </Box>
               )}
             </Box>
@@ -495,7 +495,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                 {!compactNavigation && (
                   <Box className="workspace-meta-copy">
                     <Text fz="xs" fw={600} truncate>{currentWorkspaceName}</Text>
-                    <Text fz="10px" c="dimmed" truncate>Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
+                    <Text fz="var(--kt-t-s-caption)" c="dimmed" truncate>Kirin Tor {controller.bootstrapData?.version ?? "—"}</Text>
                   </Box>
                 )}
               </button>

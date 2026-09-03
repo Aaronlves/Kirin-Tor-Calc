@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 
 import { errorMessage, request } from "../api";
+import tokens from "../design/tokens.json";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import { primaryShortcut } from "../platform";
 import { documentOutline, referencesFor, symbolFor, type AuthoringTarget } from "../authoring";
@@ -731,7 +732,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                         {current.read_only && <Badge size="xs" color="gray" variant="light">只读</Badge>}
                         {currentDirty && <Badge size="xs" color="orange" variant="light">已修改</Badge>}
                       </Group>
-                      <Text c="dimmed" fz="10px" ff="monospace" truncate>{current.path}</Text>
+                      <Text c="dimmed" fz="var(--kt-t-s-caption)" ff="monospace" truncate>{current.path}</Text>
                     </Box>
                   </Group>
                   <Group gap={4} wrap="nowrap">
@@ -758,7 +759,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                               <div role="listitem" key={item.id}>
                                 <button
                                   type="button"
-                                  style={{ paddingLeft: 9 + item.outline_level * 14 }}
+                                  style={{ paddingLeft: Number.parseInt(tokens.space.dense) + item.outline_level * Number.parseInt(tokens.space.roomy) }}
                                   onClick={() => { setOutlineOpened(false); navigateToLocation(item.definition); }}
                                 >
                                   <strong>{item.label}</strong>
@@ -1156,7 +1157,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         opened={Boolean(controller.externalConflict) && conflictOpened}
         onClose={() => setConflictOpened(false)}
         title="比较外部修改"
-        size="min(1100px, 94vw)"
+        size="min(var(--kt-sz-1100), 94vw)"
         centered
       >
         {controller.externalConflict && (
@@ -1200,7 +1201,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
         opened={tutorialDrawerOpened}
         onClose={() => setTutorialDrawerOpened(false)}
         position="right"
-        size="min(900px, 94vw)"
+        size="min(var(--kt-sz-900), 94vw)"
         title="教程与示例"
         className="tutorial-drawer"
       >

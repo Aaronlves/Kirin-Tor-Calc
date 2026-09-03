@@ -1,24 +1,66 @@
-import { createTheme, Drawer, Modal, rem } from "@mantine/core";
+import { createTheme, Drawer, Modal } from "@mantine/core";
+import type { MantineColorsTuple } from "@mantine/core";
+
+import tokens from "./design/tokens.json";
+
+const palette = tokens.color.palette;
+
+function mantinePalette(values: string[]): MantineColorsTuple {
+  if (values.length !== 10) throw new Error("Mantine palettes require exactly ten design-token stops.");
+  return values as unknown as MantineColorsTuple;
+}
 
 export const kirinTheme = createTheme({
   primaryColor: "ember",
   primaryShade: 5,
-  defaultRadius: 0,
+  defaultRadius: tokens.shape.radius,
   cursorType: "pointer",
   autoContrast: true,
   luminanceThreshold: 0.42,
-  fontFamily:
-    "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
-  fontFamilyMonospace:
-    "'SFMono-Regular', Menlo, Consolas, 'Noto Sans Mono CJK SC', monospace",
+  fontFamily: tokens.typography.family.sans,
+  fontFamilyMonospace: tokens.typography.family.mono,
+  fontSizes: {
+    xs: tokens.typography.size.meta,
+    sm: tokens.typography.size.body,
+    md: tokens.typography.size.label,
+    lg: tokens.typography.size.titleSmall,
+    xl: tokens.typography.size.titleMedium,
+  },
+  lineHeights: {
+    xs: tokens.typography.lineHeight.compact,
+    sm: tokens.typography.lineHeight.body,
+    md: tokens.typography.lineHeight.body,
+    lg: tokens.typography.lineHeight.relaxed,
+    xl: tokens.typography.lineHeight.heading,
+  },
+  spacing: {
+    xs: tokens.space["2"],
+    sm: tokens.space["3"],
+    md: tokens.space["4"],
+    lg: tokens.space["5"],
+    xl: tokens.space["6"],
+  },
+  radius: {
+    xs: tokens.shape.radius,
+    sm: tokens.shape.radius,
+    md: tokens.shape.radius,
+    lg: tokens.shape.radius,
+    xl: tokens.shape.radius,
+  },
+  shadows: {
+    xs: tokens.shadow.popover,
+    sm: tokens.shadow.popover,
+    md: tokens.shadow.menu,
+    lg: tokens.shadow.notification,
+    xl: tokens.shadow.dialog,
+  },
   headings: {
-    fontFamily:
-      "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif",
-    fontWeight: "650",
+    fontFamily: tokens.typography.family.sans,
+    fontWeight: tokens.typography.weight.semibold,
     sizes: {
-      h1: { fontSize: rem(23), lineHeight: "1.2" },
-      h2: { fontSize: rem(16), lineHeight: "1.35" },
-      h3: { fontSize: rem(14), lineHeight: "1.4" },
+      h1: { fontSize: tokens.typography.size.titleLarge, lineHeight: tokens.typography.lineHeight.heading },
+      h2: { fontSize: tokens.typography.size.titleSmall, lineHeight: tokens.typography.lineHeight.compact },
+      h3: { fontSize: tokens.typography.size.label, lineHeight: tokens.typography.lineHeight.body },
     },
   },
   components: {
@@ -34,34 +76,16 @@ export const kirinTheme = createTheme({
     }),
   },
   colors: {
-    dark: [
-      "#eceee9", "#d6d9d2", "#b5b9b0", "#858a81", "#62675f",
-      "#4b4f48", "#3c3f38", "#292b27", "#191a17", "#0e0f0d"
-    ],
-    ember: [
-      "#fff1eb", "#f9d9cd", "#efb8a3", "#e29478", "#d98061",
-      "#cf7455", "#b85e42", "#984a35", "#7a3c2e", "#633329"
-    ],
-    gray: [
-      "#f1f2ef", "#dcdfd9", "#c3c7bf", "#a7aca3", "#8b9188",
-      "#71766e", "#585d56", "#41453f", "#292b27", "#171815"
-    ],
-    orange: [
-      "#fff4e8", "#f6dfc2", "#eac796", "#dbae6a", "#cc994d",
-      "#c18a40", "#aa7332", "#8a5a29", "#6f4824", "#5a3c21"
-    ],
-    green: [
-      "#eff7eb", "#d6e7ce", "#b8d3aa", "#9bbc89", "#86a873",
-      "#72965f", "#5c7e4c", "#48643d", "#394f32", "#2d4029"
-    ],
-    red: [
-      "#fcecec", "#f3d0d0", "#e5aaaa", "#d88787", "#cf7070",
-      "#c45d5d", "#ad4949", "#8e3a3a", "#742f2f", "#602929"
-    ],
+    dark: mantinePalette(palette.dark),
+    ember: mantinePalette(palette.ember),
+    gray: mantinePalette(palette.gray),
+    orange: mantinePalette(palette.orange),
+    green: mantinePalette(palette.green),
+    red: mantinePalette(palette.red),
   },
   other: {
-    borderColor: "#292b27",
-    panelColor: "#141512",
-    workspaceColor: "#0e0f0d",
+    borderColor: tokens.color.border.default,
+    panelColor: tokens.color.surface.panel,
+    workspaceColor: tokens.color.surface.workspace,
   },
 });

@@ -104,7 +104,7 @@ export function RelationshipGraphCanvas({
         top: 10,
         left: 12,
         data: categories.map((category) => category.name),
-        textStyle: { color: kirinEChartsTokens.legendText, fontSize: 11 },
+        textStyle: { color: kirinEChartsTokens.legendText, fontSize: kirinEChartsTokens.fontSizeMeta },
         itemWidth: 10,
         itemHeight: 10,
       }],
@@ -128,7 +128,7 @@ export function RelationshipGraphCanvas({
           label: {
             show: sortedNodes.length <= (compact ? 18 : 45),
             color: kirinEChartsTokens.legendText,
-            fontSize: compact ? 11 : 12,
+            fontSize: compact ? kirinEChartsTokens.fontSizeMeta : kirinEChartsTokens.fontSizeBody,
             position: "right",
           },
         })),

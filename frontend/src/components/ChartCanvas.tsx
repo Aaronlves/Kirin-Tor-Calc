@@ -128,7 +128,7 @@ function lineOption(result: OperationResult, interactive: boolean): EChartsOptio
       left: 10,
       itemWidth: 16,
       itemHeight: 2,
-      textStyle: { fontSize: 11 },
+      textStyle: { fontSize: kirinEChartsTokens.fontSizeMeta },
       data: targets.map((target) => labels[target] || target),
     },
     tooltip: {
@@ -147,7 +147,7 @@ function lineOption(result: OperationResult, interactive: boolean): EChartsOptio
         backgroundColor: kirinEChartsTokens.dataZoomBackground,
         fillerColor: kirinEChartsTokens.dataZoomFiller,
         handleStyle: { color: kirinEChartsTokens.accent, borderColor: kirinEChartsTokens.accent },
-        textStyle: { color: kirinEChartsTokens.axisText, fontSize: 11 },
+        textStyle: { color: kirinEChartsTokens.axisText, fontSize: kirinEChartsTokens.fontSizeMeta },
       },
     ],
     xAxis: {
@@ -244,7 +244,7 @@ function heatmapOption(result: OperationResult, interactive: boolean): EChartsOp
       type: "heatmap",
       cursor: interactive ? "pointer" : "default",
       data,
-      label: { show: data.length <= 100, color: kirinEChartsTokens.tooltipText, fontSize: 11 },
+      label: { show: data.length <= 100, color: kirinEChartsTokens.tooltipText, fontSize: kirinEChartsTokens.fontSizeMeta },
       emphasis: { itemStyle: { borderColor: kirinEChartsTokens.emphasis, borderWidth: 1 } },
     }],
   };

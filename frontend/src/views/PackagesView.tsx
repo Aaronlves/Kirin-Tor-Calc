@@ -136,7 +136,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
         </Group>
       </div>
 
-      <ScrollArea h="calc(100vh - 158px)" type="auto">
+      <ScrollArea h="calc(100vh - var(--kt-sz-158))" type="auto">
         <Stack gap="lg" pb="xl">
           <Surface className="package-toolbar-surface">
             <Group justify="space-between" wrap="nowrap">
@@ -183,7 +183,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
             <Surface><EmptyState icon={<PackageCheck size={24} />} title="尚未安装社区 Package" description="可以从 GitHub 安装精确版本，也可以将本地 Package 目录冻结为不可变快照。" action={<Button size="xs" leftSection={<Plus size={14} />} onClick={() => setInstallOpened(true)}>安装第一个 Package</Button>} /></Surface>
           )}
 
-          {result && <Surface className="package-result-surface"><Group mb="md" gap="xs"><Check size={16} color="var(--kt-success)" /><Text fw={650} fz="sm">最近一次 Package 操作已完成</Text></Group><TechnicalResult result={result} /></Surface>}
+          {result && <Surface className="package-result-surface"><Group mb="md" gap="xs"><Check size={16} color="var(--kt-c-st-success)" /><Text fw={650} fz="sm">最近一次 Package 操作已完成</Text></Group><TechnicalResult result={result} /></Surface>}
         </Stack>
       </ScrollArea>
 

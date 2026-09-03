@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/clean-generated-assets.mjs",
+    "build": "npm run tokens:check && npm run design:check && tsc -b && vite build && node scripts/clean-generated-assets.mjs",
     "test": "npm run test:e2e",
     "test:e2e": "npm run build && playwright test",
     "test:bundle": "node scripts/check-bundle-size.mjs",
+    "tokens:generate": "node scripts/generate-design-tokens.mjs",
+    "tokens:check": "node scripts/generate-design-tokens.mjs --check",
+    "design:check": "node scripts/check-design-system.mjs",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },

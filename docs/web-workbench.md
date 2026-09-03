@@ -29,6 +29,8 @@ The workbench keeps the following authority boundary:
 | `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
 | Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
 
+Host presentation follows the shared [Workbench design system](design-system.md). Its eight token families cover color, typography, spacing, dimensions, shape, elevation, motion, and stacking across Mantine, ordinary CSS, CodeMirror, and ECharts. Those tokens are application presentation, never document or calculation authority.
+
 ## Launch, process, and distribution boundary
 
 The current workbench is a CLI-hosted local Web application, not an independently installed desktop

@@ -5,6 +5,7 @@ import { MantineProvider } from "@mantine/core";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "@mantine/spotlight/styles.css";
+import "./design/tokens.css";
 import "./styles.css";
 
 import { App } from "./App";

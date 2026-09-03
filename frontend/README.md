@@ -9,12 +9,20 @@ frontend change.
 ```bash
 cd frontend
 npm install
+npm run tokens:check
+npm run design:check
 npm run typecheck
 npm run build
 npx playwright install chromium firefox webkit
 npm run test:e2e
 npm run test:bundle
 ```
+
+Visual decisions are owned by the eight-family token source in
+`src/design/tokens.json`; see [the design-system contract](../docs/design-system.md).
+Edit that source, run `npm run tokens:generate`, and commit the generated
+`src/design/tokens.css` with the change. The build rejects stale generated CSS,
+unknown token references, and unmanaged visual literals.
 
 The Vite build uses `/assets/` as its public base and emits JavaScript and CSS
 at the root of `dist/`. That layout matches the local Python server's

@@ -4,6 +4,7 @@ import { notifications } from "@mantine/notifications";
 import { Crosshair, FileOutput, Maximize2, Save } from "lucide-react";
 
 import { errorMessage } from "../api";
+import tokens from "../design/tokens.json";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { DocumentItem, DocumentProjection, OperationResult, PluginSurfaceContribution } from "../types";
 import { ChartCanvas } from "./ChartCanvas";
@@ -44,7 +45,7 @@ function DeferredChart({ label, children }: { label: string; children: ReactNode
       if (!entries.some((entry) => entry.isIntersecting)) return;
       setReady(true);
       observer.disconnect();
-    }, { rootMargin: "240px 0px" });
+    }, { rootMargin: `${tokens.size.scale["240"]} ${tokens.space["0"]}` });
     observer.observe(host);
     return () => observer.disconnect();
   }, [ready]);

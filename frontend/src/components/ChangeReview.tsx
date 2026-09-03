@@ -100,11 +100,11 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
             {selectedKey && <div className="change-comparison" aria-label="保存前草稿比较">
               <section>
                 <Text fw={650} fz="sm">基线</Text>
-                <ScrollArea h="calc(100vh - 330px)" type="auto"><pre tabIndex={0}>{controller.originals[selectedKey] ?? ""}</pre></ScrollArea>
+                <ScrollArea h="calc(100vh - var(--kt-sz-330))" type="auto"><pre tabIndex={0}>{controller.originals[selectedKey] ?? ""}</pre></ScrollArea>
               </section>
               <section>
                 <Text fw={650} fz="sm">当前草稿</Text>
-                <ScrollArea h="calc(100vh - 330px)" type="auto"><pre tabIndex={0}>{controller.buffers[selectedKey] ?? ""}</pre></ScrollArea>
+                <ScrollArea h="calc(100vh - var(--kt-sz-330))" type="auto"><pre tabIndex={0}>{controller.buffers[selectedKey] ?? ""}</pre></ScrollArea>
               </section>
             </div>}
           </Stack> : <Text c="dimmed" ta="center" py="xl">当前没有未保存草稿。</Text>}

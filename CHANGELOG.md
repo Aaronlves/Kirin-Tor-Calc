@@ -5,6 +5,7 @@
 - Added up to 64 independently named static charts per Entry with stable `ENTRY.CHART` identities, responsive and deferred-rendering static/Process chart grids, individual expansion/export, and explicit export-all.
 - Added an in-flow non-authoritative result trial area that compares temporary dependency-input values with source defaults, resets without touching source, can append an unsaved preset draft to the existing editor, and saves run records only against clean durable source.
 - Unified calculation, Process, and relationship canvases under one registered Kirin Tor ECharts theme; added exact/unit-aware axis and item Tooltips plus pointer and keyboard source navigation without exposing arbitrary ECharts options to source documents.
+- Consolidated Workbench color, typography, spacing, size, shape, shadow, motion, and layer decisions into one generated eight-family design-token system consumed by Mantine, CSS, CodeMirror, and ECharts, with build-time drift enforcement and reduced-motion handling.
 
 ## 0.3.0rc3 — 2026-09-03 (pre-release)
 
