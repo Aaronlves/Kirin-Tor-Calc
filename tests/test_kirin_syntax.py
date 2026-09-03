@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from kirin_tor.engine import Engine
-from kirin_tor.errors import DomainError, ReferenceError, SchemaError
+from kirin_tor.errors import DomainError, ExpressionError, ReferenceError, SchemaError
 from kirin_tor.kirin_syntax import load_kirin_document, render_kirin_document
 from kirin_tor.operations import evaluate, explain, scan_values
 from kirin_tor.workspace import Workspace, initialize
@@ -340,6 +340,224 @@ def test_fractional_unit_and_parameter_one_of_round_trip(tmp_path: Path) -> None
     path.write_text(render_kirin_document(raw), encoding="utf-8")
     loaded = load_kirin_document(path)
     assert loaded.raw == raw
+
+
+def test_static_boolean_and_numeric_domain_result_types_round_trip(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "typed-results")
+    path = root / "entries" / "typed.kirin"
+    path.write_text(
+        """@kirin 2
+@entry typed
+
+domain rank: dimensionless in 1..3 integer
+
+input enabled: boolean = true
+input level: rank = 2
+
+field disabled: boolean = not enabled
+field fixed_rank: rank = 2
+
+function choose(flag: boolean): boolean = if_else(flag, true, false)
+
+output selected: boolean = choose(enabled)
+output selected_rank: rank = level
+
+type options:
+  visible: boolean = true
+
+options defaults:
+
+output visible: boolean = defaults.visible
+""",
+        encoding="utf-8",
+    )
+
+    workspace = Workspace.load(root)
+    engine = Engine(workspace)
+    assert engine.validate_all()["status"] == "ok"
+    assert engine.resolve_target("typed.disabled").is_boolean
+    assert engine.resolve_target("typed.fixed_rank").expr == 2
+    assert engine.resolve_target("typed.selected").is_boolean
+    assert engine.resolve_target("typed.visible").is_boolean
+    assert not engine.resolve_target("typed.selected_rank").is_boolean
+    assert evaluate(engine, "typed.selected_rank")["unit"] == "dimensionless"
+
+    rendered = render_kirin_document(load_kirin_document(path))
+    assert "field disabled: boolean = not enabled" in rendered
+    assert "field fixed_rank: rank = 2" in rendered
+    assert "function choose(flag: boolean): boolean" in rendered
+    assert "output selected: boolean = choose(enabled)" in rendered
+    assert "output selected_rank: rank = level" in rendered
+    assert "visible: boolean = true" in rendered
+    reparsed = load_kirin_document(path, rendered)
+    assert reparsed.raw == load_kirin_document(path).raw
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "field bad: boolean = 1",
+        "field bad: dimensionless = true",
+        "output bad: boolean = 1",
+        "output bad: dimensionless = 1 < 2",
+        "function bad(): boolean = 1",
+        "function bad(): dimensionless = 1 < 2",
+    ],
+)
+def test_static_result_declarations_reject_wrong_value_types(
+    tmp_path: Path, declaration: str
+) -> None:
+    root = initialize(tmp_path / declaration.split()[0])
+    (root / "entries" / "bad.kirin").write_text(
+        f"@kirin 2\n@entry bad\n\n{declaration}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="boolean|numeric"):
+        Engine(Workspace.load(root)).validate_all()
+
+
+def test_static_numeric_domain_results_enforce_domain_conditions(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "result-domain")
+    (root / "entries" / "bad.kirin").write_text(
+        """@kirin 2
+@entry bad
+
+domain rank: dimensionless in 1..3 integer
+
+output value: rank = 4
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(DomainError, match="domain condition failed"):
+        Engine(Workspace.load(root)).validate_all()
+
+
+@pytest.mark.parametrize(
+    "source, message",
+    [
+        (
+            "@kirin 2\n@entry bad\n\ninput class: dimensionless = 1\n",
+            "reserved by the expression language",
+        ),
+        (
+            "@kirin 2\n@entry bad\n\nprocess p:\n  state true: boolean = false\n",
+            "reserved by the expression language",
+        ),
+        (
+            "@kirin 2\n@entry bad\n\noutput result: boolean = True\n",
+            "lowercase true or false",
+        ),
+    ],
+)
+def test_expression_reserved_identifiers_and_noncanonical_booleans_are_rejected(
+    tmp_path: Path, source: str, message: str
+) -> None:
+    root = initialize(tmp_path / "reserved")
+    (root / "entries" / "bad.kirin").write_text(source, encoding="utf-8")
+    with pytest.raises((SchemaError, ExpressionError), match=message):
+        Engine(Workspace.load(root)).validate_all()
+
+
+def test_leaf_declarations_reject_nested_source(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "nested")
+    path = root / "entries" / "bad.kirin"
+    path.write_text(
+        """@kirin 2
+@entry bad
+
+input x: dimensionless = 1
+  ignored syntax
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="input declaration may not contain a block"):
+        Workspace.load(root)
+
+    path.write_text(
+        """@kirin 2
+@entry bad
+
+input x: dimensionless = 1
+output result: dimensionless = x
+chart preview:
+  x = bad.x
+    ignored syntax
+  range = 0..1
+  points = 2
+  y:
+    - bad.result
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="chart property may not contain a block"):
+        Workspace.load(root)
+
+
+def test_function_parameters_and_closed_blocks_reject_duplicates_and_unknowns(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "closed")
+    path = root / "entries" / "bad.kirin"
+    path.write_text(
+        """@kirin 2
+@entry bad
+
+function choose(x: dimensionless, x: dimensionless): dimensionless = x
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="duplicate function parameter 'x'"):
+        Workspace.load(root)
+
+    path.write_text(
+        """@kirin 2
+@entry bad
+
+table values:
+  input = dimensionless
+  output = dimensionless
+  typo = ignored
+  points:
+    1 = 1
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="unknown table property 'typo'"):
+        Workspace.load(root)
+
+    path.write_text(
+        """@kirin 2
+@entry bad
+
+distribution roll: dimensionless:
+  outcomes:
+    - 1 @ 1
+  outcomes:
+    - 2 @ 1
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="duplicate distribution property 'outcomes'"):
+        Workspace.load(root)
+
+
+def test_headers_and_source_labels_reject_noncanonical_forms(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "headers")
+    path = root / "entries" / "bad.kirin"
+    path.write_text("  @kirin 2\n@entry bad\n", encoding="utf-8")
+    with pytest.raises(SchemaError, match="first declaration"):
+        Workspace.load(root)
+
+    path.write_text(
+        '@kirin 2\n@entry bad\n\nsource note "discarded":\n  citation = "fixture"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="do not support display labels"):
+        Workspace.load(root)
 
 
 def test_workspace_marker_is_game_neutral_and_rejects_settings(tmp_path: Path) -> None:

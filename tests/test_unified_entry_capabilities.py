@@ -133,10 +133,12 @@ unit damage_per_attack_power = attack_power ** (-1) * damage
             outputs={
                 "talent_a_enabled": {
                     "expression": "choose_talent_a",
+                    "value_type": "boolean",
                     "unit": "dimensionless",
                 },
                 "talent_b_enabled": {
                     "expression": "choose_talent_b",
+                    "value_type": "boolean",
                     "unit": "dimensionless",
                 },
             },

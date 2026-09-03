@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import keyword
 import re
 from dataclasses import dataclass, field
 from fractions import Fraction
@@ -50,6 +51,18 @@ EXPRESSION_RESERVED_NAMES = {
     "piecewise", "probability", "product", "repeat_sum", "sqrt", "sum",
     "variance",
 }
+EXPRESSION_LITERAL_NAMES = {"true", "false", "True", "False", "None", "empty"}
+
+
+def _is_expression_reserved_identifier(value: str) -> bool:
+    return keyword.iskeyword(value) or value in EXPRESSION_LITERAL_NAMES
+
+
+def _reject_expression_reserved_identifier(
+    value: str, label: str, location: Optional[SourceLocation]
+) -> None:
+    if _is_expression_reserved_identifier(value):
+        raise SchemaError(f"{label} {value!r} is reserved by the expression language", location)
 
 
 def require_identifier(value: Any, label: str, location: Optional[SourceLocation]) -> str:
@@ -57,6 +70,7 @@ def require_identifier(value: Any, label: str, location: Optional[SourceLocation
         raise SchemaError(f"{label} must match [A-Za-z_][A-Za-z0-9_]*", location)
     if value.startswith("__"):
         raise SchemaError(f"{label} may not start with '__'", location)
+    _reject_expression_reserved_identifier(value, label, location)
     return value
 
 
@@ -65,6 +79,8 @@ def require_parameter_name(value: Any, label: str, location: Optional[SourceLoca
         raise SchemaError(f"{label} must be NAME or ENTRY_ID.NAME", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} components may not start with '__'", location)
+    for part in value.split("."):
+        _reject_expression_reserved_identifier(part, f"{label} component", location)
     return value
 
 
@@ -73,7 +89,7 @@ def require_alias_identifier(value: Any, location: Optional[SourceLocation]) -> 
         raise SchemaError("alias must be one Unicode identifier without spaces or punctuation", location)
     if value.startswith("__"):
         raise SchemaError("alias may not start with '__'", location)
-    if value in EXPRESSION_RESERVED_NAMES:
+    if value in EXPRESSION_RESERVED_NAMES or _is_expression_reserved_identifier(value):
         raise SchemaError(f"alias {value!r} is reserved by the expression language", location)
     return value
 
@@ -83,6 +99,8 @@ def require_qualified_member(value: Any, label: str, location: Optional[SourceLo
         raise SchemaError(f"{label} must be ENTRY_ID.MEMBER", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} components may not start with '__'", location)
+    for part in value.split("."):
+        _reject_expression_reserved_identifier(part, f"{label} component", location)
     return value
 
 
@@ -91,6 +109,8 @@ def require_member_path(value: Any, label: str, location: Optional[SourceLocatio
         raise SchemaError(f"{label} must be a dotted member path", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} may not contain private path segments", location)
+    for part in value.split("."):
+        _reject_expression_reserved_identifier(part, f"{label} component", location)
     return value
 
 
@@ -99,6 +119,8 @@ def require_reference_path(value: Any, label: str, location: Optional[SourceLoca
         raise SchemaError(f"{label} must be an identifier path", location)
     if any(part.startswith("__") for part in value.split(".")):
         raise SchemaError(f"{label} may not contain private path segments", location)
+    for part in value.split("."):
+        _reject_expression_reserved_identifier(part, f"{label} component", location)
     if len(value.split(".")) > MAX_STRUCTURE_DEPTH + 2:
         raise SchemaError(
             f"{label} exceeds the maximum path depth {MAX_STRUCTURE_DEPTH + 2}",
@@ -593,6 +615,26 @@ INPUT_KEYS = {
     "value_type", "domain", "unit", "default", "min", "max", "integer", "allowed_values",
     "description", "label",
 }
+
+
+def _parse_result_type(
+    name: str,
+    data: Mapping[str, Any],
+    location: SourceLocation,
+    registry: UnitRegistry,
+) -> InputSpec:
+    """Resolve the scalar type shared by fields, functions, and outputs."""
+
+    return _parse_input(
+        name,
+        {
+            key: data[key]
+            for key in ("value_type", "domain", "unit")
+            if key in data
+        },
+        location,
+        registry,
+    )
 
 
 def _parse_input(
@@ -1132,31 +1174,27 @@ def parse_document(
                     if kind not in {"value", "expression"}:
                         raise SchemaError("field kind must be value or expression", member_location)
                     if kind == "value":
-                        _reject_unknown(data, {"kind", "value", "value_type", "unit", "description", "label"}, "value field", member_location)
+                        _reject_unknown(data, {"kind", "value", "value_type", "domain", "unit", "description", "label"}, "value field", member_location)
                         if "value" not in data or "expression" in data:
                             raise SchemaError("value field requires value and may not define expression", member_location)
-                        value_type = data.get("value_type", "number")
-                        if value_type not in {"number", "boolean"}:
-                            raise SchemaError("value field value_type must be number or boolean", member_location)
-                        if value_type == "boolean":
+                        result_type = _parse_result_type(
+                            member, data, member_location, registry
+                        )
+                        if result_type.value_type == "boolean":
                             if not isinstance(data["value"], bool):
                                 raise SchemaError("boolean value fields require true or false", member_location)
-                            if data.get("unit", "dimensionless") != "dimensionless":
-                                raise SchemaError("boolean value fields must be dimensionless", member_location)
                         else:
                             number_text(data["value"], "field value", member_location)
                     elif kind == "expression":
-                        _reject_unknown(data, {"kind", "expression", "unit", "description", "label"}, "expression field", member_location)
+                        _reject_unknown(data, {"kind", "expression", "value_type", "domain", "unit", "description", "label"}, "expression field", member_location)
                         if "expression" not in data or "value" in data:
                             raise SchemaError("expression field requires expression and may not define value", member_location)
                         require_text(data["expression"], "expression", member_location)
+                        _parse_result_type(member, data, member_location, registry)
                     if "label" in data:
                         require_display_label(data["label"], "field label", member_location)
-                    unit_name = data.get("unit", "dimensionless")
-                    require_identifier(unit_name, "unit", member_location)
-                    registry.parse_unit(unit_name, member_location)
                 elif section_name == "functions":
-                    _reject_unknown(data, {"parameters", "expression", "unit", "description", "label"}, "function", member_location)
+                    _reject_unknown(data, {"parameters", "expression", "value_type", "domain", "unit", "description", "label"}, "function", member_location)
                     if "label" in data:
                         require_display_label(data["label"], "function label", member_location)
                     require_text(data.get("expression"), "function expression", member_location)
@@ -1172,18 +1210,18 @@ def parse_document(
                         )
                         if parsed.default is not None:
                             raise SchemaError("explicit function parameters may not define defaults", parsed.location)
-                    registry.parse_unit(data.get("unit", "dimensionless"), member_location)
+                    _parse_result_type(member, data, member_location, registry)
                 else:
                     _reject_unknown(
                         data,
-                        {"expression", "unit", "description", "label", "display", "digits"},
+                        {"expression", "value_type", "domain", "unit", "description", "label", "display", "digits"},
                         "output",
                         member_location,
                     )
                     if "label" in data:
                         require_display_label(data["label"], "output label", member_location)
                     require_text(data.get("expression"), "output expression", member_location)
-                    registry.parse_unit(data.get("unit", "dimensionless"), member_location)
+                    _parse_result_type(member, data, member_location, registry)
                     display = data.get("display", "number")
                     if display not in DISPLAY_FORMATS:
                         raise SchemaError(

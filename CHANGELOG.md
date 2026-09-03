@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Tightened the sole `@kirin 2` language as a clean cutover: scalar field/function/output types
+  are now preserved, enforced, and round-tripped; lowercase boolean literals have one meaning;
+  Python-keyword or literal-reserved IDs, duplicate function parameters and block properties, unknown table or
+  distribution properties, invalid leaf subtrees, noncanonical headers/source labels, and Scenario
+  schedule-limit overflow are rejected instead of ignored or reinterpreted. No compatibility parser
+  is retained for the previously accepted invalid forms.
 - Preserved source labels in tolerant completion and added structure-type and type-field candidates
   from local and locked Package sources, including qualified owner and declared-type details.
 - Retained explicit Package feature-line compatibility for 0.3 Packages on Kirin Tor 0.4 while

@@ -7,6 +7,7 @@ import pytest
 
 from kirin_tor.errors import SchemaError
 from kirin_tor.kirin_syntax import parse_kirin_source, render_kirin_document
+from kirin_tor.limits import MAX_SCENARIO_SCHEDULES
 from kirin_tor.workspace import Workspace, initialize
 
 
@@ -102,3 +103,25 @@ scenario collision:
     (root / "entries" / "conflict.kirin").write_text(source, encoding="utf-8")
     with pytest.raises(SchemaError, match="state 'value'.*more than one event"):
         Workspace.load(root)
+
+
+def test_at_schedules_enforce_the_shared_scenario_schedule_limit() -> None:
+    schedules = "".join(
+        f"  at {index} second phase event:\n    send actor.tick()\n"
+        for index in range(MAX_SCENARIO_SCHEDULES + 1)
+    )
+    source = f"""@kirin 2
+@entry overflow
+
+scenario too_many:
+  phases:
+    - event
+{schedules}  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+"""
+    with pytest.raises(SchemaError, match=f"exceeds {MAX_SCENARIO_SCHEDULES} schedules"):
+        parse_kirin_source(source, Path("overflow.kirin"))

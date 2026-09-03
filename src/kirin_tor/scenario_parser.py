@@ -258,6 +258,14 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                     rf"phase\s+({IDENTIFIER})\s*=\s*({IDENTIFIER})", binding.line.text
                 )
                 if phase:
+                    if binding.children:
+                        _fail(
+                            path,
+                            owner_id,
+                            binding,
+                            "phase binding may not contain a block",
+                            field,
+                        )
                     phase_bindings.append(
                         InstancePhaseAst(
                             phase.group(1),
@@ -352,6 +360,8 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                     _location(path, owner_id, child, field),
                 )
             )
+            if len(schedules) > MAX_SCENARIO_SCHEDULES:
+                _fail(path, owner_id, child, f"scenario exceeds {MAX_SCENARIO_SCHEDULES} schedules", field)
             continue
         every = _EVERY.fullmatch(text)
         if every:

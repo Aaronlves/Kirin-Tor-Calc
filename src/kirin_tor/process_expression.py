@@ -287,7 +287,9 @@ class ProcessExpressionCompiler:
     ) -> ExpressionNodeIR:
         if isinstance(node, ast.Constant):
             if isinstance(node.value, bool):
-                return LiteralExpressionIR(node.value, BooleanTypeIR())
+                raise ExpressionError(
+                    "boolean literals must use lowercase true or false", self.location
+                )
             if not isinstance(node.value, (int, float)):
                 raise ExpressionError(
                     "only integer and decimal numeric literals are allowed", self.location

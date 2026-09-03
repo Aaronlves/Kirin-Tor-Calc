@@ -44,6 +44,7 @@ from .schema import (
     StructureTypeSpec,
     StructuredObjectSpec,
     _parse_input,
+    _parse_result_type,
 )
 from .units import DIMENSIONLESS, Dimension
 from .workspace import Workspace
@@ -92,9 +93,19 @@ class Engine:
                 if member in entry.inputs:
                     return entry.inputs[member].unit_name
                 if member in entry.fields:
-                    return entry.fields[member].get("unit", "dimensionless")
+                    return _parse_result_type(
+                        member,
+                        entry.fields[member],
+                        entry.location(f"fields.{member}"),
+                        self.workspace.units,
+                    ).unit_name
                 if member in entry.outputs:
-                    return entry.outputs[member].get("unit", "dimensionless")
+                    return _parse_result_type(
+                        member,
+                        entry.outputs[member],
+                        entry.location(f"outputs.{member}"),
+                        self.workspace.units,
+                    ).unit_name
                 if member in entry.objects and len(parts) > 2:
                     return self._object_member_unit(entry, entry.objects[member], tuple(parts[2:]))
         return self.workspace.units.render(fallback_dimension)
@@ -478,9 +489,15 @@ class Engine:
             if member in entry.fields:
                 data = entry.fields[member]
                 kind = data["kind"]
-                dimension = self.workspace.units.parse_unit(data.get("unit", "dimensionless"))
+                result_spec = _parse_result_type(
+                    member,
+                    data,
+                    entry.location(f"fields.{member}"),
+                    self.workspace.units,
+                )
+                dimension = result_spec.dimension
                 if kind == "value":
-                    if data.get("value_type", "number") == "boolean":
+                    if result_spec.value_type == "boolean":
                         value = MathValue(
                             sp.true if data["value"] else sp.false,
                             DIMENSIONLESS,
@@ -490,7 +507,7 @@ class Engine:
                     else:
                         value = MathValue(
                             parse_exact_number(str(data["value"]))
-                            * self.unit_scale_expr(data.get("unit", "dimensionless")),
+                            * self.unit_scale_expr(result_spec.unit_name),
                             dimension,
                             dependencies={entry_id},
                         )
@@ -504,12 +521,22 @@ class Engine:
                     self._require_declared_dimension(
                         value.dimension, dimension, entry, f"fields.{member}.unit", value.expr
                     )
+                    self._require_declared_value_type(
+                        value, result_spec, entry, f"fields.{member}.type"
+                    )
                     if value.expr == 0:
                         value.dimension = dimension
                     value.dependencies.add(entry_id)
+                value.conditions.extend(self.input_conditions(result_spec, value.expr))
             elif member in entry.outputs:
                 data = entry.outputs[member]
-                dimension = self.workspace.units.parse_unit(data.get("unit", "dimensionless"))
+                result_spec = _parse_result_type(
+                    member,
+                    data,
+                    entry.location(f"outputs.{member}"),
+                    self.workspace.units,
+                )
+                dimension = result_spec.dimension
                 value = self._compile_entry_expression(
                     entry,
                     data["expression"],
@@ -519,8 +546,12 @@ class Engine:
                 self._require_declared_dimension(
                     value.dimension, dimension, entry, f"outputs.{member}.unit", value.expr
                 )
+                self._require_declared_value_type(
+                    value, result_spec, entry, f"outputs.{member}.type"
+                )
                 if value.expr == 0:
                     value.dimension = dimension
+                value.conditions.extend(self.input_conditions(result_spec, value.expr))
                 value.dependencies.add(entry_id)
             elif member in entry.functions:
                 raise ReferenceError(f"function {entry_id}.{member} must be called with parentheses")
@@ -782,12 +813,22 @@ class Engine:
             value = compiler.compile(data["expression"])
             value = self._apply_entry_constraints(entry, value, compiler)
             value.conditions = argument_conditions + value.conditions
-            expected = self.workspace.units.parse_unit(data.get("unit", "dimensionless"))
+            result_spec = _parse_result_type(
+                function_name,
+                data,
+                entry.location(f"functions.{function_name}"),
+                self.workspace.units,
+            )
+            expected = result_spec.dimension
             self._require_declared_dimension(
                 value.dimension, expected, entry, f"functions.{function_name}.unit", value.expr
             )
+            self._require_declared_value_type(
+                value, result_spec, entry, f"functions.{function_name}.type"
+            )
             if value.expr == 0:
                 value.dimension = expected
+            value.conditions.extend(self.input_conditions(result_spec, value.expr))
             value.dependencies.add(entry.id)
             self._check_expanded_size(value.expr)
             self._check_package_dependency_scope(entry, value, location)
@@ -915,6 +956,22 @@ class Engine:
         if actual != expected and expr != 0:
             raise UnitError(
                 f"declared unit {expected.render()} does not match expression unit {actual.render()}",
+                entry.location(field),
+            )
+
+    def _require_declared_value_type(
+        self,
+        value: MathValue,
+        expected: InputSpec,
+        entry: Entry,
+        field: str,
+    ) -> None:
+        expected_boolean = expected.value_type == "boolean"
+        if value.is_boolean != expected_boolean:
+            expected_name = "boolean" if expected_boolean else "numeric"
+            actual_name = "boolean" if value.is_boolean else "numeric"
+            raise SchemaError(
+                f"declared {expected_name} result has {actual_name} expression",
                 entry.location(field),
             )
 
@@ -1189,6 +1246,17 @@ class Engine:
             [condition.subs(substitutions) for condition in value.conditions]
         )
 
+    def _declares_result_domain(self, data: Mapping[str, object]) -> bool:
+        domain_name = data.get("domain")
+        unit_name = data.get("unit")
+        return (
+            isinstance(domain_name, str)
+            and domain_name in self.workspace.units.domains
+        ) or (
+            isinstance(unit_name, str)
+            and unit_name in self.workspace.units.domains
+        )
+
     def _validate_structured_object(
         self, owner: Entry, obj: StructuredObjectSpec
     ) -> None:
@@ -1310,7 +1378,12 @@ class Engine:
                     lambda entry=entry, obj=obj: self._validate_structured_object(entry, obj),
                 )
             for member in entry.fields:
-                capture(f"{entry.id}.{member}", lambda e=entry.id, m=member: self.resolve_member(e, m))
+                def validate_field(entry=entry, member=member):
+                    value = self.resolve_member(entry.id, member)
+                    if self._declares_result_domain(entry.fields[member]):
+                        self._validate_math_value_defaults(value)
+
+                capture(f"{entry.id}.{member}", validate_field)
             for distribution_name in entry.distributions:
                 def validate_distribution(
                     entry=entry, distribution_name=distribution_name
@@ -1325,6 +1398,8 @@ class Engine:
             for member in entry.outputs:
                 def validate_output(entry=entry, member=member):
                     value = self.resolve_member(entry.id, member)
+                    if self._declares_result_domain(entry.outputs[member]):
+                        self._validate_math_value_defaults(value)
                     self._check_dependency_versions(
                         value, entry.location(f"outputs.{member}")
                     )
@@ -1352,7 +1427,9 @@ class Engine:
                                 is_boolean=spec.value_type == "boolean",
                             )
                         )
-                    self.call_function(entry.id, function_name, args)
+                    value = self.call_function(entry.id, function_name, args)
+                    if self._declares_result_domain(data):
+                        self._validate_math_value_defaults(value)
 
                 capture(f"{entry.id}.{function_name}()", validate_function)
             if entry.constraints:

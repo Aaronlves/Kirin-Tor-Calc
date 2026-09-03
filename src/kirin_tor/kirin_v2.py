@@ -268,11 +268,11 @@ def _parse_header(text: str, path: Path) -> Tuple[str, str, Optional[str], List[
     ]
     if not code:
         _fail(path, "Kirin Tor document is empty")
-    if code[0].text != "@kirin 2":
+    if code[0].indent != 0 or code[0].text != "@kirin 2":
         _fail(path, "first declaration must be '@kirin 2'", code[0])
     if len(code) < 2:
         _fail(path, "entry declaration is missing", code[0])
-    entry = _ENTRY_RE.fullmatch(code[1].text)
+    entry = _ENTRY_RE.fullmatch(code[1].text) if code[1].indent == 0 else None
     if not entry:
         _fail(path, 'second declaration must be @entry ID ["LABEL"]', code[1])
     entry_id = entry.group(1)
@@ -552,6 +552,13 @@ def parse_kirin_v2_source(
             match = _NAMED_BLOCK_RE.fullmatch(text_head)
             if not match or match.group("kind") != "source":
                 _fail(path, 'source must use source ID ["LABEL"]:', node.line, "sources")
+            if match.group("label"):
+                _fail(
+                    path,
+                    "source declarations do not support display labels",
+                    node.line,
+                    "sources",
+                )
             if match.group("name") in source_ids:
                 _fail(path, f"duplicate source {match.group('name')!r}", node.line, "sources")
             source_ids.add(match.group("name"))
@@ -574,6 +581,8 @@ def parse_kirin_v2_source(
             kind = scalar.group("kind")
             body = scalar.group("body")
             if kind == "input":
+                if node.children:
+                    _fail(path, "input declaration may not contain a block", node.line, "inputs")
                 name, data = _parse_input_statement(body, path, node.line)
                 if name in raw["inputs"]:
                     _fail(path, f"duplicate input {name!r}", node.line, f"inputs.{name}")
@@ -597,14 +606,12 @@ def parse_kirin_v2_source(
                 data = {
                     "kind": "value",
                     "value": True if expression == "true" else False if expression == "false" else expression,
-                    "unit": type_data.get("unit", "dimensionless"),
+                    **type_data,
                 }
-                if expression in {"true", "false"}:
-                    data["value_type"] = "boolean"
             else:
                 data = {
                     "expression": expression,
-                    "unit": type_data.get("unit", "dimensionless"),
+                    **type_data,
                 }
                 if kind == "field":
                     data["kind"] = "expression"
@@ -627,12 +634,19 @@ def parse_kirin_v2_source(
                 from .kirin_syntax import _parameter_items
                 for item in _parameter_items(parameter_text, path, node.line):
                     name, spec = _parse_input_statement(item, path, node.line, allow_default=False, allow_label=False)
+                    if name in params:
+                        _fail(
+                            path,
+                            f"duplicate function parameter {name!r}",
+                            node.line,
+                            f"functions.{function.group('name')}.parameters.{name}",
+                        )
                     params[name] = spec
             type_data = _type_spec(function.group("type"), path, node.line)
             data = {
                 "parameters": params,
                 "expression": _expression(node, function.group("expression"), path, f"functions.{function.group('name')}"),
-                "unit": type_data.get("unit", "dimensionless"),
+                **type_data,
             }
             if function.group("label"):
                 data["label"] = _decode(function.group("label"), path, node.line)
@@ -662,7 +676,11 @@ def parse_kirin_v2_source(
                     if typed.group("label"):
                         field_data["label"] = _decode(typed.group("label"), path, child.line)
                     if typed.group("default") is not None:
-                        field_data["default"] = normalize_expression(typed.group("default").strip())
+                        field_data["default"] = _atom(
+                            normalize_expression(typed.group("default").strip()),
+                            path,
+                            child.line,
+                        )
                     fields[field_name] = field_data
                     _position(positions, f"types.{type_id}.fields.{field_name}", child.line)
                     continue
@@ -708,8 +726,17 @@ def parse_kirin_v2_source(
                 _fail(path, f"duplicate table {match.group('name')!r}", node.line, "tables")
             values: Dict[str, Any] = {}
             points: List[List[str]] = []
+            points_seen = False
             for child in node.children:
                 if child.line.text == "points:":
+                    if points_seen:
+                        _fail(
+                            path,
+                            "duplicate table property 'points'",
+                            child.line,
+                            f"tables.{match.group('name')}.points",
+                        )
+                    points_seen = True
                     for point in child.children:
                         assignment = _TABLE_POINT_RE.fullmatch(point.line.text)
                         if not assignment or point.children or not assignment.group("output").strip():
@@ -719,13 +746,45 @@ def parse_kirin_v2_source(
                     assignment = _ASSIGN_RE.fullmatch(child.line.text)
                     if not assignment:
                         _fail(path, "table body requires input, output, and points", child.line, "tables")
-                    if assignment.group("name") in values:
-                        _fail(path, f"duplicate table property {assignment.group('name')!r}", child.line, "tables")
-                    values[assignment.group("name")] = assignment.group("value").strip()
+                    property_name = assignment.group("name")
+                    if property_name not in {"input", "output"}:
+                        _fail(
+                            path,
+                            f"unknown table property {property_name!r}",
+                            child.line,
+                            f"tables.{match.group('name')}",
+                        )
+                    if child.children:
+                        _fail(
+                            path,
+                            "table property may not contain a block",
+                            child.line,
+                            f"tables.{match.group('name')}.{property_name}",
+                        )
+                    if property_name in values:
+                        _fail(path, f"duplicate table property {property_name!r}", child.line, "tables")
+                    property_value = assignment.group("value").strip()
+                    if not property_value:
+                        _fail(
+                            path,
+                            "table property value may not be empty",
+                            child.line,
+                            f"tables.{match.group('name')}.{property_name}",
+                        )
+                    values[property_name] = property_value
+            missing = sorted({"input", "output"} - set(values))
+            if missing or not points_seen:
+                required = [*missing, *([] if points_seen else ["points"])]
+                _fail(
+                    path,
+                    "table is missing required property: " + ", ".join(required),
+                    node.line,
+                    f"tables.{match.group('name')}",
+                )
             tables[match.group("name")] = {
                 "label": _label(match, path, node.line) or match.group("name"),
-                "input_unit": values.get("input", "dimensionless"),
-                "unit": values.get("output", "dimensionless"),
+                "input_unit": values["input"],
+                "unit": values["output"],
                 "points": points,
             }
             _position(positions, f"tables.{match.group('name')}", node.line)
@@ -739,7 +798,27 @@ def parse_kirin_v2_source(
                 _fail(path, 'distribution must use distribution ID ["LABEL"]: UNIT:', node.line, "distributions")
             if match.group(1) in distributions:
                 _fail(path, f"duplicate distribution {match.group(1)!r}", node.line, "distributions")
-            outcomes_node = next((child for child in node.children if child.line.text == "outcomes:"), None)
+            outcomes_nodes = [
+                child for child in node.children if child.line.text == "outcomes:"
+            ]
+            unknown_children = [
+                child for child in node.children if child.line.text != "outcomes:"
+            ]
+            if unknown_children:
+                _fail(
+                    path,
+                    f"unknown distribution property: {unknown_children[0].line.text}",
+                    unknown_children[0].line,
+                    "distributions",
+                )
+            if len(outcomes_nodes) > 1:
+                _fail(
+                    path,
+                    "duplicate distribution property 'outcomes'",
+                    outcomes_nodes[1].line,
+                    "distributions",
+                )
+            outcomes_node = outcomes_nodes[0] if outcomes_nodes else None
             if outcomes_node is None:
                 _fail(path, "distribution requires outcomes:", node.line, "distributions")
             outcomes = []
@@ -801,6 +880,13 @@ def parse_kirin_v2_source(
                     assignment = _ASSIGN_RE.fullmatch(child.line.text)
                     if not assignment:
                         _fail(path, "chart property must use NAME = VALUE", child.line, "chart")
+                    if child.children:
+                        _fail(
+                            path,
+                            "chart property may not contain a block",
+                            child.line,
+                            f"charts.{chart_id}",
+                        )
                     property_name = assignment.group("name")
                     if property_name in chart_properties:
                         _fail(path, f"duplicate chart property {property_name!r}", child.line, f"charts.{chart_id}.{property_name}")
@@ -1032,7 +1118,7 @@ def render_kirin_v2_document(
             value = "true"
         elif value is False:
             value = "false"
-        lines.extend(["", f"{line}: {data.get('unit', 'dimensionless')} = {collapse(value)}"])
+        lines.extend(["", f"{line}: {type_text(data)} = {collapse(value)}"])
     for name, data in raw.get("functions", {}).items():
         params = []
         for param, spec in data.get("parameters", {}).items():
@@ -1040,12 +1126,12 @@ def render_kirin_v2_document(
         line = f"function {name}"
         if data.get("label") and data.get("label") != name:
             line += " " + _quoted(data["label"])
-        lines.extend(["", f"{line}({', '.join(params)}): {data.get('unit', 'dimensionless')} = {collapse(data['expression'])}"])
+        lines.extend(["", f"{line}({', '.join(params)}): {type_text(data)} = {collapse(data['expression'])}"])
     for name, data in raw.get("outputs", {}).items():
         line = f"output {name}"
         if data.get("label") and data.get("label") != name:
             line += " " + _quoted(data["label"])
-        lines.extend(["", f"{line}: {data.get('unit', 'dimensionless')} = {collapse(data['expression'])}"])
+        lines.extend(["", f"{line}: {type_text(data)} = {collapse(data['expression'])}"])
         if data.get("display") and (data.get("display") != "number" or data.get("digits") is not None):
             display = f"display {name} = {data['display']}"
             if data.get("digits") is not None:

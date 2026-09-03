@@ -270,7 +270,9 @@ class RestrictedCompiler:
 
     def _constant(self, node: ast.Constant) -> MathValue:
         if isinstance(node.value, bool):
-            return MathValue(sp.true if node.value else sp.false, is_boolean=True)
+            raise ExpressionError(
+                "boolean literals must use lowercase true or false", self.location
+            )
         if not isinstance(node.value, (int, float)):
             raise ExpressionError("only integer and decimal numeric literals are allowed", self.location)
         token = ast.get_source_segment(self.source, node)
@@ -316,6 +318,10 @@ class RestrictedCompiler:
     def _name(self, name: str) -> MathValue:
         if name.startswith("__"):
             raise ExpressionError("private names are not allowed", self.location)
+        if name == "true":
+            return MathValue(sp.true, is_boolean=True)
+        if name == "false":
+            return MathValue(sp.false, is_boolean=True)
         if name in self.local_values:
             value = self.local_values[name]
             return MathValue(

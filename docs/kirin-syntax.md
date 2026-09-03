@@ -37,9 +37,14 @@ Tabs and text that resemble syntax are preserved inside this fence.
 ----
 ```
 
-Formal IDs use `[A-Za-z_][A-Za-z0-9_]*`. The quoted entry label and other quoted labels
-are presentation-only and may use Chinese. The supported directives are `@game-version` and
-`@status`. Outside prose fences, indentation uses spaces; tabs are rejected.
+Formal IDs use `[A-Za-z_][A-Za-z0-9_]*`, cannot begin with `__`, and cannot be a
+Python keyword or expression literal such as `true`, `false`, `True`, `False`,
+`None`, or `empty`. This is one clean lexical contract across declarations and expressions;
+there is no compatibility interpretation for reserved IDs. The quoted entry label and other
+quoted labels are presentation-only and may use Chinese. The supported directives are
+`@game-version` and `@status`. Outside prose fences, indentation uses spaces; tabs are rejected.
+Top-level headers begin in column one. A leaf form that does not define multiline expression
+continuation rejects any indented child block.
 
 Only `@kirin 2` is public. A v1 file fails explicitly instead of being guessed or silently
 translated.
@@ -72,7 +77,9 @@ display result = integer
 - `display` changes presentation only: `number`, `integer`, `percent`, or
   `coefficient_percent`, optionally followed by `digits N`.
 
-Types are `boolean`, `number[UNIT]`, a named unit, or a named domain. Exact integers,
+Scalar types are `boolean`, `number[UNIT]`, a named unit, or a numeric/boolean named domain.
+The declared result type of every field, function, and output is checked rather than inferred as
+an alternative contract. Boolean literals use only lowercase `true` and `false`. Exact integers,
 decimals, fractions, and percentages are accepted. `25%` means exactly `25 / 100`.
 Whitespace makes a numeric unit literal readable: `3/2 second` is lowered to
 `3/2 * second`. General implicit multiplication is not accepted.
@@ -113,6 +120,8 @@ A block-form domain is a closed symbolic domain. Its ASCII symbols are stable va
 labels are presentation-only. Symbolic domains cannot declare units, numeric bounds, or `integer`.
 A short symbol is accepted when the expected symbolic type identifies its domain; where the same
 symbol exists in several domains and context does not resolve it, use `domain_id.symbol`.
+Symbolic domains are currently value types for structure fields and typed Process declarations;
+the static scalar input/field/function/output engine accepts numeric and boolean domains only.
 
 ## Closed types and named objects
 
@@ -171,8 +180,9 @@ source hotfix_note:
 
 An alias is local to its entry and may target a multi-level member path. Dependencies, CLI targets,
 presets, and run records continue to use canonical paths. A source block requires `citation`; its
-declaration name becomes `kind`. Optional properties are `location`, `verified_at`, `digest`, and
-`game_version`.
+declaration name supplies the default `kind`, while an explicit `kind` property may classify it
+differently. Source declarations do not have display labels. Optional properties are `location`,
+`verified_at`, `digest`, and `game_version`.
 
 ## Groups and presets
 
@@ -205,9 +215,11 @@ distribution proc: damage:
     - hit @ chance
 ```
 
-Tables are ordered and exact. Finite distributions require probabilities in `0..1` that sum
-exactly to one. Bounded iteration uses Process state plus a finite event chain; finite transition
-systems use Process branches with `reach` or `steady` analysis.
+Tables require exactly one `input`, one `output`, and one non-empty `points` block; their keys are
+ordered and exact. A finite distribution requires exactly one non-empty `outcomes` block and
+probabilities in `0..1` that sum exactly to one. Unknown or duplicate block properties are errors.
+Bounded iteration uses Process state plus a finite event chain; finite transition systems use
+Process branches with `reach` or `steady` analysis.
 
 ## Bounded Process declarations
 
