@@ -1226,7 +1226,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const confirmation = settings.getByRole("region", { name: "保留草稿并切换工作区" });
     await expect(confirmation).toContainText("当前有 1 个未保存草稿");
     await expect(confirmation).toContainText("不会写入权威 `.kirin` 源码");
-    await confirmation.getByRole("button", { name: "保留草稿并切换" }).click();
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      confirmation.getByRole("button", { name: "保留草稿并切换" }).click(),
+    ]);
 
     await expect(page.getByLabel(/^当前工作区：.*\.e2e-workspace-other$/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /^另一个工作区 entries\/alternate\.kirin/ })).toBeVisible();
@@ -1235,7 +1238,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByRole("button", { name: "设置", exact: true }).click();
     settings = page.getByRole("dialog", { name: "工作台设置" });
     await settings.getByRole("textbox", { name: "工作区目录" }).fill(originalWorkspace);
-    await settings.getByRole("button", { name: "切换工作区" }).click();
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      settings.getByRole("button", { name: "切换工作区" }).click(),
+    ]);
 
     await expect(page.getByLabel(/^当前工作区：.*\.e2e-workspace$/).first()).toBeVisible();
     await expect(page.getByText("已恢复 1 个草稿", { exact: true })).toBeVisible();
