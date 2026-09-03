@@ -561,7 +561,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.focus();
     await editor.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
     await editor.press("Enter");
-    await editor.type("unknown：");
+    await editor.type("chart broken:");
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
     const syntaxReference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
