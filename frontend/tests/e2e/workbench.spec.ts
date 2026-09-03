@@ -623,6 +623,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const discardNew = page.getByRole("dialog", { name: "放弃新文档草稿" });
     await expect(discardNew).toContainText("尚未写入磁盘");
     await discardNew.getByRole("button", { name: "确认放弃" }).click();
+    await expect(page.getByText("已放弃新文档草稿", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /^discard_me entries\/discard_me\.kirin/ })).toHaveCount(0);
     await expect(page.locator('[aria-label="工作区状态：工作区有效"]')).toBeVisible();
     bootstrap = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
@@ -881,9 +882,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press("ArrowRight");
     await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 1");
     await editor.press(`${modKey}+End`);
-    await editor.type("\noutput nested: damage = 技能甲(\n  max(1, 2),\n  ");
+    await page.keyboard.insertText("\noutput nested: damage = 技能甲(\n  max(1, 2),\n  ");
     await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 2");
-    await editor.type("// 注释里的逗号, 不计入参数\n  ");
+    await page.keyboard.insertText("// 注释里的逗号, 不计入参数\n  ");
     await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 2");
     await expect(page.locator(".cm-foldGutter")).toBeVisible();
   });
