@@ -277,6 +277,54 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "工作区工具" })).toHaveCSS("transition-duration", /^0s(?:, 0s)*$/);
   });
 
+  test("宿主与编辑器 Tooltip 使用统一表面并留在各自边界内", async ({ page }) => {
+    await openWorkbench(page);
+
+    await page.locator('[aria-label^="工作区状态："]').hover();
+    const hostTooltip = page.locator(".mantine-Tooltip-tooltip:visible");
+    await expect(hostTooltip).toContainText(/最近检查|尚未完成检查/);
+    await expect(hostTooltip).toHaveCSS("background-color", "rgb(23, 23, 20)");
+    await expect(hostTooltip).toHaveCSS("border-radius", "0px");
+    await expect(hostTooltip).toHaveCSS("pointer-events", "none");
+
+    await page.getByRole("button", { name: /^通用分段与布尔表达式示例（虚构） entries\/通用分段模型\.kirin/ }).click();
+    const typeToken = page.locator(".cm-line").filter({ hasText: "input targets:" }).getByText("positive_integer", { exact: true });
+    await typeToken.hover();
+    const editorTooltip = page.locator(".cm-tooltip").filter({ has: page.locator(".kirin-hover-card") });
+    await expect(editorTooltip).toBeVisible();
+    await expect(editorTooltip).toHaveCSS("background-color", "rgb(23, 23, 20)");
+    const editorBox = await page.locator(".cm-editor").boundingBox();
+    const editorTooltipBox = await editorTooltip.boundingBox();
+    if (!editorBox || !editorTooltipBox) throw new Error("editor tooltip has no layout box");
+    expect(editorTooltipBox.x).toBeGreaterThanOrEqual(editorBox.x + 7);
+    expect(editorTooltipBox.y).toBeGreaterThanOrEqual(editorBox.y + 7);
+    expect(editorTooltipBox.x + editorTooltipBox.width).toBeLessThanOrEqual(editorBox.x + editorBox.width - 7);
+    expect(editorTooltipBox.y + editorTooltipBox.height).toBeLessThanOrEqual(editorBox.y + editorBox.height - 7);
+  });
+
+  test("文档行状态覆盖操作按钮且折叠导航保持居中", async ({ page }) => {
+    await page.setViewportSize({ width: 1120, height: 800 });
+    await openWorkbench(page);
+    await openCombo(page);
+
+    const activeDocument = page.getByRole("button", { name: comboButtonName });
+    const activeRow = page.locator(".document-list-row-wrap").filter({ has: activeDocument });
+    await expect(activeRow).toHaveCSS("background-color", "rgb(51, 36, 31)");
+    await expect(activeRow.locator(".document-row-actions")).toHaveCSS("opacity", "1");
+
+    const inactiveDocument = page.getByRole("button", { name: /^技能 A（虚构） entries\/技能甲\.kirin/ });
+    const inactiveRow = page.locator(".document-list-row-wrap").filter({ has: inactiveDocument });
+    await inactiveDocument.hover();
+    await expect(inactiveRow).toHaveCSS("background-color", "rgb(30, 32, 28)");
+
+    const compactAlignment = await page.locator(".workbench-navbar .mantine-NavLink-root").evaluateAll((links) => links.map((link) => {
+      const icon = link.querySelector(".mantine-NavLink-section")!.getBoundingClientRect();
+      const label = link.querySelector(".mantine-NavLink-label")!.getBoundingClientRect();
+      return Math.abs((icon.left + icon.width / 2) - (label.left + label.width / 2));
+    }));
+    expect(compactAlignment.every((difference) => difference <= 1)).toBe(true);
+  });
+
   test("刷新后恢复当前页面与工作区文档", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
@@ -549,6 +597,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const selection = page.locator(".cm-selectionBackground").first();
     await expect(selection).toBeVisible();
     await expect(selection).toHaveCSS("background-color", "rgba(207, 116, 85, 0.42)");
+    await expect(page.locator(".cm-selectionLayer")).toHaveCSS("z-index", "1");
     await expect(page.locator(".cm-activeLine")).toHaveCSS("box-shadow", /rgb\(143, 84, 63\)/);
 
     await page.getByRole("button", { name: "工作区工具" }).click();
@@ -563,6 +612,20 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(cursor).toBeAttached();
     await expect(cursor).toHaveCSS("border-left-color", "rgb(240, 139, 102)");
     await expect(cursor).toHaveCSS("border-left-width", "2px");
+
+    const focusFrame = await page.locator(".cm-editor").evaluate((node) => {
+      const frame = getComputedStyle(node, "::after");
+      const gutter = getComputedStyle(node.querySelector(".cm-gutters")!);
+      return {
+        borderColor: frame.borderTopColor,
+        frameLayer: Number(frame.zIndex),
+        gutterLayer: Number(gutter.zIndex),
+        pointerEvents: frame.pointerEvents,
+      };
+    });
+    expect(focusFrame.borderColor).toBe("rgb(207, 116, 85)");
+    expect(focusFrame.frameLayer).toBeGreaterThan(focusFrame.gutterLayer);
+    expect(focusFrame.pointerEvents).toBe("none");
   });
 
   test("编辑器提供查找、大纲、源码联动、引用与安全重命名", async ({ page }) => {
@@ -573,10 +636,16 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press(`${modKey}+f`);
     const searchPanel = page.locator(".cm-search");
     await expect(searchPanel).toBeVisible();
-    await searchPanel.locator('input[name="search"]').fill("0.10");
-    await searchPanel.locator('input[name="replace"]').fill("0.11");
-    await searchPanel.locator('button[name="next"]').click();
-    await searchPanel.locator('button[name="replace"]').click();
+    const searchInput = searchPanel.getByRole("textbox", { name: "查找" });
+    const replaceInput = searchPanel.getByRole("textbox", { name: "替换为" });
+    await expect(searchInput).toHaveCSS("background-color", "rgb(17, 18, 15)");
+    await expect(searchInput).toHaveCSS("border-radius", "0px");
+    await expect(searchPanel.getByRole("button", { name: "下一个" })).toHaveCSS("background-image", "none");
+    await expect(searchPanel.getByRole("checkbox", { name: "区分大小写" })).toHaveCSS("appearance", "none");
+    await searchInput.fill("0.10");
+    await replaceInput.fill("0.11");
+    await searchPanel.getByRole("button", { name: "下一个" }).click();
+    await searchPanel.getByRole("button", { name: "替换", exact: true }).click();
     await expect(page.locator(".cm-line").filter({ hasText: "0.11" })).toBeVisible();
     await page.keyboard.press("Escape");
     await editor.press(`${modKey}+z`);
@@ -671,7 +740,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText("// recovered after reload");
   });
 
-  test("检查器提供非权威试算、运行记录、preset 草稿与多图排列", async ({ page, request }) => {
+  test("检查器提供非权威试算、运行记录、preset 草稿与多图排列", async ({ page, request, browserName }) => {
+    const trialRecordId = `trial_e2e_${browserName}`;
     await openWorkbench(page);
     await openCombo(page);
     await page.getByRole("tab", { name: "预览", exact: true }).click();
@@ -697,13 +767,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".trial-result-card.is-current")).toContainText("2,640");
 
     await page.getByRole("button", { name: "保存运行记录" }).click();
-    await page.getByRole("dialog", { name: "保存当前试算记录" }).getByRole("textbox", { name: "运行记录 ID" }).fill("trial_e2e");
+    await page.getByRole("dialog", { name: "保存当前试算记录" }).getByRole("textbox", { name: "运行记录 ID" }).fill(trialRecordId);
     await page.getByRole("dialog", { name: "保存当前试算记录" }).getByRole("button", { name: "保存记录" }).click();
     await expect(page.getByText("运行记录已保存", { exact: true })).toBeVisible();
     await expect.poll(async () => {
       const response = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
       const data = await response.json();
-      return data.runs.some((run: { id: string }) => run.id === "trial_e2e");
+      return data.runs.some((run: { id: string }) => run.id === trialRecordId);
     }).toBe(true);
 
     await page.getByRole("button", { name: "生成 preset 草稿" }).click();
@@ -738,9 +808,17 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     if (!compactBox) throw new Error("compact chart canvas has no layout box");
     const compactPoint = { x: compactBox.width * 0.5, y: compactBox.height * 0.45 };
     await compactCanvas.hover({ position: compactPoint });
-    const tooltip = page.locator(".kirin-chart-tooltip:visible");
+    const tooltip = page.locator(".kirin-chart-tooltip:not(:empty):visible");
     await expect(tooltip).toContainText("暴击率 = 3/20");
     await expect(tooltip).toContainText("组合期望伤害：2,530 damage");
+    await expect(tooltip).toHaveCSS("background-color", "rgb(23, 23, 20)");
+    await expect(tooltip).toHaveCSS("border-radius", "0px");
+    const chartTooltipBox = await tooltip.boundingBox();
+    if (!chartTooltipBox) throw new Error("chart tooltip has no layout box");
+    expect(chartTooltipBox.x).toBeGreaterThanOrEqual(compactBox.x);
+    expect(chartTooltipBox.y).toBeGreaterThanOrEqual(compactBox.y);
+    expect(chartTooltipBox.x + chartTooltipBox.width).toBeLessThanOrEqual(compactBox.x + compactBox.width + 1);
+    expect(chartTooltipBox.y + chartTooltipBox.height).toBeLessThanOrEqual(compactBox.y + compactBox.height + 1);
     await compactCanvas.click({ position: compactPoint });
     await expect(page.getByRole("radio", { name: "分栏" })).toBeChecked();
     await expect(page.locator(".cm-activeLine")).toContainText('total "组合期望伤害"');
@@ -770,8 +848,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const trajectoryBox = await trajectoryCanvas.boundingBox();
     if (!trajectoryBox) throw new Error("trajectory chart canvas has no layout box");
     await trajectoryCanvas.hover({ position: { x: trajectoryBox.width * 0.5, y: trajectoryBox.height * 0.5 } });
-    await expect(page.locator(".kirin-chart-tooltip:visible")).toContainText("time = 1");
-    await expect(page.locator(".kirin-chart-tooltip:visible")).toContainText("actor.current_mana");
+    await expect(page.locator(".kirin-chart-tooltip:not(:empty):visible")).toContainText("time = 1");
+    await expect(page.locator(".kirin-chart-tooltip:not(:empty):visible")).toContainText("actor.current_mana");
     await preview.locator(".technical-result summary").click();
     await expect(preview.locator(".technical-result")).toContainText('"preperiod": 1');
     await expect(preview.locator(".technical-result")).toContainText('"period": 1');

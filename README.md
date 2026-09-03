@@ -17,11 +17,11 @@ winget install --id=astral-sh.uv -e
 macOS 和 Linux 请按 [`uv` 官方说明](https://docs.astral.sh/uv/getting-started/installation/)安装。`uv` 可用后，安装 Kirin Tor，并把工具目录加入 shell 的 `PATH`：
 
 ```bash
-uv tool install --prerelease allow kirin-tor-cli
+uv tool install kirin-tor-cli
 uv tool update-shell
 ```
 
-当前版本仍是预发布版，因此命令需要 `--prerelease allow`。完全退出并重新打开终端，然后验证：
+完全退出并重新打开终端，然后验证：
 
 ```bash
 kt version
@@ -42,7 +42,7 @@ where.exe kt
 `kt web` 当前不会自动更新。升级和卸载由 `uv` 管理：
 
 ```bash
-uv tool upgrade --prerelease allow kirin-tor-cli
+uv tool upgrade kirin-tor-cli
 uv tool uninstall kirin-tor-cli
 ```
 

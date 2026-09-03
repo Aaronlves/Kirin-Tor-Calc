@@ -2,10 +2,17 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-09-03
+
 - Added up to 64 independently named static charts per Entry with stable `ENTRY.CHART` identities, responsive and deferred-rendering static/Process chart grids, individual expansion/export, and explicit export-all.
 - Added an in-flow non-authoritative result trial area that compares temporary dependency-input values with source defaults, resets without touching source, can append an unsaved preset draft to the existing editor, and saves run records only against clean durable source.
 - Unified calculation, Process, and relationship canvases under one registered Kirin Tor ECharts theme; added exact/unit-aware axis and item Tooltips plus pointer and keyboard source navigation without exposing arbitrary ECharts options to source documents.
 - Consolidated Workbench color, typography, spacing, size, shape, shadow, motion, and layer decisions into one generated eight-family design-token system consumed by Mantine, CSS, CodeMirror, and ECharts, with build-time drift enforcement and reduced-motion handling.
+- Kept CodeMirror text selections visible above the active-line surface while retaining distinct focused and unfocused selection colors and status-bar selection counts.
+- Replaced CodeMirror's default find/replace skin with localized, rectangular, token-governed controls and explicit hover, checked, focus, and selected-match states.
+- Kept the editor focus frame continuous above CodeMirror gutters, search panels, active lines, and horizontally overflowing content without intercepting pointer input.
+- Extended document-row hover and selection surfaces through their trailing action buttons, and centered compact-navigation labels beneath their icons.
+- Unified host, CodeMirror, and ECharts tooltip surfaces; confined editor and chart tooltips to their owning regions and rejected native host `title` tooltips at the design-system gate.
 
 ## 0.3.0rc3 — 2026-09-03 (pre-release)
 

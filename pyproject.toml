@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kirin-tor-cli"
-version = "0.3.0rc3"
+version = "0.4.0"
 description = "A game-neutral, file-driven theorycrafting CLI and local browser workbench"
 readme = "README.md"
 requires-python = ">=3.9"

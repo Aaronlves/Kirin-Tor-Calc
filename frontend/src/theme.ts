@@ -1,4 +1,4 @@
-import { createTheme, Drawer, Modal } from "@mantine/core";
+import { createTheme, Drawer, Modal, Tooltip } from "@mantine/core";
 import type { MantineColorsTuple } from "@mantine/core";
 
 import tokens from "./design/tokens.json";
@@ -72,6 +72,16 @@ export const kirinTheme = createTheme({
     Modal: Modal.extend({
       defaultProps: {
         closeButtonProps: { "aria-label": "关闭对话框" },
+      },
+    }),
+    Tooltip: Tooltip.extend({
+      defaultProps: {
+        multiline: true,
+        openDelay: Number.parseInt(tokens.motion.duration.standard),
+        transitionProps: {
+          duration: Number.parseInt(tokens.motion.duration.fast),
+          timingFunction: tokens.motion.easing.standard,
+        },
       },
     }),
   },

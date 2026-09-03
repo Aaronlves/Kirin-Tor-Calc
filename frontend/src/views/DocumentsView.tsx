@@ -586,7 +586,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       <small>{group.documents.length}</small>
                     </button>
                     {!collapsed && group.documents.map((item) => (
-                      <div className="document-list-row-wrap" key={item.key}>
+                      <div className={`document-list-row-wrap${item.key === controller.currentKey ? " is-active" : ""}`} key={item.key}>
                         <button
                           className={`document-list-row${item.key === controller.currentKey ? " is-active" : ""}`}
                           type="button"
@@ -597,14 +597,13 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                             event.preventDefault();
                             openDocumentLifecycle("move", item);
                           }}
-                          title="F2：重命名或移动真实文件"
                         >
                           <span className="document-kind-icon">{documentIcon(item)}</span>
                           <span className="document-list-copy">
                             <strong>{item.title}</strong>
                             <small>{item.path.split(/[\\/]/).at(-1)}</small>
                           </span>
-                          {controller.dirtyOverlays[item.key] !== undefined && <span className="dirty-dot" title="未保存" />}
+                          {controller.dirtyOverlays[item.key] !== undefined && <Tooltip label="未保存"><span className="dirty-dot" aria-label="未保存" /></Tooltip>}
                         </button>
                         <Menu position="bottom-end" withinPortal>
                           <Menu.Target>

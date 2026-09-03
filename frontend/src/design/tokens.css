@@ -111,6 +111,7 @@
   --kt-t-s-meta: 11px;
   --kt-t-s-body: 12px;
   --kt-t-s-code: 13px;
+  --kt-t-s-label: 14px;
   --kt-t-s-title-small: 16px;
   --kt-t-s-title-medium: 19px;
   --kt-t-s-title-large: 24px;
@@ -142,8 +143,10 @@
   --kt-sp-compact: 6px;
   --kt-sp-dense: 10px;
   --kt-sp-roomy: 14px;
+  --kt-sz-3: 3px;
   --kt-sz-6: 6px;
   --kt-sz-8: 8px;
+  --kt-sz-14: 14px;
   --kt-sz-15: 15px;
   --kt-sz-20: 20px;
   --kt-sz-22: 22px;
@@ -208,6 +211,7 @@
   --kt-sz-920: 920px;
   --kt-sz-1100: 1100px;
   --kt-sz-1120: 1120px;
+  --kt-sz-control-compact: 28px;
   --kt-sz-control: 32px;
   --kt-sz-toolbar: 48px;
   --kt-sz-header: 64px;
@@ -218,7 +222,6 @@
   --kt-shp-border: 1px;
   --kt-shp-border-emphasis: 2px;
   --kt-shp-focus-offset: 2px;
-  --kt-shp-focus-inset: -2px;
   --kt-sh-none: none;
   --kt-sh-focus: 0 0 0 1px var(--kt-c-a-base);
   --kt-sh-popover: 0 14px 36px var(--kt-c-sh-popover);
@@ -231,6 +234,9 @@
   --kt-mo-d-instant: 0ms;
   --kt-mo-d-fast: 120ms;
   --kt-mo-e-standard: ease;
+  --kt-z-selection: 1;
   --kt-z-focus: 2;
   --kt-z-header: 5;
+  --kt-z-editor-tooltip: 300;
+  --kt-z-editor-focus: 301;
 }

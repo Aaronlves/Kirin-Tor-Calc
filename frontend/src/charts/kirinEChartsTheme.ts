@@ -71,9 +71,12 @@ export const kirinEChartsTheme = {
     textStyle: { color: kirinEChartsTokens.legendText, fontSize: kirinEChartsTokens.fontSizeMeta },
   },
   tooltip: {
+    confine: true,
     backgroundColor: kirinEChartsTokens.tooltipBackground,
     borderColor: kirinEChartsTokens.tooltipBorder,
     borderWidth: 1,
+    borderRadius: Number.parseInt(tokens.shape.radius),
+    padding: [Number.parseInt(tokens.space["2"]), Number.parseInt(tokens.space.dense)],
     textStyle: { color: kirinEChartsTokens.tooltipText, fontSize: kirinEChartsTokens.fontSizeBody },
   },
   axisPointer: {

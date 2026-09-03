@@ -49,6 +49,10 @@ for (const path of files) {
   for (const match of source.matchAll(/var\((--kt-[\w-]+)/g)) {
     if (!declarations.has(match[1])) failures.push(`${name} references unknown token ${match[1]}`);
   }
+  for (const match of source.matchAll(/<(?:a|button|div|input|select|span|textarea)\b[^>]*\btitle\s*=/gs)) {
+    const line = source.slice(0, match.index).split("\n").length;
+    failures.push(`${name}:${line} uses a native title tooltip; use the shared Tooltip system`);
+  }
 }
 
 const styles = await readFile(join(sourceRoot, "styles.css"), "utf8");

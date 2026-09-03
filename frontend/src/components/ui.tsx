@@ -12,6 +12,7 @@ import {
   Stack,
   Text,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { ChevronDown, ChevronRight, FileQuestion, RotateCcw } from "lucide-react";
 
@@ -130,5 +131,5 @@ export function KeyHint({ children }: { children: ReactNode }) {
 }
 
 export function IconButton({ label, children, onClick }: { label: string; children: ReactNode; onClick(): void }) {
-  return <ActionIcon variant="subtle" color="gray" aria-label={label} title={label} onClick={onClick}>{children}</ActionIcon>;
+  return <Tooltip label={label}><ActionIcon variant="subtle" color="gray" aria-label={label} onClick={onClick}>{children}</ActionIcon></Tooltip>;
 }
