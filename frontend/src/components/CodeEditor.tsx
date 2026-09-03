@@ -25,6 +25,8 @@ import {
   foldKeymap,
   foldService,
   HighlightStyle,
+  indentService,
+  indentUnit,
   StreamLanguage,
   syntaxHighlighting,
   type StreamParser,
@@ -49,24 +51,16 @@ import {
 import { tags } from "@lezer/highlight";
 
 import { authoringTargetAt, codePointColumn, utf16OffsetForColumn, type AuthoringTarget } from "../authoring";
-import type { AuthoringIndex, AuthoringLocation, CompletionItem, DiagnosticItem } from "../types";
-import { openSyntaxReference, syntaxTopicForDiagnostic, syntaxTopicForKind, syntaxTopicForLine } from "../syntaxHelp";
+import type { AuthoringContract, AuthoringIndex, AuthoringLocation, CompletionItem, CompletionRequest, DiagnosticItem } from "../types";
+import { openSyntaxReference, syntaxSymbolForDiagnostic, syntaxSymbolForKind, syntaxTopicForDiagnostic, syntaxTopicForKind, syntaxTopicForLine } from "../syntaxHelp";
+import { fullWidthSyntaxReplacements } from "../editorSupport";
 
 interface KirinParserState {
   section: string | null;
-  inProse: boolean;
+  proseFence: string | null;
 }
 
 const editorSessions = new Map<string, unknown>();
-const punctuationReplacements: Record<string, string> = {
-  "：": ":",
-  "，": ",",
-  "（": "(",
-  "）": ")",
-  "＝": "=",
-  "％": "%",
-};
-
 const kirinEditorPhrases: Record<string, string> = {
   Find: "查找",
   Replace: "替换为",
@@ -99,43 +93,11 @@ export interface EditorCursorContext {
   selectionRanges: number;
 }
 
-const declarationKeywords = new Set([
-  "dimension", "unit", "domain", "source", "alias", "input", "field", "require",
-  "function", "output", "group", "preset", "table", "distribution",
-  "display", "chart", "type",
-  "process", "scenario", "analysis", "measure", "objective", "variant", "policy",
-  "event", "action", "observe", "flow", "decide", "branch", "emit", "schedule",
-]);
-
-const nestedSections = new Set([
-  "bounds", "markers", "objectives", "outcomes", "phases", "points", "search",
-  "sequence", "series", "variants", "y",
-]);
-
-const syntaxKeywords = new Set([
-  "action", "adaptive_dyadic", "after", "analysis", "and", "as", "at",
-  "bounds", "branch", "cancel", "chart", "choose", "compare", "connect",
-  "continuously", "cycle", "decide", "decision", "decision_surface", "digits",
-  "emit", "else", "event", "every", "flow", "from", "horizon", "if", "in",
-  "independent", "input", "internal", "joint", "key", "kind", "let", "markers",
-  "maximize", "maximum_branches", "maximum_decisions", "maximum_entities",
-  "maximum_evaluations", "maximum_events", "measure", "method", "minimize", "next",
-  "not", "objective", "objectives", "observe", "on", "operation", "optimize", "or",
-  "otherwise", "output", "pareto", "phase", "phases", "policies", "policy",
-  "reach", "reduce", "replace", "require", "run", "schedule", "search",
-  "send", "sequence", "series", "state", "steady", "stop", "target", "then",
-  "time_tolerance", "times", "to", "trajectory", "until", "up", "use", "using",
-  "value", "variant", "variant_comparison", "variants", "wait", "when", "x",
-  "x_direction", "x_label", "y", "y_direction", "y_label", "export_csv", "export_svg",
-  "outcomes", "points", "range", "title",
-]);
-
-const typeKeywords = new Set([
-  "boolean", "count", "dimensionless", "event_id", "integer", "list", "map", "millisecond",
-  "nonnegative_integer", "number", "positive_integer", "probability", "second", "time",
-]);
-
 const identifierPattern = /^[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*(?:\.[A-Za-z_\u0080-\uFFFF][\w\u0080-\uFFFF]*)*/u;
+
+function escapedOperator(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export function prepareCompletionInsertion(text: string, indent: string): { text: string; cursor: number } {
   const indented = text.replace(/\n/g, `\n${indent}`);
@@ -152,6 +114,17 @@ function locationRange(state: EditorState, location: AuthoringLocation): { from:
   return { from: Math.min(line.to, from), to: Math.min(line.to, Math.max(from, to)) };
 }
 
+function diagnosticTokenRange(state: EditorState, lineNumber: number, column: number): { from: number; to: number } {
+  const line = state.doc.line(Math.min(Math.max(1, lineNumber), state.doc.lines));
+  const requested = Math.min(line.text.length, utf16OffsetForColumn(line.text, Math.max(1, column)));
+  const tail = line.text.slice(requested);
+  const leading = tail.match(/^\s*/)?.[0].length ?? 0;
+  const start = Math.min(line.text.length, requested + leading);
+  const token = line.text.slice(start).match(/^(?:[A-Za-z_\u0080-\uFFFF][\w.\u0080-\uFFFF]*|@[A-Za-z_-]+|\d+(?:\.\d+)?|\S)/u)?.[0] ?? "";
+  const from = line.from + start;
+  return { from, to: Math.min(line.to, from + Math.max(1, token.length)) };
+}
+
 function targetAtPosition(state: EditorState, authoring: AuthoringIndex, documentKey: string, position: number): AuthoringTarget | null {
   const line = state.doc.lineAt(position);
   const column = codePointColumn(line.text, position - line.from);
@@ -159,16 +132,103 @@ function targetAtPosition(state: EditorState, authoring: AuthoringIndex, documen
 }
 
 function callContext(state: EditorState, authoring: AuthoringIndex, documentKey: string, position: number) {
-  const line = state.doc.lineAt(position);
-  const before = line.text.slice(0, position - line.from);
-  const match = before.match(/([A-Za-z_\u0080-\uFFFF][\w.\u0080-\uFFFF]*)\(([^()]*)$/u);
-  if (!match || match.index === undefined) return { symbolId: null, activeParameter: null };
-  const nameOffset = match.index;
-  const column = codePointColumn(line.text, nameOffset);
+  const source = state.sliceDoc(0, position);
+  const openings: number[] = [];
+  let quoted = false;
+  let escaped = false;
+  let comment = false;
+  let proseFence: string | null = null;
+  let lineStart = 0;
+  for (let offset = 0; offset < source.length; offset += 1) {
+    const character = source[offset];
+    if (character === "\n") {
+      if (!quoted) {
+        const lineText = source.slice(lineStart, offset);
+        if (/^-{3,}$/.test(lineText)) {
+          proseFence = proseFence === null ? lineText : proseFence === lineText ? null : proseFence;
+        }
+      }
+      comment = false;
+      lineStart = offset + 1;
+      continue;
+    }
+    if (comment || proseFence !== null) continue;
+    if (quoted) {
+      if (character === '"' && !escaped) quoted = false;
+      escaped = character === "\\" && !escaped;
+      if (character !== "\\") escaped = false;
+      continue;
+    }
+    if (character === "/" && source[offset + 1] === "/") {
+      comment = true;
+      offset += 1;
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      continue;
+    }
+    if (character === "(") openings.push(offset);
+    else if (character === ")") openings.pop();
+  }
+  const opening = openings.at(-1);
+  if (opening === undefined) return { symbolId: null, activeParameter: null };
+  const nameMatch = source.slice(0, opening).match(/([A-Za-z_\u0080-\uFFFF][\w.\u0080-\uFFFF]*)\s*$/u);
+  if (!nameMatch || nameMatch.index === undefined) return { symbolId: null, activeParameter: null };
+  const nameOffset = nameMatch.index;
+  const name = nameMatch[1];
+  const line = state.doc.lineAt(nameOffset);
+  const column = codePointColumn(line.text, nameOffset - line.from);
   const target = authoringTargetAt(authoring, documentKey, line.number, column);
+  let nested = 0;
+  let commas = 0;
+  quoted = false;
+  escaped = false;
+  comment = false;
+  proseFence = null;
+  lineStart = opening + 1;
+  for (let offset = opening + 1; offset < source.length; offset += 1) {
+    const character = source[offset];
+    if (character === "\n") {
+      if (!quoted) {
+        const lineText = source.slice(lineStart, offset);
+        if (/^-{3,}$/.test(lineText)) {
+          proseFence = proseFence === null ? lineText : proseFence === lineText ? null : proseFence;
+        }
+      }
+      comment = false;
+      lineStart = offset + 1;
+      continue;
+    }
+    if (comment || proseFence !== null) continue;
+    if (quoted) {
+      if (character === '"' && !escaped) quoted = false;
+      escaped = character === "\\" && !escaped;
+      if (character !== "\\") escaped = false;
+      continue;
+    }
+    if (character === "/" && source[offset + 1] === "/") {
+      comment = true;
+      offset += 1;
+    } else if (character === '"') quoted = true;
+    else if (character === "(" || character === "[" || character === "{") nested += 1;
+    else if (character === ")" || character === "]" || character === "}") nested = Math.max(0, nested - 1);
+    else if (character === "," && nested === 0) commas += 1;
+  }
+  const topDeclaration = source.slice(0, opening).split("\n").reverse().find((lineText) => (
+    lineText.length > 0 && !/^\s/.test(lineText)
+  )) ?? "";
+  const preferredScopes = /^process\b/.test(topDeclaration)
+    ? ["process"]
+    : /^(scenario|analysis)\b/.test(topDeclaration)
+      ? ["measure", "process"]
+      : ["static"];
+  const builtin = preferredScopes
+    .map((scope) => authoring.builtins.find((item) => item.name === name && item.scope === scope))
+    .find(Boolean);
   return {
-    symbolId: target?.id ?? null,
-    activeParameter: match[2].split(",").length,
+    symbolId: target?.id ?? builtin?.id ?? null,
+    activeParameter: commas + 1,
   };
 }
 
@@ -210,40 +270,63 @@ function kirinFoldRange(state: EditorState, lineStart: number) {
 function quickFixes(view: EditorView, lineNumber: number) {
   if (lineNumber < 1 || lineNumber > view.state.doc.lines) return [];
   const line = view.state.doc.line(lineNumber);
-  const replacements = Array.from(line.text)
-    .map((character, index) => ({ character, index, replacement: punctuationReplacements[character] }))
-    .filter((item) => item.replacement);
+  const replacements = fullWidthSyntaxReplacements(line.text);
   if (!replacements.length) return [];
   return [{
-    name: "替换这一行的全角语法符号",
+    name: "替换这一行字符串与注释之外的全角语法符号",
     apply: (currentView: EditorView) => {
       const currentLine = currentView.state.doc.line(Math.min(lineNumber, currentView.state.doc.lines));
-      const currentReplacements = Array.from(currentLine.text)
-        .map((character, index) => ({ character, index, replacement: punctuationReplacements[character] }))
-        .filter((item) => item.replacement);
+      const currentReplacements = fullWidthSyntaxReplacements(currentLine.text);
       const changes = currentReplacements.map((item) => ({
-        from: currentLine.from + utf16OffsetForColumn(currentLine.text, item.index + 1),
-        to: currentLine.from + utf16OffsetForColumn(currentLine.text, item.index + 2),
-        insert: item.replacement,
+        from: currentLine.from + item.from,
+        to: currentLine.from + item.to,
+        insert: item.insert,
       }));
       currentView.dispatch({ changes });
     },
   }];
 }
 
-const kirinLanguage = StreamLanguage.define<KirinParserState>({
-  startState: () => ({ section: null, inProse: false }),
+function createKirinLanguage(contract: AuthoringContract) {
+  const declarationKeywords = new Set(contract.tokens.top_level_declarations);
+  const nestedSections = new Set(contract.tokens.nested_sections);
+  const syntaxKeywords = new Set(contract.tokens.keywords);
+  const typeKeywords = new Set(contract.tokens.types);
+  const literalKeywords = new Set(contract.tokens.literals);
+  const directivePattern = new RegExp(`^@(?:${contract.tokens.directives.map(escapedOperator).join("|")})\\b`);
+  const compoundKeywordPattern = new RegExp(`^(?:${contract.tokens.compound_keywords.map(escapedOperator).join("|")})\\b`);
+  const proseFencePattern = new RegExp(contract.prose_fence_pattern);
+  const operatorPattern = new RegExp(`^(?:${[...contract.tokens.operators]
+    .sort((left, right) => right.length - left.length)
+    .map(escapedOperator)
+    .join("|")})`);
+  return StreamLanguage.define<KirinParserState>({
+  languageData: {
+    commentTokens: { line: contract.line_comment },
+    closeBrackets: { brackets: contract.close_brackets },
+  },
+  startState: () => ({ section: null, proseFence: null }),
   token(stream, state) {
-    if (stream.sol() && stream.match(/^-{3,}$/)) {
-      state.inProse = !state.inProse;
-      return "meta";
+    if (stream.sol()) {
+      const fence = stream.match(proseFencePattern);
+      if (fence && typeof fence !== "boolean") {
+        if (state.proseFence === null) {
+          state.proseFence = fence[0];
+          return "meta";
+        }
+        if (state.proseFence === fence[0]) {
+          state.proseFence = null;
+          return "meta";
+        }
+        return "comment";
+      }
     }
-    if (state.inProse) {
+    if (state.proseFence !== null) {
       stream.skipToEnd();
       return "comment";
     }
     if (stream.eatSpace()) return null;
-    if (stream.match("//")) {
+    if (stream.match(contract.line_comment)) {
       stream.skipToEnd();
       return "comment";
     }
@@ -258,7 +341,7 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       }
       return "string";
     }
-    if (stream.match(/^@(kirin|entry|game-version|status)\b/)) return "keyword";
+    if (stream.match(directivePattern)) return "keyword";
     const declaration = stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/, false);
     if (declaration && typeof declaration !== "boolean" && stream.indentation() === 0 && declarationKeywords.has(declaration[1])) {
       stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
@@ -270,7 +353,11 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       stream.match(/^([A-Za-z_][A-Za-z0-9_]*):/);
       return "heading";
     }
-    if (stream.match(/^(true|false)\b/)) return "bool";
+    const literal = stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/, false);
+    if (literal && typeof literal !== "boolean" && literalKeywords.has(literal[1])) {
+      stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
+      return "bool";
+    }
     if (stream.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?%?/)) return "number";
     const word = stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/, false);
     if (
@@ -292,7 +379,7 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       stream.match(/^([A-Za-z_][A-Za-z0-9_]*)\b/);
       return "keyword";
     }
-    if (stream.match(/^one-of\b/)) return "keyword";
+    if (stream.match(compoundKeywordPattern)) return "keyword";
     const identifier = stream.match(identifierPattern, false);
     const followedByCall = identifier && typeof identifier !== "boolean"
       ? stream.string.slice(stream.pos + identifier[0].length).trimStart().startsWith("(")
@@ -302,11 +389,30 @@ const kirinLanguage = StreamLanguage.define<KirinParserState>({
       if (followedByCall) return "variableName.function";
       return state.section === "output" || state.section === "field" ? "variableName" : "propertyName";
     }
-    if (stream.match(/^(?:->|==|!=|<=|>=|\+|-|\*|\/|\^|=|@|:|\.\.)/)) return "operator";
+    if (stream.match(operatorPattern)) return "operator";
     stream.next();
     return null;
   },
-} satisfies StreamParser<KirinParserState>);
+  } satisfies StreamParser<KirinParserState>);
+}
+
+function kirinIndentation(contract: AuthoringContract) {
+  return indentService.of((context, position) => {
+    const current = context.state.doc.lineAt(position);
+    const beforeCursor = current.text.slice(0, Math.max(0, position - current.from));
+    let previous = /\S/.test(beforeCursor)
+      ? current
+      : current.number > 1
+        ? context.state.doc.line(current.number - 1)
+        : current;
+    while (previous.number > 1 && !previous.text.trim()) previous = context.state.doc.line(previous.number - 1);
+    const previousIndent = previous.text.length - previous.text.trimStart().length;
+    const previousTrimmed = previous.text.trim();
+    const currentTrimmed = current.text.trim();
+    if (/^-{3,}$/.test(previousTrimmed) || /^-{3,}$/.test(currentTrimmed)) return 0;
+    return previousIndent + (previousTrimmed.endsWith(":") ? contract.indent_width : 0);
+  });
+}
 
 const kirinHighlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--kt-c-syn-keyword)", fontWeight: "var(--kt-t-w-medium)" },
@@ -537,8 +643,9 @@ interface CodeEditorProps {
   readOnly?: boolean;
   diagnostics?: DiagnosticItem[];
   authoring: AuthoringIndex;
+  authoringContract: AuthoringContract;
   onChange(value: string): void;
-  onComplete(prefix: string): Promise<CompletionItem[]>;
+  onComplete(request: CompletionRequest, signal?: AbortSignal): Promise<CompletionItem[]>;
   onSave(): void;
   onNavigate(location: AuthoringLocation): void;
   onShowReferences(target: AuthoringTarget): void;
@@ -556,6 +663,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     readOnly = false,
     diagnostics = [],
     authoring,
+    authoringContract,
     onChange,
     onComplete,
     onSave,
@@ -596,17 +704,35 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     if (!hostRef.current) return;
 
     async function complete(context: CompletionContext) {
-      const word = context.matchBefore(/[\w.\u0080-\uFFFF]*/u);
+      const word = context.matchBefore(/[\w.\-\u0080-\uFFFF]*/u);
       if (!word || (!context.explicit && word.from === word.to)) return null;
-      const items = await completionRef.current(word.text);
-      const line = context.state.doc.lineAt(word.from);
+      const completionFrom = word.from > 0 && context.state.sliceDoc(word.from - 1, word.from) === "@"
+        ? word.from - 1
+        : word.from;
+      const cursorLine = context.state.doc.lineAt(context.pos);
+      const abort = new AbortController();
+      context.addEventListener("abort", () => abort.abort());
+      const request: CompletionRequest = {
+        prefix: word.text,
+        line: cursorLine.number,
+        column: codePointColumn(cursorLine.text, context.pos - cursorLine.from),
+        explicit: context.explicit,
+      };
+      let items: CompletionItem[];
+      try {
+        items = await completionRef.current(request, abort.signal);
+      } catch (error) {
+        if (abort.signal.aborted) return null;
+        throw error;
+      }
+      const line = context.state.doc.lineAt(completionFrom);
       const indent = line.text.match(/^\s*/)?.[0] ?? "";
       return {
-        from: word.from,
+        from: completionFrom,
         filter: false,
         options: items.map((item): Completion => {
           const insertion = prepareCompletionInsertion(item.insert_text, indent);
-          const topic = syntaxTopicForLine(item.insert_text) ?? syntaxTopicForKind(item.kind);
+          const topic = item.reference_topic ?? syntaxTopicForLine(item.insert_text) ?? syntaxTopicForKind(authoringContract, item.kind);
           return {
             label: item.label,
             detail: item.detail,
@@ -622,12 +748,16 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
               dom.className = "kirin-completion-info";
               const detail = document.createElement("span");
               detail.textContent = item.detail || "Kirin Tor 写作项";
+              const signature = item.signature ? document.createElement("code") : null;
+              if (signature) signature.textContent = item.signature ?? "";
               const help = document.createElement("button");
               help.type = "button";
               help.textContent = "查看相关语法";
               help.addEventListener("mousedown", (event) => event.preventDefault());
-              help.addEventListener("click", () => openSyntaxReference(topic));
-              dom.append(detail, help);
+              help.addEventListener("click", () => openSyntaxReference(topic, item.reference_symbol ?? undefined));
+              dom.append(detail);
+              if (signature) dom.append(signature);
+              dom.append(help);
               return dom;
             } : undefined,
           };
@@ -709,7 +839,9 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         foldService.of(kirinFoldRange),
         tooltips({ tooltipSpace: editorTooltipSpace }),
         search({ top: true }),
-        kirinLanguage,
+        createKirinLanguage(authoringContract),
+        kirinIndentation(authoringContract),
+        indentUnit.of(" ".repeat(authoringContract.indent_width)),
         syntaxHighlighting(kirinHighlight),
         autocompletion({ override: [complete], activateOnTyping: true }),
         hoverTooltip((view, position) => {
@@ -744,13 +876,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
                 action.addEventListener("click", () => navigateRef.current(target.definition!));
                 dom.append(action);
               }
-              const topic = syntaxTopicForKind(item.kind);
+              const topic = ("reference_topic" in item ? item.reference_topic : null) ?? syntaxTopicForKind(authoringContract, item.kind);
               if (topic) {
                 const help = document.createElement("button");
                 help.type = "button";
                 help.textContent = "查看相关语法";
                 help.addEventListener("mousedown", (event) => event.preventDefault());
-                help.addEventListener("click", () => openSyntaxReference(topic));
+                const referenceSymbol = ("reference_symbol" in item ? item.reference_symbol : null) ?? syntaxSymbolForKind(authoringContract, item.kind);
+                help.addEventListener("click", () => openSyntaxReference(topic, referenceSymbol ?? undefined));
                 dom.append(help);
               }
               return { dom };
@@ -818,7 +951,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       view.destroy();
       viewRef.current = null;
     };
-  }, [ariaLabel, documentKey, readOnly]);
+  }, [ariaLabel, authoringContract, documentKey, readOnly]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -857,17 +990,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     const mapped: Diagnostic[] = diagnostics.map((item) => {
       const requestedLine = Math.max(1, item.location?.line ?? 1);
       const line = view.state.doc.line(Math.min(requestedLine, view.state.doc.lines));
-      const from = Math.min(line.to, line.from + utf16OffsetForColumn(line.text, item.location?.column ?? 1));
+      const range = diagnosticTokenRange(view.state, requestedLine, item.location?.column ?? 1);
       const topic = syntaxTopicForDiagnostic(item, line.text);
       return {
-        from,
-        to: Math.min(view.state.doc.length, Math.max(from + 1, line.to)),
+        from: range.from,
+        to: range.to,
         severity: "error",
         message: item.author_message || item.message || "文档校验失败",
         source: item.code || "Kirin Tor",
         actions: [
           ...quickFixes(view, requestedLine),
-          { name: "查看相关语法", apply: () => openSyntaxReference(topic) },
+          { name: "查看相关语法", apply: () => openSyntaxReference(topic, syntaxSymbolForDiagnostic(item, line.text) ?? undefined) },
         ],
       };
     });

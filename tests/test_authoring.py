@@ -14,6 +14,7 @@ from kirin_tor.authoring import (
     prepare_completion_insertion,
     rename_authoring_symbol,
 )
+from kirin_tor.authoring_contract import PROCESS_EXPRESSION_BUILTINS, public_authoring_contract
 from kirin_tor.diagnostics import extract_author_title, format_author_diagnostic
 from kirin_tor.errors import ParameterError, SchemaError, SourceLocation, WorkspaceError
 from kirin_tor.scenario_measure_syntax import (
@@ -34,6 +35,31 @@ def test_chinese_title_and_full_width_punctuation_diagnostic(tmp_path: Path) -> 
     assert "[语法错误]" in rendered
     assert "全角符号" in rendered
     assert "`：` → `:`" in rendered
+
+    labeled = '@kirin 2\n@entry model\ninput x "说明（临时）"： number[dimensionless] = 1\n'
+    rendered_label = format_author_diagnostic(
+        SchemaError(
+            "unknown v2 declaration",
+            SourceLocation(path=str(path), entry_id="model", line=3, column=1),
+        ),
+        tmp_path,
+        {path: labeled},
+    )
+    assert "`：` → `:`" in rendered_label
+    assert "`（`" not in rendered_label
+    assert "`）`" not in rendered_label
+
+    percent = '@kirin 2\n@entry model\ninput x: probability = 50％ // 说明（不改）\n'
+    rendered_percent = format_author_diagnostic(
+        SchemaError(
+            "invalid expression",
+            SourceLocation(path=str(path), entry_id="model", line=3, column=24),
+        ),
+        tmp_path,
+        {path: percent},
+    )
+    assert "`％` → `%`" in rendered_percent
+    assert "`（`" not in rendered_percent
 
 
 def test_completion_index_and_snippets(tmp_path: Path) -> None:
@@ -282,3 +308,447 @@ output dot: dimensionless = arcane_blast.coefficient.periodic
         and item["text"] == "arcane_blast.coefficient.periodic"
         for item in index["references"]
     )
+
+
+def test_contextual_completion_covers_dynamic_language_and_opaque_regions(tmp_path: Path) -> None:
+    path = tmp_path / "entries" / "dynamic.kirin"
+    source = """@kirin 2
+@entry dynamic
+
+process counter:
+  sta
+  on tick():
+    next value = siz
+
+scenario trial:
+  phases:
+    - event
+  use actor = counter:
+  measure current: count = actor.cur
+  bounds:
+    horizon = 1 sec
+
+analysis run:
+  using = trial
+  operation = opt
+
+// state should stay ordinary author text
+---
+state should also stay ordinary author text
+---
+"""
+    sources = {path: source}
+    assert build_completion_candidates(sources, path, "sta", 5, 6)[0].insert_text.startswith("state ")
+    assert build_completion_candidates(sources, path, "siz", 7, 21)[0].insert_text == "size($0)"
+    assert build_completion_candidates(sources, path, "sec", 15, 20)[0].insert_text == "second"
+    assert build_completion_candidates(sources, path, "opt", 19, 18)[0].insert_text == "optimize"
+    assert build_completion_candidates(sources, path, "state", 21, 9) == []
+    assert build_completion_candidates(sources, path, "state", 23, 9) == []
+
+    scoped = tmp_path / "entries" / "scoped.kirin"
+    scoped_source = """@kirin 2
+@entry scoped
+
+input static_value: count = 1
+
+process first:
+  input value: probability = 0.5
+  state local: count = 0
+  event input tick()
+  on tick():
+    next local = 1
+
+process second:
+  state foreign: count = 0
+
+source proof:
+  cit
+"""
+    scoped_sources = {scoped: scoped_source}
+    assert build_completion_candidates(scoped_sources, scoped, "local", 11, 19)[0].insert_text == "local"
+    assert build_completion_candidates(scoped_sources, scoped, "foreign", 11, 19) == []
+    assert build_completion_candidates(scoped_sources, scoped, "static_value", 11, 19) == []
+    type_items = build_completion_candidates(scoped_sources, scoped, "", 7, 16)
+    type_insertions = {item.insert_text for item in type_items}
+    assert "probability" in type_insertions
+    assert "map[$0, value_type, capacity]" in type_insertions
+    assert build_completion_candidates(scoped_sources, scoped, "cit", 17, 6)[0].insert_text == 'citation = "$0"'
+    assert build_completion_candidates(scoped_sources, scoped, "sqrt", 17, 6) == []
+
+    library = tmp_path / "entries" / "library.kirin"
+    report = tmp_path / "entries" / "report.kirin"
+    library_source = """@kirin 2
+@entry library
+
+process counter:
+  state value: count = 0
+  observe current: count = value
+
+scenario trial:
+  phases:
+    - event
+  use actor = counter:
+  measure result: count = final(actor.current)
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+"""
+    report_source = """@kirin 2
+@entry report
+
+analysis run:
+  using = library.trial
+  operation = run
+  chart trace:
+    kind = trajectory
+    series:
+      - actor.cur
+"""
+    cross_source_items = build_completion_candidates(
+        {library: library_source, report: report_source},
+        report,
+        "actor.cur",
+        10,
+        18,
+    )
+    assert cross_source_items[0].insert_text == "actor.current"
+
+
+def test_dynamic_authoring_index_tracks_process_and_scenario_symbols() -> None:
+    source = AuthoringSource(
+        "entries/dynamic.kirin",
+        "entries/dynamic.kirin",
+        """@kirin 2
+@entry dynamic
+
+process counter:
+  state value: count = 0
+  event input tick()
+  on tick():
+    next value = value + 1
+  observe current: count = value
+
+scenario trial:
+  phases:
+    - event
+  use actor = counter:
+  measure result: count = final(actor.current)
+  objective best:
+    maximize result
+  bounds:
+    horizon = 1 second
+    maximum_events = 2
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+
+analysis optimize_trial:
+  using = trial
+  operation = optimize
+  objectives:
+    - best
+""",
+    )
+    index = build_authoring_index([source])
+    by_kind = {item["kind"]: item for item in index["symbols"]}
+    assert by_kind["process_state"]["name"] == "value"
+    assert by_kind["process_event"]["name"] == "tick"
+    assert by_kind["process_observation"]["name"] == "current"
+    assert by_kind["scenario_instance"]["name"] == "actor"
+    assert by_kind["scenario_measure"]["name"] == "result"
+    assert by_kind["scenario_objective"]["name"] == "best"
+    references = {(item["text"], item["symbol_id"]) for item in index["references"]}
+    assert ("tick", by_kind["process_event"]["id"]) in references
+    assert ("value", by_kind["process_state"]["id"]) in references
+    assert ("actor.current", by_kind["process_observation"]["id"]) in references
+    assert ("result", by_kind["scenario_measure"]["id"]) in references
+    assert ("best", by_kind["scenario_objective"]["id"]) in references
+
+
+def test_contextual_completion_respects_event_directions_and_process_locals(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "entries" / "events.kirin"
+    source = """@kirin 2
+@entry events
+
+process machine:
+  input amount: count = 1
+  state total: count = 0
+  key timer_key
+  phase local_phase
+  event input inc(value: count)
+  event output changed(value: count, flag: boolean)
+  event internal wake()
+  action apply(value: count) when val
+  flow total(current, elapsed) = cur
+  on inc(value):
+    let local: count = value
+    when true:
+      let inner: count = local
+      next total = inn
+    emit cha
+    emit changed(value = loc, flag = true)
+    schedule wak
+    schedule wake() after tot
+    replace wake() after loc phase local_phase key timer_key
+    next total = loc
+    loc
+  on app
+  on inc(value) when val
+
+scenario demo:
+  phases:
+    - event
+  use actor = machine:
+    phase local_phase = event
+  connect actor.cha
+  connect actor.changed -> actor.inc
+  at 0 second phase event:
+    send actor.inc
+  action invoke:
+    send actor.app
+  decide after actor.cha
+  measure event_total: count = sum_events(actor.changed.value)
+  measure event_count: count = count_events(actor.changed)
+
+analysis view:
+  using = demo
+  operation = run
+  chart trace:
+    kind = trajectory
+    markers:
+      - event actor.cha
+"""
+    sources = {path: source}
+
+    def at(fragment: str) -> tuple[int, int]:
+        line_number, line_text = next(
+            (number, line)
+            for number, line in enumerate(source.splitlines(), 1)
+            if fragment in line
+        )
+        return line_number, len(line_text) + 1
+
+    def insertions(
+        prefix: str,
+        fragment: str,
+        *,
+        cursor_after: str | None = None,
+    ) -> set[str]:
+        line_number, column = at(fragment)
+        if cursor_after is not None:
+            line_text = source.splitlines()[line_number - 1]
+            column = line_text.index(cursor_after) + len(cursor_after) + 1
+        return {
+            item.insert_text
+            for item in build_completion_candidates(
+                sources, path, prefix, line_number, column
+            )
+        }
+
+    assert "changed($0)" in insertions("cha", "emit cha")
+    assert insertions("inc", "emit cha") == set()
+    assert "wake($0)" in insertions("wak", "schedule wak")
+    assert insertions("changed", "schedule wak") == set()
+    assert "total" in insertions("tot", "schedule wake() after tot")
+    assert "size($0)" in insertions("siz", "schedule wake() after tot")
+    assert "local" in insertions("loc", "schedule wake() after tot")
+    assert "local" in insertions(
+        "loc",
+        "emit changed(value = loc",
+        cursor_after="emit changed(value = loc",
+    )
+    assert "local" in insertions(
+        "loc",
+        "replace wake() after loc",
+        cursor_after="replace wake() after loc",
+    )
+    assert insertions("local", "    loc") == set()
+    assert "apply($0)" in insertions("app", "  on app")
+    assert insertions("changed", "  on app") == set()
+    assert "value" in insertions("val", "on inc(value) when val")
+    assert "event.id" in insertions("event.", "on inc(value) when val")
+
+    assert "value" in insertions("val", "next total = loc")
+    assert "local" in insertions("loc", "next total = loc")
+    assert "event.time" in insertions("event.", "next total = loc")
+    assert "inner" in insertions("inn", "next total = inn")
+    assert insertions("inner", "emit cha") == set()
+    assert "value" in insertions("val", "action apply")
+    assert "current" in insertions("cur", "flow total")
+
+    assert "actor.changed" in insertions("actor.cha", "connect actor.cha")
+    assert insertions("actor.inc", "connect actor.cha") == set()
+    assert "actor.inc" in insertions("actor.inc", "connect actor.changed -> actor.inc")
+    assert insertions("actor.changed", "connect actor.changed -> actor.inc") == set()
+    assert "actor.inc($0)" in insertions("actor.inc", "send actor.inc")
+    assert insertions("actor.apply", "send actor.inc") == set()
+    assert "actor.apply($0)" in insertions("actor.app", "send actor.app")
+    assert "actor.inc($0)" in insertions("actor.inc", "send actor.app")
+    assert "actor.changed" in insertions("actor.cha", "decide after actor.cha")
+    assert "actor.inc" in insertions("actor.inc", "decide after actor.cha")
+    assert insertions("actor.wake", "decide after actor.cha") == set()
+    measure_line, measure_text = next(
+        (number, line)
+        for number, line in enumerate(source.splitlines(), 1)
+        if "sum_events(actor.changed.value)" in line
+    )
+    measure_column = measure_text.index("actor.changed") + len("actor.cha") + 1
+    measure_items = {
+        item.insert_text
+        for item in build_completion_candidates(
+            sources, path, "actor.cha", measure_line, measure_column
+        )
+    }
+    assert "actor.changed.value" in measure_items
+    assert "actor.changed" not in measure_items
+    assert "actor.changed.flag" not in measure_items
+    count_line, count_text = next(
+        (number, line)
+        for number, line in enumerate(source.splitlines(), 1)
+        if "count_events(actor.changed)" in line
+    )
+    count_column = count_text.index("actor.changed") + len("actor.cha") + 1
+    count_items = {
+        item.insert_text
+        for item in build_completion_candidates(
+            sources, path, "actor.cha", count_line, count_column
+        )
+    }
+    assert "actor.changed" in count_items
+    assert "actor.changed.value" not in count_items
+    assert not any(item.startswith("actor.inc") for item in measure_items)
+    assert "actor.changed" in insertions("actor.cha", "- event actor.cha")
+    assert insertions("actor.wake", "- event actor.cha") == set()
+
+
+def test_multiline_expression_completion_preserves_expression_dialect(
+    tmp_path: Path,
+) -> None:
+    static_path = tmp_path / "entries" / "static.kirin"
+    static_source = """@kirin 2
+@entry static
+
+output total: dimensionless = max(
+  sq
+"""
+    static_items = build_completion_candidates(
+        {static_path: static_source}, static_path, "sq", 5, 5
+    )
+    assert static_items[0].insert_text == "sqrt($0)"
+    assert build_completion_candidates(
+        {static_path: static_source}, static_path, "sum", 5, 5
+    )[0].insert_text == "sum(expression, index, lower, $0)"
+
+    process_path = tmp_path / "entries" / "process.kirin"
+    process_source = """@kirin 2
+@entry process_model
+
+process machine:
+  state total: count = 0
+  observe current: count = max(
+    siz
+"""
+    process_items = build_completion_candidates(
+        {process_path: process_source}, process_path, "siz", 7, 8
+    )
+    assert process_items[0].insert_text == "size($0)"
+    assert build_completion_candidates(
+        {process_path: process_source}, process_path, "sum", 7, 8
+    )[0].insert_text == "sum($0)"
+
+    static_operator_source = """@kirin 2
+@entry static_operator
+
+output total: dimensionless = 1 +
+  sq
+"""
+    assert build_completion_candidates(
+        {static_path: static_operator_source}, static_path, "sq", 5, 5
+    )[0].insert_text == "sqrt($0)"
+
+    process_operator_source = """@kirin 2
+@entry process_operator
+
+process machine:
+  state total: count = 0
+  event input tick()
+  on tick():
+    next total = max(1, 2) +
+      siz
+"""
+    assert build_completion_candidates(
+        {process_path: process_operator_source}, process_path, "siz", 9, 10
+    )[0].insert_text == "size($0)"
+
+    indexed = build_authoring_index([
+        AuthoringSource(
+            "entries/overloads.kirin",
+            "entries/overloads.kirin",
+            """@kirin 2
+@entry overloads
+
+output static_total: dimensionless = sum(1, index, 0, 1)
+
+process machine:
+  state values: list[count, 2] = empty()
+  observe dynamic_total: count = sum(values)
+""",
+        )
+    ])
+    sum_references = {
+        reference["symbol_id"]
+        for reference in indexed["references"]
+        if reference["text"] == "sum"
+    }
+    assert sum_references == {"builtin:static:sum", "builtin:process:sum"}
+    sum_signatures = {
+        item["scope"]: item["signature"]
+        for item in indexed["builtins"]
+        if item["name"] == "sum"
+    }
+    assert sum_signatures == {
+        "static": "sum(expression, index, lower, …)",
+        "process": "sum(values)",
+    }
+
+
+def test_authoring_contract_matches_process_builtins_and_reference_catalog() -> None:
+    from kirin_tor.process_expression import _BUILTINS
+
+    contract = public_authoring_contract()
+    assert contract["version"] == 1
+    assert set(PROCESS_EXPRESSION_BUILTINS) == _BUILTINS
+    assert "^" not in contract["tokens"]["operators"]
+    assert "**" in contract["tokens"]["operators"]
+    assert "if" not in contract["tokens"]["keywords"]
+    assert "else" not in contract["tokens"]["keywords"]
+    assert "to" in contract["tokens"]["keywords"]
+    assert contract["tokens"]["directives"] == ["kirin", "entry", "game-version", "status"]
+    assert contract["tokens"]["literals"] == ["true", "false"]
+    assert contract["tokens"]["compound_keywords"] == ["one-of"]
+    assert contract["reference_identities"]["process_event"] == {
+        "topic": "process",
+        "symbol": "process-declarations",
+    }
+
+    catalog = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "frontend"
+            / "src"
+            / "syntax-reference-catalog.json"
+        ).read_text(encoding="utf-8")
+    )
+    process_expressions = next(
+        symbol
+        for group in catalog
+        for symbol in group["symbols"]
+        if symbol["id"] == "process-expressions"
+    )
+    visible = json.dumps(process_expressions, ensure_ascii=False)
+    assert all(name in visible for name in PROCESS_EXPRESSION_BUILTINS)

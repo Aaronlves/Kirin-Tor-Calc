@@ -117,7 +117,7 @@ function visibleSymbols(sectionId: string, query: string): SyntaxReferenceSymbol
   return matched.length > 0 ? matched : symbols;
 }
 
-export function SyntaxReference({ initialTopic = null }: { initialTopic?: string | null }) {
+export function SyntaxReference({ initialTopic = null, initialSymbol = null }: { initialTopic?: string | null; initialSymbol?: string | null }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(sections[0]?.id ?? "");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -127,13 +127,26 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
     [query],
   );
   const selected = filtered.find((section) => section.id === selectedId) ?? filtered[0] ?? null;
-  const selectedSymbols = selected ? visibleSymbols(selected.id, query.trim()) : [];
+  const selectedSymbols = useMemo(
+    () => selected ? visibleSymbols(selected.id, query.trim()) : [],
+    [query, selected],
+  );
 
   useEffect(() => {
     if (!initialTopic || !sections.some((section) => section.id === initialTopic)) return;
     setQuery("");
     setSelectedId(initialTopic);
   }, [initialTopic]);
+
+  useEffect(() => {
+    if (!initialSymbol || !selected || !selectedSymbols.some((symbol) => symbol.id === initialSymbol)) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`syntax-symbol-${initialSymbol}`);
+      target?.scrollIntoView({ block: "start" });
+      target?.focus({ preventScroll: true });
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [initialSymbol, selected, selectedSymbols]);
 
   const copyExample = async (section: SyntaxReferenceSection) => {
     setCopyFailed(false);
@@ -234,6 +247,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                         <section
                           key={symbol.id}
                           id={`syntax-symbol-${symbol.id}`}
+                          tabIndex={-1}
                           className="syntax-symbol"
                           aria-labelledby={`syntax-symbol-heading-${symbol.id}`}
                         >

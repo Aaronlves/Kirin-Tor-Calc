@@ -35,7 +35,7 @@ async function parseResponse(response: Response): Promise<Record<string, unknown
 export async function request<T>(
   path: string,
   payload?: Record<string, unknown>,
-  options: { allowErrorResult?: boolean } = {},
+  options: { allowErrorResult?: boolean; signal?: AbortSignal } = {},
 ): Promise<T> {
   if (!token) {
     throw new ApiError({ code: "missing_session", message: "缺少本地工作台会话令牌，请通过 kt web 重新打开。" }, "缺少会话令牌");
@@ -47,6 +47,7 @@ export async function request<T>(
       ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: payload === undefined ? undefined : JSON.stringify(payload),
+    signal: options.signal,
   });
   const result = await parseResponse(response);
   if (!response.ok || (!options.allowErrorResult && result.status === "error")) {

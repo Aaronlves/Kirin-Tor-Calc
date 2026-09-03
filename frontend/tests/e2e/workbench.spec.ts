@@ -202,7 +202,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
-    await expect(reference).toContainText("34 个官方语法项集中");
+    await expect(reference).toContainText("35 个官方语法项集中");
     await expect(reference.getByText("11 个匹配主题", { exact: true })).toBeVisible();
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("Agent");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
@@ -540,7 +540,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.type("unknown：");
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
-    await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" }).getByRole("heading", { name: "文档、注释与说明" })).toBeVisible();
+    const syntaxReference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    await expect(syntaxReference.getByRole("heading", { name: "图表投影与导出" })).toBeVisible();
+    await expect(syntaxReference.getByRole("region", { name: "chart" })).toBeFocused();
   });
 
   test("文档复制明确生成未保存源码草稿", async ({ page }) => {
@@ -646,7 +648,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press("Enter");
     await editor.type("条件筛选最小值");
     await editor.press("Control+Space");
-    await expect(page.getByRole("option", { name: "条件筛选最小值轨迹 Measure · minimum_where", exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "条件筛选最小值轨迹 Measure · minimum_where", exact: true })).toHaveCount(0);
     await editor.press("Escape");
 
     await editor.press("Enter");
@@ -683,6 +685,36 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
     await expect(page.getByRole("dialog", { name: "Kirin Tor 语法参考" }).getByRole("heading", { name: "有界 Process、场景与策略分析" })).toBeVisible();
+  });
+
+  test("上下文补全、自动缩进、行注释与精确参考入口共享 authoring contract", async ({ page }) => {
+    await openWorkbench(page);
+    await page.getByRole("button", { name: rotationButtonName }).click();
+    const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：过程周期证明（虚构）" });
+    await editor.press(`${modKey}+Home`);
+    await editor.press("ArrowDown");
+    await editor.press("End");
+    await editor.press("Enter");
+    await editor.press("Enter");
+    await editor.type("process scratch:");
+    await editor.press("Enter");
+    await editor.type("sta");
+    expect(await page.locator(".cm-activeLine").textContent()).toBe("  sta");
+    await editor.press("Control+Space");
+    const stateCompletion = page.getByRole("option", { name: "Process 状态片段 · state", exact: true });
+    await expect(stateCompletion).toBeVisible();
+    await stateCompletion.hover();
+    await page.locator(".kirin-completion-info").getByRole("button", { name: "查看相关语法" }).click();
+    const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    await expect(reference.locator("#syntax-symbol-process-declarations")).toBeFocused();
+    await reference.getByRole("button", { name: "关闭工作区工具" }).click();
+
+    await editor.press("Control+Space");
+    await stateCompletion.click();
+    await editor.press(`${modKey}+/`);
+    await expect(page.locator(".cm-activeLine")).toContainText("// state name");
+    await editor.press("Control+Space");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
   });
 
   test("光标、活动行和文本选择具有可见且可读的交互状态", async ({ page }) => {
@@ -809,6 +841,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press("ArrowRight");
     await editor.press("ArrowRight");
     await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 1");
+    await editor.press(`${modKey}+End`);
+    await editor.type("\noutput nested: damage = 技能甲(\n  max(1, 2),\n  ");
+    await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 2");
+    await editor.type("// 注释里的逗号, 不计入参数\n  ");
+    await expect(page.locator(".editor-signature-hint")).toContainText("function expected(c: probability): damage · 参数 2");
     await expect(page.locator(".cm-foldGutter")).toBeVisible();
   });
 
@@ -1016,7 +1053,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await page.locator(".cm-line").last().click();
     await editor.press("End");
-    await editor.type("unknown：");
+    await editor.type('unknown："说明（临时）"');
     await expect(page.getByRole("tab", { name: /诊断 1/ })).toBeVisible();
     await page.getByRole("button", { name: "技能 A（虚构） entries/技能甲.kirin", exact: true }).click();
     await page.getByRole("tab", { name: "诊断", exact: true }).click();
@@ -1024,7 +1061,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByText("其他文档仍有 1 个问题", { exact: false })).toBeVisible();
     await page.locator(".diagnostic-scope-toolbar .mantine-SegmentedControl-label").filter({ hasText: "整个工作区 1" }).click();
     await page.getByRole("button", { name: "修复全角符号" }).click();
-    await expect(page.locator(".cm-activeLine")).toContainText("unknown:");
+    await expect(page.locator(".cm-activeLine")).toContainText('unknown:"说明（临时）"');
   });
 
   test("外部写入自动重载干净文档并发现新文档", async ({ page }) => {

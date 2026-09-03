@@ -32,6 +32,7 @@ from .authoring import (
     format_kirin_source,
     rename_authoring_symbol,
 )
+from .authoring_contract import public_authoring_contract
 from .community_discovery import discover_community
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
@@ -519,6 +520,7 @@ class Workbench:
                 "validation": validation,
                 "index": index,
                 "authoring": validation.get("authoring", {"symbols": [], "references": [], "builtins": []}),
+                "authoring_contract": public_authoring_contract(),
                 "recovery": self._read_recovery(),
             }
 
@@ -876,7 +878,14 @@ class Workbench:
 
             raise ParameterError(f"unknown document action: {action}")
 
-    def completions(self, key: str, prefix: str, overlays: Optional[Mapping[str, object]] = None) -> dict:
+    def completions(
+        self,
+        key: str,
+        prefix: str,
+        line: int,
+        column: int,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
         with self._lock:
             path = self._local_path(key, new=True)
             parsed = self._overlays(overlays)
@@ -891,7 +900,12 @@ class Workbench:
             sources.update(parsed)
             return {
                 "status": "ok",
-                "items": [item.__dict__ for item in build_completion_candidates(sources, path, prefix)],
+                "items": [
+                    item.__dict__
+                    for item in build_completion_candidates(
+                        sources, path, prefix, line=line, column=column
+                    )
+                ],
             }
 
     def authoring_action(

@@ -105,6 +105,7 @@ def test_bundled_syntax_reference_catalog_is_complete_and_structured() -> None:
         "type",
         "object",
         "process-types",
+        "process-expressions",
         "process-declarations",
         "process-effects",
         "scenario",

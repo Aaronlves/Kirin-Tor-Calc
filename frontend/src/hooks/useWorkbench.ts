@@ -7,6 +7,7 @@ import type {
   AsyncState,
   BootstrapPayload,
   CompletionItem,
+  CompletionRequest,
   DocumentItem,
   DocumentPayload,
   DocumentProjection,
@@ -77,6 +78,7 @@ export function useWorkbench() {
   const recoveryHydrated = useRef(false);
   const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
+  const validationPending = useRef(false);
   const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
   const recoveryWriteChain = useRef<Promise<void>>(Promise.resolve());
   const switchingWorkspaceRef = useRef(false);
@@ -387,10 +389,21 @@ export function useWorkbench() {
   useEffect(() => {
     if (!bootstrapReady) return;
     const timer = window.setTimeout(() => {
-      if (asyncStateRef.current === "idle") void validate(false);
+      if (asyncStateRef.current === "idle") {
+        validationPending.current = false;
+        void validate(false);
+      } else {
+        validationPending.current = true;
+      }
     }, 450);
     return () => window.clearTimeout(timer);
   }, [bootstrapReady, dirtySignature, validate]);
+
+  useEffect(() => {
+    if (!bootstrapReady || asyncState !== "idle" || !validationPending.current) return;
+    validationPending.current = false;
+    void validate(false);
+  }, [asyncState, bootstrapReady, validate]);
 
   const updateBuffer = useCallback((key: string, text: string) => {
     setBuffers((current) => current[key] === text ? current : { ...current, [key]: text });
@@ -742,12 +755,12 @@ export function useWorkbench() {
     return result;
   }, [createSourceDraft, dirtyOverlays, refresh]);
 
-  const completions = useCallback(async (key: string, prefix: string) => {
+  const completions = useCallback(async (key: string, completion: CompletionRequest, signal?: AbortSignal) => {
     const result = await request<{ items: CompletionItem[] }>("/api/completions", {
       key,
-      prefix,
+      ...completion,
       overlays: dirtyOverlays,
-    });
+    }, { signal });
     return result.items;
   }, [dirtyOverlays]);
 

@@ -30,6 +30,7 @@ FULL_WIDTH_PUNCTUATION = {
     "（": "(",
     "）": ")",
     "＝": "=",
+    "％": "%",
     "“": '"',
     "”": '"',
     "。": ".",
@@ -154,9 +155,42 @@ def _punctuation_suggestion(line: Optional[str]) -> Optional[str]:
     if line is None:
         return None
     replacements = []
-    for source, target in FULL_WIDTH_PUNCTUATION.items():
-        if source in line and (source, target) not in replacements:
-            replacements.append((source, target))
+    quoted = False
+    curly_quoted = False
+    escaped = False
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if curly_quoted:
+            if character == "”":
+                replacements.append((character, '"'))
+                curly_quoted = False
+            index += 1
+            continue
+        if quoted:
+            if character == '"' and not escaped:
+                quoted = False
+            escaped = character == "\\" and not escaped
+            if character != "\\":
+                escaped = False
+            index += 1
+            continue
+        if line.startswith("//", index):
+            break
+        if character == '"':
+            quoted = True
+            index += 1
+            continue
+        if character == "“":
+            replacements.append((character, '"'))
+            curly_quoted = True
+            index += 1
+            continue
+        target = FULL_WIDTH_PUNCTUATION.get(character)
+        if target is not None:
+            replacements.append((character, target))
+        index += 1
+    replacements = list(dict.fromkeys(replacements))
     if not replacements:
         return None
     rendered = "、".join(f"`{source}` → `{target}`" for source, target in replacements)

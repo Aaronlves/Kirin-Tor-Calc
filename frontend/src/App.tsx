@@ -39,6 +39,7 @@ export function App() {
   const [workspaceTool, setWorkspaceTool] = useState<WorkspaceTool | null>(null);
   const [workspaceToolParent, setWorkspaceToolParent] = useState<WorkspaceTool | null>(null);
   const [syntaxTopic, setSyntaxTopic] = useState<string | null>(null);
+  const [syntaxSymbol, setSyntaxSymbol] = useState<string | null>(null);
   const [compactNavigation, setCompactNavigation] = useState(() => {
     const stored = localStorage.getItem("kirin:compact-navigation");
     return stored === null ? window.matchMedia(`(max-width: ${tokens.size.scale["1320"]})`).matches : stored === "true";
@@ -114,8 +115,9 @@ export function App() {
 
   useEffect(() => {
     const openSyntaxReference = (event: Event) => {
-      const detail = (event as CustomEvent<{ topic?: string }>).detail;
+      const detail = (event as CustomEvent<{ topic?: string; symbol?: string }>).detail;
       setSyntaxTopic(detail?.topic ?? null);
+      setSyntaxSymbol(detail?.symbol ?? null);
       setWorkspaceToolParent(null);
       setWorkspaceTool("syntax");
     };
@@ -246,7 +248,7 @@ export function App() {
             {workspaceTool === "runs" && <RunsView controller={controller} />}
             {workspaceTool === "packages" && <PackagesView controller={controller} />}
             {workspaceTool === "plugins" && <PluginsView controller={controller} />}
-            {workspaceTool === "syntax" && <SyntaxReference initialTopic={syntaxTopic} />}
+            {workspaceTool === "syntax" && <SyntaxReference initialTopic={syntaxTopic} initialSymbol={syntaxSymbol} />}
             {workspaceTool === "search" && <WorkspaceSearch controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} onReviewChanges={() => openWorkspaceTool("changes", "search")} />}
             {workspaceTool === "changes" && <ChangeReview controller={controller} onNavigate={(path, line, column) => { void navigateToSource(path, line, column); }} />}
             {workspaceTool === "settings" && <WorkspaceSettings

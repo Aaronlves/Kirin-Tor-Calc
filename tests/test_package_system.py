@@ -227,16 +227,28 @@ output result: dimensionless = 1
 
     workbench = Workbench(workspace)
     probability = workbench.completions(
-        "entries/local.kirin", "Package probability"
+        "entries/local.kirin", "Package probability", 4, 16
     )["items"][0]
     assert probability["insert_text"] == "community_example_probability"
     assert probability["kind"] == "domain"
 
-    profile = workbench.completions("entries/local.kirin", "Package profile")["items"][0]
+    profile = workbench.completions("entries/local.kirin", "Package profile", 4, 16)["items"][0]
     assert profile["insert_text"] == "community_example_value.profile"
     assert profile["kind"] == "type"
 
-    amount = workbench.completions("entries/local.kirin", "Package amount")["items"][0]
+    object_draft = """@kirin 2
+@entry local
+
+community_example_value.profile draft:
+  am
+"""
+    amount = workbench.completions(
+        "entries/local.kirin",
+        "Package amount",
+        5,
+        5,
+        {"entries/local.kirin": object_draft},
+    )["items"][0]
     assert amount["insert_text"] == "amount"
     assert amount["kind"] == "type_field"
     assert amount["detail"] == (

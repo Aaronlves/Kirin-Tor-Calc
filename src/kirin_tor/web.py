@@ -498,8 +498,23 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                         str(payload.get("key", "")), overlays
                     )
                 elif parsed.path == "/api/completions":
+                    completion_line = payload.get("line")
+                    completion_column = payload.get("column")
+                    if (
+                        not isinstance(completion_line, int)
+                        or isinstance(completion_line, bool)
+                        or completion_line < 1
+                        or not isinstance(completion_column, int)
+                        or isinstance(completion_column, bool)
+                        or completion_column < 1
+                    ):
+                        raise ParameterError("completion line and column must be positive integers")
                     result = self.server.workbench.completions(
-                        str(payload.get("key", "")), str(payload.get("prefix", "")), overlays
+                        str(payload.get("key", "")),
+                        str(payload.get("prefix", "")),
+                        completion_line,
+                        completion_column,
+                        overlays,
                     )
                 elif parsed.path == "/api/authoring":
                     result = self.server.workbench.authoring_action(

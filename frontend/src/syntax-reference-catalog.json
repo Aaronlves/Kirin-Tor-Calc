@@ -395,6 +395,23 @@
         ]
       },
       {
+        "id": "process-expressions",
+        "name": "Process 表达式",
+        "kind": "动态表达式",
+        "signature": "abs(value) · sqrt(value) · floor(value) · ceil(value)\nmin(value, ...) · max(value, ...) · sum(values) · all(values) · any(values)\nsize(collection) · contains(collection, value) · empty()\nget(collection, key) · put(map, key, value) · remove(map, key)\nfilter(collection, mask) · argmin(values) · argmax(values)\nif_else(condition, when_true, when_false)\nelapsed · event_count · decision_count · horizon",
+        "summary": "列出 Process、Scenario 与 Measure 中封闭、纯函数、受容量约束的表达式操作和运行时符号。",
+        "context": "Process 默认值、guard、flow、effect；Scenario 条件；Measure 参数",
+        "fields": [
+          { "name": "数值函数", "requirement": "按签名", "value": "abs / sqrt / floor / ceil / min / max / sum", "default": "—", "description": "要求兼容的数值类型和量纲；集合操作仍受声明容量约束。" },
+          { "name": "布尔聚合", "requirement": "按签名", "value": "all / any", "default": "—", "description": "只接受布尔集合并返回 boolean。" },
+          { "name": "集合查询", "requirement": "按签名", "value": "size / contains / empty / get", "default": "—", "description": "empty() 依赖声明的结果类型；访问不存在的 map key 会显式失败，不返回隐式默认值。" },
+          { "name": "持久集合更新", "requirement": "按签名", "value": "put / remove / filter", "default": "—", "description": "返回新集合，不允许原地 mutation；容量越界会失败。" },
+          { "name": "有限极值", "requirement": "按签名", "value": "argmin / argmax", "default": "—", "description": "空集合显式失败；并列时按稳定 key 确定结果。" },
+          { "name": "if_else", "requirement": "3 个参数", "value": "boolean、同类型 true/false 分支", "default": "—", "description": "不支持 Python 的 if/else 表达式语法。" },
+          { "name": "运行时符号", "requirement": "Measure 中可用", "value": "elapsed / event_count / decision_count / horizon", "default": "—", "description": "分别表示采样时间、累计事件数、累计决策数和 Scenario 时间上限。" }
+        ]
+      },
+      {
         "id": "process-declarations",
         "name": "process",
         "kind": "动态模型",

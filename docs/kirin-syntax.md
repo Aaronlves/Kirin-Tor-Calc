@@ -365,28 +365,39 @@ configured SVG/CSV explicitly; preview data itself never becomes editable author
 
 ## Authoring boundary
 
-The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
-multi-level paths, navigation, safe rename for scalar declarations, diagnostics, and live scalar,
-chart and Process Analysis previews. Completion searches source-authored labels as well as stable
-IDs for scalar members, dimensions, domains, structure types, and type fields in both local and
-locked Package sources. A type-field candidate inserts its short field ID for use inside an object
-body, while its detail names the owning type and declared field type. Unit declarations currently
-have no label syntax and therefore remain discoverable by stable unit ID.
-Process/Scenario/Analysis have insertion snippets,
-top-level outline identities, contextual syntax help, variant/objective result tables, proof badges,
-interactive multi-chart selection, and explicit export-all. These authoring projections do not
-extend the grammar or make invalid source executable.
+The browser editor provides v2 snippets, contract-driven syntax highlighting, cursor-contextual
+completion, navigation, safe rename for scalar declarations, diagnostics, and live scalar, chart
+and Process Analysis previews. Completion searches source-authored labels as well as stable IDs for
+scalar members, dimensions, units, domains, structure types, and type fields in both local and
+locked Package sources, but returns only candidates legal for the current structural or expression
+context. Comments, quoted labels, and prose fences never receive source completions. A type-field
+candidate inserts its short field ID inside an object body, while its detail names the owning type
+and declared field type.
+
+Process/Scenario/Analysis snippets cover their declarations, nested effects, bindings, policies,
+decisions, measures, objectives, search settings, and chart fields. Their nested state, event,
+action, observation, instance, Measure, Objective, Policy, Variant, and Analysis Chart identities
+participate in the tolerant outline, hover, references, and source navigation. Instance-qualified
+observation and event paths resolve back to the Process declaration. Event completion preserves the
+input/output/internal direction rules and inserts a call only where the grammar requires one;
+Process action/handler/flow parameters, handler event context, and in-scope `let` values are offered
+as locals. These authoring projections do not extend the grammar or make invalid source executable.
 
 The Workbench has one bundled Syntax Reference center. It combines topic guidance and validated
 examples with a structured catalog of the current public declarations, signatures, legal context,
 required and optional fields, allowed values, defaults, and important limits. Editor and diagnostic
-links open that same center; the catalog documents the parser contract but does not replace
-validation or become another writable source model.
+links open that same center and focus the exact official item when one is known. The catalog includes
+the closed Process expression functions and runtime Measure symbols; it documents the parser
+contract but does not replace validation or become another writable source model.
 
-Highlighting follows the current v2 declaration and nested Process/Scenario/Analysis vocabulary.
-Prose fence contents remain opaque author text. Completion and diagnostic help choose a topic from
-the concrete inserted or failing construct before falling back to its broad symbol kind. Unknown
-top-level declarations receive the ordinary v2 syntax diagnostic and no separate compatibility path.
+One versioned authoring contract supplies highlighting, indentation, completion vocabulary,
+Process-expression signatures, runtime Measure symbols, and reference identities. Prose fence
+contents remain opaque author text; `//` is registered as the editor line-comment form; a newline
+after a block header receives the canonical two-space child indentation. Completion and diagnostic
+help choose the concrete inserted or failing construct before falling back to its broad symbol kind;
+an unmatched expression delimiter or trailing operator carries the correct static or Process dialect
+onto continuation lines.
+Unknown top-level declarations receive the ordinary v2 syntax diagnostic and no compatibility path.
 
 A local Agent or another text editor may write the same `entries/**/*.kirin` files without an
 Agent-specific extension to Kirin Tor syntax or the Kirin Tor CLI. While the workbench page is

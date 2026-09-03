@@ -63,7 +63,8 @@ import { CodeEditor, type CodeEditorHandle, type EditorCursorContext } from "../
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentRelationshipPreview } from "../components/DocumentRelationshipPreview";
 import { EmptyState, LoadingState, TechnicalResult } from "../components/ui";
-import { openSyntaxReference, syntaxTopicForDiagnostic } from "../syntaxHelp";
+import { openSyntaxReference, syntaxSymbolForDiagnostic, syntaxTopicForDiagnostic } from "../syntaxHelp";
+import { fullWidthSyntaxReplacements, replaceFullWidthSyntax } from "../editorSupport";
 
 interface DocumentsViewProps {
   controller: WorkbenchController;
@@ -136,8 +137,6 @@ function isSafeDocumentPath(value: string): boolean {
   const segments = value.split("/");
   return segments.length >= 2 && segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
-
-const fullWidthSyntax: Record<string, string> = { "：": ":", "，": ",", "（": "(", "）": ")", "＝": "=", "％": "%" };
 
 export function DocumentsView({ controller, focusMode, onFocusModeChange }: DocumentsViewProps) {
   const [filter, setFilter] = useState("");
@@ -407,7 +406,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     const source = controller.buffers[document.key] ?? opened?.text ?? "";
     const lines = source.split("\n");
     const lineIndex = Math.max(0, Math.min(lines.length - 1, (item.location?.line ?? 1) - 1));
-    const fixed = Array.from(lines[lineIndex]).map((character) => fullWidthSyntax[character] ?? character).join("");
+    const fixed = replaceFullWidthSyntax(lines[lineIndex]);
     if (fixed === lines[lineIndex]) return;
     lines[lineIndex] = fixed;
     controller.updateBuffer(document.key, lines.join("\n"));
@@ -866,8 +865,9 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                   readOnly={current.read_only}
                   diagnostics={currentDiagnostics}
                   authoring={controller.authoringIndex}
+                  authoringContract={controller.bootstrapData!.authoring_contract}
                   onChange={(text) => controller.updateBuffer(current.key, text)}
-                  onComplete={(prefix) => controller.completions(current.key, prefix)}
+                  onComplete={(request, signal) => controller.completions(current.key, request, signal)}
                   onSave={() => { void controller.saveAll(); }}
                   onNavigate={navigateToLocation}
                   onShowReferences={setReferenceTarget}
@@ -973,8 +973,9 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                       const path = diagnosticPath(item, controller.bootstrapData?.workspace);
                       const diagnosticKey = controller.documents.find((document) => document.path === path || path.endsWith(document.path))?.key ?? "";
                       const diagnosticLine = (controller.buffers[diagnosticKey] ?? "").split("\n")[(item.location?.line ?? 1) - 1] ?? "";
-                      const canFix = item.location?.line && Object.keys(fullWidthSyntax).some((character) => diagnosticLine.includes(character));
+                      const canFix = Boolean(item.location?.line && fullWidthSyntaxReplacements(diagnosticLine).length);
                       const syntaxTopic = syntaxTopicForDiagnostic(item, diagnosticLine);
+                      const syntaxSymbol = syntaxSymbolForDiagnostic(item, diagnosticLine);
                       return (
                         <div className="diagnostic-row-wrap" key={`${path}-${item.location?.line}-${index}`}>
                           <button className="diagnostic-row" type="button" onClick={() => { void openDiagnostic(item); }}>
@@ -985,7 +986,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                             </span>
                           </button>
                           {canFix && <Button variant="subtle" color="gray" size="compact-xs" onClick={() => { void fixDiagnostic(item); }}>修复全角符号</Button>}
-                          <Button variant="subtle" color="gray" size="compact-xs" onClick={() => openSyntaxReference(syntaxTopic)}>查看相关语法</Button>
+                          <Button variant="subtle" color="gray" size="compact-xs" onClick={() => openSyntaxReference(syntaxTopic, syntaxSymbol ?? undefined)}>查看相关语法</Button>
                         </div>
                       );
                     })}

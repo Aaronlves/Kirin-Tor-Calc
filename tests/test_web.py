@@ -92,6 +92,28 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
             "scan-chart",
         ]
         assert all(item["source"].startswith("@kirin 2") for item in result["tutorials"])
+        assert result["authoring_contract"]["version"] == 1
+        assert "**" in result["authoring_contract"]["tokens"]["operators"]
+        assert "^" not in result["authoring_contract"]["tokens"]["operators"]
+
+        completion = decoded(running.request(
+            "/api/completions",
+            {
+                "key": "entries/组合模型.kirin",
+                "prefix": "平方根",
+                "line": 20,
+                "column": 40,
+                "explicit": True,
+                "overlays": {},
+            },
+        )[2])
+        assert completion["status"] == "ok"
+        with pytest.raises(urllib.error.HTTPError) as invalid_completion:
+            running.request(
+                "/api/completions",
+                {"key": "entries/组合模型.kirin", "prefix": "x", "line": 0, "column": 1},
+            )
+        assert invalid_completion.value.code == 400
 
         status, _headers, body = running.request("/api/workspace/state")
         workspace_state = decoded(body)

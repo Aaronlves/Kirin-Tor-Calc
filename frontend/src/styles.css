@@ -183,7 +183,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .kirin-hover-card, .kirin-completion-info { display: grid; min-width: var(--kt-sz-220); max-width: var(--kt-sz-420); gap: calc(var(--kt-sp-1) + var(--kt-sp-hairline)); padding: calc(var(--kt-sp-2) + var(--kt-sp-hairline)) var(--kt-sp-dense); }
 .kirin-hover-card strong { color: var(--kt-c-t-primary); font-size: var(--kt-t-s-body); }
 .kirin-hover-card small { color: var(--kt-c-t-muted); font-size: var(--kt-t-s-meta); }
-.kirin-hover-card code { padding: calc(var(--kt-sp-1) + var(--kt-sp-hairline)) var(--kt-sp-compact); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-editor); color: var(--kt-c-t-code-muted); font-size: var(--kt-t-s-meta); overflow-wrap: anywhere; white-space: pre-wrap; }
+.kirin-hover-card code, .kirin-completion-info code { padding: calc(var(--kt-sp-1) + var(--kt-sp-hairline)) var(--kt-sp-compact); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-editor); color: var(--kt-c-t-code-muted); font-size: var(--kt-t-s-meta); overflow-wrap: anywhere; white-space: pre-wrap; }
 .kirin-hover-card button { justify-self: start; padding: calc(var(--kt-sp-hairline) + var(--kt-sp-half)) 0; border: 0; background: transparent; color: var(--kt-c-a-base); cursor: pointer; font-size: var(--kt-t-s-meta); }
 .kirin-completion-info span { color: var(--kt-c-t-subtle); font-size: var(--kt-t-s-meta); }
 .kirin-completion-info button { justify-self: start; padding: calc(var(--kt-sp-hairline) + var(--kt-sp-half)) 0; border: 0; background: transparent; color: var(--kt-c-a-base); cursor: pointer; font-size: var(--kt-t-s-meta); }

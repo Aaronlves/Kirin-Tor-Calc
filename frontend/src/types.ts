@@ -190,6 +190,38 @@ export interface CompletionItem {
   insert_text: string;
   kind?: string;
   priority?: number;
+  contexts?: string[];
+  reference_topic?: string | null;
+  reference_symbol?: string | null;
+  signature?: string | null;
+}
+
+export interface CompletionRequest {
+  prefix: string;
+  line: number;
+  column: number;
+  explicit: boolean;
+}
+
+export interface AuthoringContract {
+  version: number;
+  indent_width: number;
+  line_comment: string;
+  prose_fence_pattern: string;
+  close_brackets: string[];
+  tokens: {
+    directives: string[];
+    top_level_declarations: string[];
+    nested_sections: string[];
+    keywords: string[];
+    types: string[];
+    literals: string[];
+    compound_keywords: string[];
+    operators: string[];
+  };
+  reference_identities: Record<string, { topic: string; symbol: string }>;
+  process_expression_builtins: Array<{ name: string; signature: string }>;
+  runtime_measure_symbols: Array<{ name: string; description: string }>;
 }
 
 export interface AuthoringLocation {
@@ -207,8 +239,11 @@ export interface AuthoringSymbol {
   label: string;
   kind: string;
   entry_id?: string;
+  container_id?: string;
   detail: string;
   signature?: string;
+  event_direction?: "input" | "output" | "internal" | null;
+  event_parameters?: Array<{ name: string; type: string }>;
   unit?: string | null;
   parameters?: string[];
   target?: string;
@@ -228,10 +263,13 @@ export interface AuthoringReference {
 export interface AuthoringBuiltin {
   id: string;
   name: string;
+  scope?: "static" | "process" | "measure" | "runtime";
   label: string;
   kind: string;
   detail: string;
   signature?: string;
+  reference_topic?: string | null;
+  reference_symbol?: string | null;
 }
 
 export interface AuthoringIndex {
@@ -260,6 +298,8 @@ export interface RecoveryPayload {
 
 export interface DiagnosticLocation {
   path?: string;
+  entry_id?: string;
+  field?: string;
   line?: number;
   column?: number;
 }
@@ -402,6 +442,7 @@ export interface BootstrapPayload {
   validation: ValidationResult;
   index: WorkspaceIndex;
   authoring: AuthoringIndex;
+  authoring_contract: AuthoringContract;
   recovery: RecoveryPayload;
 }
 

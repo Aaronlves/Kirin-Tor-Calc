@@ -1,4 +1,4 @@
-import type { DiagnosticItem } from "./types";
+import type { AuthoringContract, DiagnosticItem } from "./types";
 
 const sectionTopics: Record<string, string> = {
   phases: "process",
@@ -12,34 +12,14 @@ const sectionTopics: Record<string, string> = {
   y: "charts",
 };
 
-const kindTopics: Record<string, string> = {
-  entry: "document",
-  alias: "aliases",
-  source: "aliases",
-  input: "members",
-  field: "members",
-  function: "members",
-  output: "members",
-  preset: "presets",
-  table: "tables",
-  distribution: "distributions",
-  type: "structures",
-  type_field: "structures",
-  object: "structures",
-  object_field: "structures",
-  process: "process",
-  scenario: "process",
-  analysis: "process",
-  measure: "process",
-  dimension: "semantics",
-  unit: "semantics",
-  domain: "semantics",
-  chart: "charts",
-};
-
-export function syntaxTopicForKind(kind?: string): string | null {
+export function syntaxTopicForKind(contract: AuthoringContract, kind?: string): string | null {
   if (!kind) return null;
-  return kindTopics[kind] ?? (kind === "keyword" ? "document" : null);
+  return contract.reference_identities[kind]?.topic ?? null;
+}
+
+export function syntaxSymbolForKind(contract: AuthoringContract, kind?: string): string | null {
+  if (!kind) return null;
+  return contract.reference_identities[kind]?.symbol ?? null;
 }
 
 export function syntaxTopicForLine(line: string): string | null {
@@ -57,7 +37,59 @@ export function syntaxTopicForLine(line: string): string | null {
   return null;
 }
 
+export function syntaxSymbolForLine(line: string): string | null {
+  const trimmed = line.trim();
+  if (/^@(kirin|entry)\b/.test(trimmed)) return "document-header";
+  if (/^@(game-version|status)\b/.test(trimmed)) return "metadata-directives";
+  if (/^-{3,}$/.test(trimmed) || trimmed.startsWith("//")) return "comments-and-prose";
+  for (const [pattern, symbol] of [
+    [/^input\b/, "input"], [/^field\b/, "field"], [/^function\b/, "function"],
+    [/^output\b/, "output"], [/^require\b/, "require"], [/^alias\b/, "alias"],
+    [/^source\b/, "source"], [/^display\b/, "display"], [/^group\b/, "group"],
+    [/^preset\b/, "preset"], [/^table\b/, "table"], [/^distribution\b/, "distribution"],
+    [/^dimension\b/, "dimension"], [/^unit\b/, "unit"], [/^domain\b/, "numeric-domain"],
+    [/^type\b/, "type"],
+    [/^(let|next|emit|schedule|replace|cancel|when|branch|probability)\b/, "process-effects"],
+    [/^(process|state|key|phase|event|flow|on|observe)\b/, "process-declarations"],
+    [/^(policy|choose|otherwise|decide|sequence)\b/, "scenario-policies-decisions"],
+    [/^(measure|objective|maximize|minimize|then)\b/, "scenario-measures-objectives"],
+    [/^(scenario|phases|use|variant|connect|at|every|send|stop|bounds)\b/, "scenario"],
+    [/^(analysis|using|operation|policies|objectives|variants|target|search|method|time_tolerance|maximum_evaluations)\b/, "analysis"],
+    [/^chart\b/, "static-chart"],
+  ] as Array<[RegExp, string]>) {
+    if (pattern.test(trimmed)) return symbol;
+  }
+  if (/\b(size|contains|empty|get|put|remove|filter|argmin|argmax|elapsed|event_count|decision_count|horizon)\b/.test(trimmed)) return "process-expressions";
+  if (/\b(if_else|piecewise|abs|min|max|sqrt|floor|ceil|sum|product)\b/.test(trimmed)) return "scalar-expression";
+  return null;
+}
+
+function syntaxLocationForDiagnostic(item: DiagnosticItem): { topic: string; symbol: string } | null {
+  const field = item.location?.field?.toLocaleLowerCase() ?? "";
+  if (/^processes(?:\.|$)/.test(field)) {
+    return { topic: "process", symbol: field.includes(".effects") ? "process-effects" : "process-declarations" };
+  }
+  if (/^scenarios(?:\.|$)/.test(field)) {
+    if (field.includes(".policies") || field.includes(".decisions")) {
+      return { topic: "process", symbol: "scenario-policies-decisions" };
+    }
+    if (field.includes(".measures") || field.includes(".objectives")) {
+      return { topic: "process", symbol: "scenario-measures-objectives" };
+    }
+    return { topic: "process", symbol: "scenario" };
+  }
+  if (/^analyses(?:\.|$)/.test(field)) {
+    return { topic: "process", symbol: field.includes(".charts") ? "analysis-chart" : "analysis" };
+  }
+  if (/^charts(?:\.|$)/.test(field)) return { topic: "charts", symbol: "static-chart" };
+  if (/^types(?:\.|$)/.test(field)) return { topic: "structures", symbol: "type" };
+  if (/^objects(?:\.|$)/.test(field)) return { topic: "structures", symbol: "object" };
+  return null;
+}
+
 export function syntaxTopicForDiagnostic(item: DiagnosticItem, line = ""): string {
+  const located = syntaxLocationForDiagnostic(item);
+  if (located) return located.topic;
   const direct = syntaxTopicForLine(line);
   if (direct) return direct;
   const message = `${item.code ?? ""} ${item.author_message ?? ""} ${item.message ?? ""}`.toLocaleLowerCase();
@@ -74,6 +106,20 @@ export function syntaxTopicForDiagnostic(item: DiagnosticItem, line = ""): strin
   return "document";
 }
 
-export function openSyntaxReference(topic: string): void {
-  window.dispatchEvent(new CustomEvent("kirin:open-syntax-reference", { detail: { topic } }));
+export function syntaxSymbolForDiagnostic(item: DiagnosticItem, line = ""): string | null {
+  const located = syntaxLocationForDiagnostic(item);
+  if (located) return located.symbol;
+  const direct = syntaxSymbolForLine(line);
+  if (direct) return direct;
+  const message = `${item.author_message ?? ""} ${item.message ?? ""}`.toLocaleLowerCase();
+  if (message.includes("analysis chart")) return "analysis-chart";
+  if (message.includes("process effect")) return "process-effects";
+  if (message.includes("process")) return "process-declarations";
+  if (message.includes("scenario")) return "scenario";
+  if (message.includes("expression") || message.includes("公式")) return "scalar-expression";
+  return null;
+}
+
+export function openSyntaxReference(topic: string, symbol?: string): void {
+  window.dispatchEvent(new CustomEvent("kirin:open-syntax-reference", { detail: { topic, symbol } }));
 }

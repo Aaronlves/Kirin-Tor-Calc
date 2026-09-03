@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Replaced the prefix-only editor-assistance path with one versioned authoring contract and
+  cursor-contextual completion; added complete Process expression/runtime reference entries,
+  dynamic Process/Scenario/Analysis symbols and direction-aware instance paths, Process locals,
+  multiline expression completion and nested signature tracking, block indentation, line comments,
+  exact reference deep links, token-sized diagnostics,
+  quote/comment-safe punctuation fixes, aborted-request handling, and guaranteed revalidation of
+  edits made while another validation is running. The former global completion and duplicated
+  highlighter vocabulary are not retained as a compatibility mode.
 - Consolidated language help into one Syntax Reference center and added a searchable official
   catalog of public declarations, signatures, contexts, required and optional fields, allowed
   values, defaults, limits, and short descriptions while retaining validated full examples.
