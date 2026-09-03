@@ -1,9 +1,9 @@
 ---
 name: kirin-release
-description: Prepare, verify, or review a Kirin calculator release. Use for versioning, changelog and README release consistency, CI, frontend production assets, Python packaging, wheel inspection, installation smoke tests, tags, or publication readiness. Do not activate for ordinary feature development merely because tests are involved.
+description: Prepare, verify, or review a Kirin Tor release. Use for versioning, changelog and README release consistency, CI, frontend production assets, Python packaging, wheel inspection, installation smoke tests, tags, or publication readiness. Do not activate for ordinary feature development merely because tests are involved.
 ---
 
-# Kirin Release
+# Kirin Tor Release
 
 Assemble proportionate release evidence without confusing preparation with publication.
 

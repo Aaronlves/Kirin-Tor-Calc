@@ -1,9 +1,9 @@
 ---
 name: kirin-game-modeling
-description: Model game mechanics, calculations, and theorycrafting questions as Kirin sources or community-package content. Use when translating rules, coefficients, assumptions, expected values, thresholds, comparisons, or curves into a source-faithful Kirin model. Do not use for changing the language core unless the user separately asks for that implementation work.
+description: Model game mechanics, calculations, and theorycrafting questions as Kirin Tor sources or community-package content. Use when translating rules, coefficients, assumptions, expected values, thresholds, comparisons, or curves into a source-faithful model. Do not use for changing the language core unless the user separately asks for that implementation work.
 ---
 
-# Kirin Game Modeling
+# Kirin Tor Game Modeling
 
 Produce useful game models without presenting assumptions or derived formulas as authoritative game facts.
 
@@ -14,7 +14,7 @@ Keep these layers distinguishable to the degree the task needs:
 - Published game rules, coefficients, patch data, or other supplied source material.
 - Author assumptions and simplifications, including independence, steady-state rates, coverage, expected counts, and rounding locations.
 - The derived mathematical model expressed in `.kirin`.
-- Results produced by Kirin for specified inputs.
+- Results produced by Kirin Tor for specified inputs.
 
 When current game facts matter and are not supplied, verify them from current primary sources where practical. Record the relevant game or patch version and mark missing, unofficial, inferred, or uncertain values rather than inventing them.
 

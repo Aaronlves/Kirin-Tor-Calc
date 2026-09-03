@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kirin Language Core"
-  short_description: "Focused Kirin syntax and math-core development"
-  default_prompt: "Use $kirin-language-core to implement a focused Kirin language or math-core change."
+  display_name: "Kirin Tor Language Core"
+  short_description: "Develop Kirin Tor syntax and mathematical core"
+  default_prompt: "Use $kirin-language-core to implement a focused Kirin Tor language or mathematical-core change."

@@ -1,18 +1,16 @@
 ---
 name: kirin-web-workbench
-description: Develop, debug, review, or document the Kirin browser workbench in the calculator project. Use for the React and TypeScript interface, CodeMirror editing, ECharts previews, workbench state, the local Python web adapter, packaged web assets, and directly related tests. Do not use for changes confined to mathematical semantics, package resolution, or release preparation.
+description: Develop, debug, or review the Kirin Tor browser workbench. Use for the React and TypeScript interface, CodeMirror editing, ECharts previews, workbench state, the local Python web adapter, packaged web assets, and directly related tests. Do not use for documentation-only requests or changes confined to mathematical semantics, package resolution, or release preparation.
 ---
 
-# Kirin Web Workbench
+# Kirin Tor Web Workbench
 
-Make focused browser-workbench changes while preserving Kirin's text-first product boundary.
+Make focused browser-workbench changes while preserving Kirin Tor's text-first product boundary.
 
 ## Use current boundaries
 
-- Inspect the current branch, local diff, and the files involved in the request. The frontend has replaced the earlier Textual interface, so do not rely on old TUI assumptions.
 - Read `docs/web-workbench.md` when behavior, layout, saving, security, or CLI parity matters. Read `frontend/README.md` when the build or packaged-asset handoff matters.
 - Keep local `.kirin` documents as the only writable authority. UI state, indexes, previews, generated artifacts, and API payloads are adapters or projections.
-- Preserve unrelated user changes.
 
 ## Implement proportionately
 

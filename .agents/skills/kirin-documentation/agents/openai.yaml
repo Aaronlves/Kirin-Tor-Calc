@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kirin Documentation"
-  short_description: "Maintain accurate Kirin user and developer docs"
-  default_prompt: "Use $kirin-documentation to update the relevant Kirin documentation from current evidence."
+  display_name: "Kirin Tor Documentation"
+  short_description: "Maintain accurate Kirin Tor documentation"
+  default_prompt: "Use $kirin-documentation to update the relevant Kirin Tor documentation from current evidence."

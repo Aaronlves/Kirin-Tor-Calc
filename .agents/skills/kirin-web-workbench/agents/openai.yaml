@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kirin Web Workbench"
-  short_description: "Focused Kirin browser workbench development"
-  default_prompt: "Use $kirin-web-workbench to implement a focused browser workbench change."
+  display_name: "Kirin Tor Web Workbench"
+  short_description: "Develop the Kirin Tor browser workbench"
+  default_prompt: "Use $kirin-web-workbench to implement a focused Kirin Tor browser-workbench change."

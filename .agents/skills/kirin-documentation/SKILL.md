@@ -1,9 +1,9 @@
 ---
 name: kirin-documentation
-description: Create, revise, or review Kirin calculator documentation. Use for README guidance, syntax and schema references, package and workbench documentation, capability boundaries, changelog entries, examples, and author-facing explanations. Do not use to change implementation unless the user also asks for code changes.
+description: Create, revise, or review Kirin Tor documentation. Use for README guidance, syntax and schema references, package and workbench documentation, capability boundaries, changelog entries, examples, and author-facing explanations. Do not use to change implementation unless the user also asks for code changes.
 ---
 
-# Kirin Documentation
+# Kirin Tor Documentation
 
 Keep documentation accurate, useful to authors, and proportionate to the change.
 
@@ -18,7 +18,7 @@ Keep documentation accurate, useful to authors, and proportionate to the change.
 - Keep `.kirin` source authority distinct from indexes, previews, generated artifacts, lockfiles, caches, and run-record snapshots.
 - Keep canonical identifiers distinct from Chinese-friendly aliases, labels, and explanations.
 - Separate implemented behavior, tested behavior, design intention, known limitation, and human acceptance.
-- Do not state that Kirin can derive a complete gameplay loop when it only evaluates an author-supplied formula or equivalent model.
+- Do not state that Kirin Tor can derive a complete gameplay loop when it only evaluates an author-supplied formula or equivalent model.
 
 Make the smallest documentation update that resolves the request. Do not rewrite adjacent sections, add a changelog entry for every internal edit, or force documentation work to trigger code changes.
 

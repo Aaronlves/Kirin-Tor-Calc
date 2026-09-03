@@ -1,17 +1,17 @@
 ---
 name: kirin-package-development
-description: Develop, debug, review, or document Kirin's community package system in the calculator project. Use for manifests, requirements, lockfiles, GitHub or local resolution, the content store, package authoring, provenance, templates, and related tests. Do not use for ordinary Kirin language work or consumer workspace content.
+description: Develop, debug, or review Kirin Tor's community package system. Use for manifests, requirements, lockfiles, GitHub or local resolution, the content store, package authoring, provenance, templates, and related tests. Do not use for ordinary language-core work, documentation-only requests, or consumer workspace content.
 ---
 
-# Kirin Package Development
+# Kirin Tor Package Development
 
-Make focused package-system changes while keeping community data separate from the game-neutral core.
+Make focused package-system changes while keeping community data separate from Kirin Tor's game-neutral core.
 
 ## Use current authority
 
-- Inspect the current implementation and local diff before changing package behavior.
+- Inspect the relevant package implementation and local diff before changing package behavior.
 - Read `docs/package-system-v1.md` for public protocol and authority boundaries. Consult other documents only when the change actually crosses into language syntax, records, or the browser workbench.
-- Preserve unrelated user changes and do not perform live package mutations or network operations unless the user's request includes them.
+- Do not perform live package mutations or network operations unless the user's request includes them.
 
 ## Preserve the trust boundary
 

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kirin Game Modeling"
-  short_description: "Model game mechanics faithfully in Kirin sources"
-  default_prompt: "Use $kirin-game-modeling to model this game mechanic in Kirin with explicit assumptions."
+  display_name: "Kirin Tor Game Modeling"
+  short_description: "Model game mechanics faithfully in Kirin Tor"
+  default_prompt: "Use $kirin-game-modeling to model this game mechanic in Kirin Tor with explicit assumptions."

@@ -1,9 +1,9 @@
 ---
 name: kirin-testing
-description: Plan, add, run, or diagnose tests for the Kirin calculator project. Use for focused regression coverage, selecting relevant Python or frontend checks, isolating failures, and explaining what the evidence establishes. Do not use as a requirement to run the entire project matrix after every ordinary change.
+description: Plan, add, run, or diagnose tests for Kirin Tor. Use for focused regression coverage, selecting relevant Python or frontend checks, isolating failures, and explaining what the evidence establishes. Do not use as a requirement to run the entire project matrix after every ordinary change.
 ---
 
-# Kirin Testing
+# Kirin Tor Testing
 
 Choose the smallest test effort that gives useful confidence for the requested change.
 

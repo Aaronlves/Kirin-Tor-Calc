@@ -1,4 +1,4 @@
 interface:
-  display_name: "Kirin Testing"
-  short_description: "Choose and run proportionate Kirin tests"
-  default_prompt: "Use $kirin-testing to add or run the smallest useful tests for this Kirin change."
+  display_name: "Kirin Tor Testing"
+  short_description: "Choose proportionate tests for Kirin Tor"
+  default_prompt: "Use $kirin-testing to add or run the smallest useful tests for this Kirin Tor change."

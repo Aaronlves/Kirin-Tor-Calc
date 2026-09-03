@@ -1,18 +1,17 @@
 ---
 name: kirin-language-core
-description: Develop, debug, review, or document the Kirin source language and mathematical core in the calculator project. Use for syntax, schema, units, expressions, validation, bounded mathematical models, engine behavior, authoring support derived from the language, and directly related tests. Do not use for work confined to the browser interface, package resolution, or release-only verification.
+description: Develop, debug, or review the Kirin Tor source language and mathematical core. Use for syntax, schema, units, expressions, validation, bounded mathematical models, engine behavior, authoring support derived from the language, and directly related tests. Do not use for game-specific model authoring, browser-interface work, package resolution, or release-only verification.
 ---
 
-# Kirin Language Core
+# Kirin Tor Language Core
 
-Make focused changes to Kirin's language and mathematical core without turning ordinary development into a formal review process.
+Make focused changes to Kirin Tor's language and mathematical core without turning ordinary development into a formal review process.
 
 ## Work from current authority
 
-- Inspect the current branch, relevant implementation, tests, and local diff before relying on earlier notes.
+- Inspect the relevant implementation, neighboring tests, and local diff before relying on earlier notes.
 - Read only the documents needed for the task. Use `docs/kirin-syntax.md` for source syntax, `docs/schema-and-expressions.md` for semantic and safety contracts, and `docs/game-mechanics-capability-audit.md` when a claim concerns supported game-mechanic shapes.
 - Treat `.kirin` files as the editable workspace authority. Keep canonical identifiers stable; aliases, labels, diagnostics, indexes, previews, and generated artifacts do not replace them.
-- Preserve unrelated user changes in a dirty worktree.
 
 ## Implement proportionately
 
