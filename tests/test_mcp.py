@@ -9,6 +9,7 @@ import pytest
 from mcp import Client, MCPError, StdioServerParameters
 
 from kirin_tor.mcp_server import KirinMCPServer, PROTOCOL_VERSION
+from kirin_tor.workspace import initialize
 
 
 def test_mcp_sdk_lifecycle_tools_and_resources(example_workspace: Path) -> None:
@@ -27,6 +28,7 @@ def test_mcp_sdk_lifecycle_tools_and_resources(example_workspace: Path) -> None:
                 "kirin_validate_source",
                 "kirin_evaluate",
                 "kirin_explain",
+                "kirin_analyze",
                 "kirin_apply_source",
             ]
             apply_schema = next(
@@ -78,6 +80,77 @@ def test_mcp_sdk_lifecycle_tools_and_resources(example_workspace: Path) -> None:
             with pytest.raises(MCPError) as missing_resource:
                 await client.read_resource("kirin://source/..%2Fsecret")
             assert missing_resource.value.code == -32602
+
+    anyio.run(exercise)
+
+
+def test_mcp_runs_bounded_process_analysis_without_persisting_a_record(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "process-workspace")
+    (root / "entries" / "process.kirin").write_text(
+        """@kirin 2
+@entry mcp_process
+
+process counter:
+  state value: count = 0
+  event input add()
+  on add():
+    next value = value + 1
+  observe current: count = value
+
+scenario once:
+  phases:
+    - event
+  use actor = counter:
+  at 0 second phase event:
+    send actor.add()
+  measure final_value: count = final(actor.current)
+  bounds:
+    horizon = 1 second
+    maximum_events = 1
+    maximum_decisions = 1
+    maximum_branches = 1
+    maximum_entities = 1
+
+analysis run_once:
+  using = once
+  operation = run
+""",
+        encoding="utf-8",
+    )
+
+    async def exercise() -> None:
+        parameters = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "kirin_tor.cli", "mcp", str(root)],
+            cwd=root,
+        )
+        async with Client(parameters, raise_exceptions=True) as client:
+            result = await client.call_tool(
+                "kirin_analyze", {"target": "mcp_process.run_once"}
+            )
+            assert result.is_error is False
+            payload = result.structured_content
+            assert payload["status"] == "ok"
+            assert payload["analysis_operation"] == "run"
+            assert payload["measure_expectations"]["final_value"] == "1"
+            assert payload["outcomes"][0]["run"]["trace"] == []
+            assert not any((root / "runs").iterdir())
+
+            traced = await client.call_tool(
+                "kirin_analyze",
+                {"target": "mcp_process.run_once", "include_trace": True},
+            )
+            assert traced.is_error is False
+            assert traced.structured_content["outcomes"][0]["run"]["trace"]
+
+            with pytest.raises(MCPError) as invalid_trace:
+                await client.call_tool(
+                    "kirin_analyze",
+                    {"target": "mcp_process.run_once", "include_trace": "yes"},
+                )
+            assert invalid_trace.value.code == -32602
 
     anyio.run(exercise)
 

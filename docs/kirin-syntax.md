@@ -68,7 +68,9 @@ display result = integer
 ```
 
 - `input` declares a variable and may add a default, `in MIN..MAX`, `integer`, or
-  `one-of [A, B, ...]`.
+  `one-of [A, B, ...]`. Numeric defaults are finite exact literals; dimensionless inputs accept
+  percentages such as `25%`, and numeric inputs accept a quantity such as `1500 millisecond`,
+  which is converted exactly into the declared unit. Defaults do not become arbitrary expressions.
 - `field` declares a literal or derived value.
 - `require` adds a boolean condition to the entry.
 - `function` declares explicit parameters. Parameters may have ranges and allowed values but no
@@ -396,13 +398,15 @@ contents remain opaque author text; `//` is registered as the editor line-commen
 after a block header receives the canonical two-space child indentation. Completion and diagnostic
 help choose the concrete inserted or failing construct before falling back to its broad symbol kind;
 an unmatched expression delimiter or trailing operator carries the correct static or Process dialect
-onto continuation lines.
+onto continuation lines. Continuation arguments may use deeper indentation for readability, and a
+closing delimiter may return to the owning declaration's indentation without becoming a new block.
 Unknown top-level declarations receive the ordinary v2 syntax diagnostic and no compatibility path.
 
 A local Agent or another text editor may write the same `entries/**/*.kirin` files without an
 Agent-specific extension to Kirin Tor syntax. An MCP host may instead launch the thin `kt mcp`
-adapter to read durable resources, validate proposals, evaluate or explain static targets, and
-validate-and-atomically-write one hash-guarded source. While the workbench page is visible, it
+adapter to read durable resources, validate proposals, evaluate or explain static targets, execute
+named bounded Process Analyses, and validate-and-atomically-write one hash-guarded source. While the
+workbench page is visible, it
 discovers new local documents and reloads externally changed clean buffers; a dirty browser buffer
 is never overwritten
 and instead enters explicit conflict comparison. The Agent identity, prompts, editing operations,

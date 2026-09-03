@@ -126,6 +126,15 @@ def _optional_integer(arguments: Mapping[str, object], name: str) -> int | None:
     return value
 
 
+def _optional_boolean(arguments: Mapping[str, object], name: str) -> bool | None:
+    value = arguments.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise MCPError(INVALID_PARAMS, f"{name} must be a boolean when provided")
+    return value
+
+
 class KirinMCPServer(Server[object]):
     """Serve bounded Kirin resources and tools through the official MCP SDK."""
 
@@ -140,7 +149,8 @@ class KirinMCPServer(Server[object]):
                 "Kirin resources expose the current durable .kirin sources only. "
                 "Use kirin_validate_source before kirin_apply_source, and pass the "
                 "current source_sha256 when replacing an existing source. Package "
-                "sources are read-only; browser-unsaved buffers are outside this server."
+                "sources are read-only; browser-unsaved buffers are outside this server. "
+                "Use kirin_analyze for a named bounded Process Analysis."
             ),
             on_list_tools=self._handle_list_tools,
             on_call_tool=self._handle_call_tool,
@@ -236,6 +246,30 @@ class KirinMCPServer(Server[object]):
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "minLength": 1},
+                        "timeout": {"type": "number"},
+                    },
+                    "required": ["target"],
+                    "additionalProperties": False,
+                },
+                annotations=read_only,
+            ),
+            Tool(
+                name="kirin_analyze",
+                title="Analyze bounded Kirin Process",
+                description=(
+                    "Execute one source-declared bounded Process Analysis without "
+                    "saving a run record or exporting artifacts. Trace details are "
+                    "omitted by default."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "minLength": 1},
+                        "include_trace": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Include the complete event trace in the result.",
+                        },
                         "timeout": {"type": "number"},
                     },
                     "required": ["target"],
@@ -460,6 +494,19 @@ class KirinMCPServer(Server[object]):
                 if timeout is not None:
                     payload["timeout"] = timeout
                 result = self.workbench.execute("explain", payload)
+            elif name == "kirin_analyze":
+                _reject_unknown(arguments, {"target", "include_trace", "timeout"})
+                payload = {
+                    "target": _required_string(arguments, "target"),
+                    "include_trace": False,
+                }
+                include_trace = _optional_boolean(arguments, "include_trace")
+                if include_trace is not None:
+                    payload["include_trace"] = include_trace
+                timeout = _optional_number(arguments, "timeout")
+                if timeout is not None:
+                    payload["timeout"] = timeout
+                result = self.workbench.execute("process_analysis", payload)
             elif name == "kirin_apply_source":
                 _reject_unknown(arguments, {"path", "source", "expected_sha256"})
                 path = _required_string(arguments, "path")

@@ -47,14 +47,17 @@ list-changed notifications.
 | `kirin_validate_source` | Validates one complete `entries/**/*.kirin` proposal as an in-memory overlay and writes nothing |
 | `kirin_evaluate` | Evaluates one static `ENTRY.OUTPUT` using exact Kirin semantics, optional preset, and exact string overrides |
 | `kirin_explain` | Returns a target's expanded expression, inputs, retained conditions, units, and dependencies |
+| `kirin_analyze` | Executes one named bounded `ENTRY.ANALYSIS`; trace details are omitted by default and no run record or artifact is written |
 | `kirin_apply_source` | Validates the whole candidate workspace, checks the expected source hash, then atomically creates or replaces one local source |
 
 `kirin_apply_source` requires `expected_sha256`. For an existing document, use the digest returned by
 the latest manifest or source resource. The empty string means that the path is expected not to
 exist and is accepted only for creation. A stale digest, an invalid workspace, a path outside
-`entries/`, or a locked Package path fails without writing. The MCP surface intentionally provides no
-delete, rename, Package installation, Plugin control, artifact export, run-record creation, Process
-Analysis execution, shell execution, or arbitrary filesystem tool.
+`entries/`, or a locked Package path fails without writing. `kirin_analyze` accepts
+`include_trace: true` when the complete event trace is needed; its default compact result still
+retains Measures, proof metadata, strategies, bounds, and exact outputs. The MCP surface
+intentionally provides no delete, rename, Package installation, Plugin control, artifact export,
+run-record creation, shell execution, or arbitrary filesystem tool.
 
 Tool failures are returned as MCP tool results with `isError: true` and Kirin Tor's stable structured
 error code and location fields. Malformed protocol requests, unknown tools, invalid tool arguments,

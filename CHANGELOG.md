@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accepted exact percentage and compatible unit-quantity literals for static input defaults, and
+  allowed delimiter-aware nested indentation in static and Process expression continuations.
+- Added read-only bounded Process Analysis execution to the thin MCP server, with event traces
+  omitted by default and no run record or artifact persistence.
 - Raised the supported runtime to Python 3.12 or newer as a clean cutover, moved the
   cross-platform test matrix to Python 3.12 and 3.14, upgraded Matplotlib to the 3.11 line,
   removed the Python 3.9 `tomli` compatibility path, adopted the official MCP Python SDK v2,

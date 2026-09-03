@@ -22,7 +22,7 @@ QUOTED_STRING = r'"(?:[^"\\]|\\.)*"'
 _TYPE = rf"(?:boolean|number\[{IDENTIFIER}\]|{IDENTIFIER})"
 _INPUT_RE = re.compile(
     rf"^(?P<name>{IDENTIFIER})(?:\s+(?P<label>{QUOTED_STRING}))?\s*:\s*(?P<type>{_TYPE})"
-    r"(?:\s*=\s*(?P<default>\S+))?"
+    rf"(?:\s*=\s*(?P<default>\S+(?:\s+(?!(?:in|integer|one-of)\b){IDENTIFIER})?))?"
     r"(?:\s+in\s+(?P<range>\S+\.\.\S+))?"
     r"(?:\s+(?P<integer>integer))?"
     r"(?:\s+one-of\s+\[(?P<allowed>[^\]]*)\])?$"

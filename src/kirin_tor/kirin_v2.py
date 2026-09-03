@@ -163,22 +163,78 @@ def _nodes(lines: Iterable[_Line], path: Path) -> Tuple[_Node, ...]:
     if not significant:
         return ()
 
+    def delimiter_delta(text: str) -> int:
+        delta = 0
+        quoted = False
+        escaped = False
+        for character in text:
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    quoted = False
+                continue
+            if character == '"':
+                quoted = True
+            elif character in "([":
+                delta += 1
+            elif character in ")]":
+                delta -= 1
+        return delta
+
+    structural_indents: Dict[int, int] = {}
+    delimiter_depth = 0
+    continuation_owner_indent = 0
+    continuation_indent: Optional[int] = None
+    for line in significant:
+        if delimiter_depth > 0:
+            if continuation_indent is None:
+                continuation_indent = max(
+                    line.indent,
+                    continuation_owner_indent + 1,
+                )
+            structural_indents[line.number] = max(
+                line.indent,
+                continuation_indent,
+            )
+        else:
+            structural_indents[line.number] = line.indent
+        previous_depth = delimiter_depth
+        delimiter_depth = max(0, delimiter_depth + delimiter_delta(line.text))
+        if previous_depth == 0 and delimiter_depth > 0:
+            continuation_owner_indent = structural_indents[line.number]
+            continuation_indent = None
+        elif delimiter_depth == 0:
+            continuation_indent = None
+
+    def structural_indent(line: _Line) -> int:
+        return structural_indents[line.number]
+
     def parse_from(index: int, indent: int) -> Tuple[List[_Node], int]:
         result: List[_Node] = []
         while index < len(significant):
             line = significant[index]
-            if line.indent < indent:
+            line_indent = structural_indent(line)
+            if line_indent < indent:
                 break
-            if line.indent > indent:
+            if line_indent > indent:
                 _fail(path, "unexpected indentation", line)
             index += 1
             children: List[_Node] = []
-            if index < len(significant) and significant[index].indent > indent:
-                children, index = parse_from(index, significant[index].indent)
+            if (
+                index < len(significant)
+                and structural_indent(significant[index]) > indent
+            ):
+                children, index = parse_from(
+                    index,
+                    structural_indent(significant[index]),
+                )
             result.append(_Node(line, tuple(children)))
         return result, index
 
-    if significant[0].indent:
+    if structural_indent(significant[0]):
         _fail(path, "top-level declarations may not be indented", significant[0])
     parsed, index = parse_from(0, 0)
     if index != len(significant):
@@ -188,10 +244,13 @@ def _nodes(lines: Iterable[_Line], path: Path) -> Tuple[_Node, ...]:
 
 def _expression(node: _Node, initial: str, path: Path, field: str) -> str:
     parts = [initial.strip()]
-    for child in node.children:
-        if child.children:
-            _fail(path, "expression continuation may not contain a nested block", child.line, field)
-        parts.append(child.line.text.strip())
+
+    def append_descendants(children: Iterable[_Node]) -> None:
+        for child in children:
+            parts.append(child.line.text.strip())
+            append_descendants(child.children)
+
+    append_descendants(node.children)
     value = " ".join(part for part in parts if part)
     if not value:
         _fail(path, "expression may not be empty", node.line, field)

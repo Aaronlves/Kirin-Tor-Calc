@@ -52,6 +52,9 @@ domain；无法由期望类型消歧时使用 `domain.symbol`。
 input default < preset < temporary override
 ```
 
+静态 input 默认值仍是有限字面量而不是普通表达式。无量纲类型可使用百分比；数值类型可显式附带
+兼容量纲的单位，加载时按精确比例换算到声明单位。范围和 allowed values 继续以声明单位解释。
+
 输入范围、整数条件、允许值、命名值域和 `require` 条件会同时进入求值条件。符号保留变量、求导/
 求解变量和扫描轴不会被默认值提前代入。
 

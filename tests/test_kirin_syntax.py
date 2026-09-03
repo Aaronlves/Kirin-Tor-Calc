@@ -430,6 +430,74 @@ def test_fractional_unit_and_parameter_one_of_round_trip(tmp_path: Path) -> None
     assert loaded.raw == raw
 
 
+def test_static_input_defaults_accept_percentages_and_unit_quantities(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "input-literals")
+    path = root / "entries" / "defaults.kirin"
+    path.write_text(
+        """@kirin 2
+@entry defaults
+
+domain proc_chance: dimensionless in 0..1
+
+input chance: proc_chance = 25%
+input delay: time = 1500 millisecond in 1..2
+
+output normalized_chance: dimensionless = chance
+output normalized_delay: time = delay
+""",
+        encoding="utf-8",
+    )
+    workspace = Workspace.load(root)
+    entry = workspace.get_entry("defaults")
+    assert entry.inputs["chance"].default == "1/4"
+    assert entry.inputs["delay"].default == "3/2"
+    assert evaluate(Engine(workspace), "defaults.normalized_chance")["exact"] == "1/4"
+    assert evaluate(Engine(workspace), "defaults.normalized_delay")["exact"] == "3/2"
+
+
+def test_static_input_default_units_must_match_the_declared_dimension(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "bad-input-unit")
+    (root / "entries" / "bad.kirin").write_text(
+        """@kirin 2
+@entry bad
+
+dimension damage
+unit damage = damage
+
+input amount: damage = 1 second
+output result: damage = amount
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="input default unit 'second' is incompatible"):
+        Workspace.load(root)
+
+
+def test_static_expression_continuations_allow_readable_nested_indentation(
+    tmp_path: Path,
+) -> None:
+    root = initialize(tmp_path / "nested-expression")
+    (root / "entries" / "nested.kirin").write_text(
+        """@kirin 2
+@entry nested
+
+output result: dimensionless = max(
+  1,
+    min(
+      2,
+      3
+    )
+)
+""",
+        encoding="utf-8",
+    )
+    assert evaluate(Engine(Workspace.load(root)), "nested.result")["exact"] == "2"
+
+
 def test_static_boolean_and_numeric_domain_result_types_round_trip(
     tmp_path: Path,
 ) -> None:

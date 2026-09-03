@@ -181,6 +181,54 @@ def number_text(value: Any, label: str, location: Optional[SourceLocation] = Non
     raise SchemaError(f"{label} must be numeric text", location)
 
 
+def _fraction_text(value: Fraction) -> str:
+    return (
+        str(value.numerator)
+        if value.denominator == 1
+        else f"{value.numerator}/{value.denominator}"
+    )
+
+
+def input_default_text(
+    value: Any,
+    unit_name: str,
+    registry: UnitRegistry,
+    location: Optional[SourceLocation] = None,
+) -> str:
+    """Normalize one exact scalar input literal into its declared unit."""
+
+    if not isinstance(value, str):
+        return number_text(value, "default", location)
+    text = value.strip()
+    if text.endswith("%"):
+        if not registry.parse_unit(unit_name, location).is_dimensionless:
+            raise SchemaError(
+                "percentage input defaults require a dimensionless type",
+                location,
+            )
+        number = number_text(text[:-1], "percentage default", location)
+        return _fraction_text(Fraction(number) / 100)
+    pieces = text.split()
+    if len(pieces) == 2:
+        number = number_text(pieces[0], "quantity default", location)
+        supplied_unit = pieces[1]
+        require_identifier(supplied_unit, "default unit", location)
+        supplied_dimension = registry.parse_unit(supplied_unit, location)
+        declared_dimension = registry.parse_unit(unit_name, location)
+        if supplied_dimension != declared_dimension:
+            raise SchemaError(
+                f"input default unit {supplied_unit!r} is incompatible with {unit_name!r}",
+                location,
+            )
+        normalized = (
+            Fraction(number)
+            * registry.scale(supplied_unit, location)
+            / registry.scale(unit_name, location)
+        )
+        return _fraction_text(normalized)
+    return number_text(text, "default", location)
+
+
 def _reject_unknown(data: Mapping[str, Any], allowed: set[str], label: str, location) -> None:
     unknown = sorted(set(data) - allowed)
     if unknown:
@@ -723,7 +771,11 @@ def _parse_input(
         if any(not isinstance(item, bool) for item in allowed):
             raise SchemaError("boolean allowed_values must contain only booleans", location)
     else:
-        default = number_text(default, "default", location) if default is not None else None
+        default = (
+            input_default_text(default, unit_name, registry, location)
+            if default is not None
+            else None
+        )
         if any(isinstance(item, bool) for item in allowed):
             raise SchemaError("numeric allowed_values cannot contain booleans", location)
         try:

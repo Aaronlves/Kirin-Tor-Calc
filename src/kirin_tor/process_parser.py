@@ -112,16 +112,13 @@ def _expression(
     field: str,
 ) -> ExpressionAst:
     parts = [initial.strip()]
-    for child in node.children:
-        if child.children:
-            _fail(
-                path,
-                owner_id,
-                child,
-                "expression continuation may not contain a nested block",
-                field,
-            )
-        parts.append(child.line.text.strip())
+
+    def append_descendants(children: Tuple[_Node, ...]) -> None:
+        for child in children:
+            parts.append(child.line.text.strip())
+            append_descendants(child.children)
+
+    append_descendants(node.children)
     text = " ".join(part for part in parts if part)
     if not text:
         _fail(path, owner_id, node, "expression may not be empty", field)

@@ -1229,10 +1229,13 @@ class Workbench:
                 )
 
             if operation == "process_analysis":
+                include_trace = payload.get("include_trace", True)
+                if not isinstance(include_trace, bool):
+                    raise ParameterError("include_trace must be true or false")
                 request = process_analysis_request(
                     workspace,
                     str(payload.get("target", "")),
-                    include_trace=True,
+                    include_trace=include_trace,
                     timeout_seconds=timeout,
                 )
                 return record_operation(
@@ -1243,7 +1246,7 @@ class Workbench:
                     lambda: analyze_process(
                         workspace,
                         request["target"],
-                        include_trace=True,
+                        include_trace=include_trace,
                         timeout_seconds=timeout,
                     ),
                 )

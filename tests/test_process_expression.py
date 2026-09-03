@@ -72,6 +72,29 @@ def test_process_expression_rejects_wrong_result_types_and_units() -> None:
         )
 
 
+def test_process_expression_continuations_allow_nested_argument_indentation() -> None:
+    source = """@kirin 2
+@entry nested_process
+
+process counter:
+  state value: count = 0
+  event input add(amount: count)
+  on add(amount):
+    next value = max(
+      value,
+        min(
+          amount,
+          10
+        )
+    )
+  observe current: count = value
+"""
+    process = parse_process_asts(source, Path("nested-process.kirin"))[0]
+    effect = process.handlers[0].effects[0]
+    assert effect.value.text == "max( value, min( amount, 10 ) )"
+    assert lower_process_asts((process,), _registry())[0].id == "counter"
+
+
 def test_bounded_map_operations_are_persistent_canonical_and_capacity_checked() -> None:
     registry = _registry()
     map_type = MapTypeIR(
