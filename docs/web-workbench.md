@@ -167,10 +167,10 @@ preview rows and rendered canvases remain derived, read-only state.
 
 The workbench uses one explicit grid hierarchy rather than stacking framework offsets and percentage split panes:
 
-- the application shell is a two-column, two-row grid with a 224 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 72 px compact state with visible labels, and the author choice is remembered locally and can also be changed in Settings;
+- the application shell is a two-column, two-row grid with a 192 px navigation rail and a 64 px header; below 1320 px the rail defaults to its 72 px compact state with visible labels, and the author choice is remembered locally and can also be changed in Settings;
 - the document view is a three-track grid with a 216–260 px source index, a flexible editor, and a 320–420 px inspector; the inspector collapses to a 40 px rail when the current document has no useful projection, while the header also switches between Editor Only, Split, and Preview Only focus modes and remembers the author's choice locally;
 - built-in destinations share one metadata registry for navigation groups, header identity, command-palette actions, tool-menu entries, titles, and presentation mode; Documents belongs to Creation, the relationship graph to Understanding, syntax to Reference, and workspace operations or extension management to their corresponding tool-menu groups;
-- the relationship graph uses a 9/3 page grid; contextual tools use one right-side modal Drawer, while run history retains a 4/8 list/detail grid inside it;
+- the relationship graph uses a 9/3 page grid; contextual tools use one right-side modal Drawer, while run history retains a 4/8 list/detail grid inside it; Settings and reference tools use bounded reading widths, Package and Plugin management use a bounded 960 px working width, and search, change review, and run history keep the near-full working surface their dense comparisons require;
 - a tool may replace its own body with an in-Drawer subview for discovery, authoring, forms, or confirmation, but it never opens another modal Drawer on top of the tool;
 - adjacent workbench tracks share a single 1 px divider and never add their own outer margins.
 

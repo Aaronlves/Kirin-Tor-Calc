@@ -153,7 +153,7 @@ export function GraphView({ controller, onNavigate }: GraphViewProps) {
   return (
     <div className="content-page graph-page">
       <PageIntro
-        kicker="SEMANTIC RELATIONSHIPS"
+        kicker="工作区关系"
         title="关系图"
         description="边由已校验的表达式引用与 Process 组合生成；包含静态成员、过程、场景与分析。"
         actions={<Group gap="xs">

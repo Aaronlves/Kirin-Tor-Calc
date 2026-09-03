@@ -231,7 +231,7 @@ export function App() {
         opened={workspaceTool !== null}
         onClose={() => { if (!toolCloseBlocked) closeWorkspaceTool(); }}
         position="right"
-        size={toolMetadata?.drawerSize ?? "92%"}
+        size={toolMetadata?.drawerSize ?? tokens.size.drawerFull}
         title={<span className="workspace-tool-title">{toolTitle}</span>}
         closeButtonProps={{ "aria-label": "关闭工作区工具", disabled: toolCloseBlocked }}
         closeOnClickOutside={!toolCloseBlocked}

@@ -209,7 +209,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
   return (
     <div className="content-page packages-page">
       <PageIntro
-        kicker="PACKAGE ECOSYSTEM"
+        kicker="依赖与扩展"
         title="可复现的社区预设"
         description="每个 Package 都以精确版本和内容哈希锁定；模板只在创建文档时展开。"
         headingOrder={3}
@@ -298,7 +298,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
               ))}
             </div>
           ) : (
-            <Surface><EmptyState icon={<PackageCheck size={24} />} title="尚未安装社区 Package" description="可以从 GitHub 安装精确版本，也可以将本地 Package 目录冻结为不可变快照。" action={<Button size="xs" leftSection={<Plus size={14} />} onClick={() => setInstallOpened(true)}>安装第一个 Package</Button>} /></Surface>
+            <Surface><EmptyState icon={<PackageCheck size={24} />} title="尚未安装社区 Package" description="可以从 GitHub 安装精确版本，也可以将本地 Package 目录冻结为不可变快照。" /></Surface>
           )}
 
           {result && <Surface className="package-result-surface"><Group mb="md" gap="xs"><Check size={16} color="var(--kt-c-st-success)" /><Text fw={650} fz="sm">最近一次 Package 操作已完成</Text></Group><TechnicalResult result={result} /></Surface>}

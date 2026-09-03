@@ -62,7 +62,7 @@ export function RunsView({ controller }: { controller: WorkbenchController }) {
   return (
     <div className="content-page runs-page">
       <PageIntro
-        kicker="REPRODUCIBLE RUNS"
+        kicker="运行与证据"
         title="记录与重放"
         description="记录保存请求、结果与定义快照；重放会明确报告是否与原结果一致。"
         headingOrder={3}

@@ -1,10 +1,11 @@
 /*
  * Keep Mantine's baseline and only the component styles used by the workbench.
- * MantineProvider emits the active theme variables at runtime, so importing the
- * complete core stylesheet would duplicate its default variable table and ship
- * styles for dozens of components that are not part of this application.
+ * MantineProvider emits theme colors at runtime. The static default-variable
+ * sheet remains required for framework geometry such as --mantine-scale; the
+ * complete component bundle would still ship dozens of unused components.
  */
 @import "@mantine/core/styles/baseline.css";
+@import "@mantine/core/styles/default-css-variables.css";
 @import "@mantine/core/styles/global.css";
 
 /* Directly rendered components. */

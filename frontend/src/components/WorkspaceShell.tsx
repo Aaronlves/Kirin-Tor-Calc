@@ -321,13 +321,16 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                     : <PanelLeftClose size={17} strokeWidth={1.65} />}
                 </ActionIcon>
               </Tooltip>
-              <Box>
-                <Text id="workbench-page-title" component="h1" aria-label={metadata.title} className="page-eyebrow">
-                  <Tooltip label={workspacePath ?? "正在连接工作区"} position="bottom-start">
-                    <span className="workspace-context" aria-label={`当前工作区：${workspacePath ?? "正在连接"}`}>{currentWorkspaceName}</span>
-                  </Tooltip>
-                  <span aria-hidden="true"> / </span>{metadata.eyebrow} / {metadata.title}
-                </Text>
+              <Box className="page-identity-copy">
+                <Group gap="xs" wrap="nowrap">
+                  <Text id="workbench-page-title" component="h1" aria-label={metadata.title} className="page-title">{metadata.title}</Text>
+                  <Text className="page-context">
+                    <Tooltip label={workspacePath ?? "正在连接工作区"} position="bottom-start">
+                      <span className="workspace-context" aria-label={`当前工作区：${workspacePath ?? "正在连接"}`}>{currentWorkspaceName}</span>
+                    </Tooltip>
+                    <span aria-hidden="true"> · </span>{metadata.eyebrow}
+                  </Text>
+                </Group>
                 <Text className="page-description">{metadata.description}</Text>
               </Box>
             </Group>
@@ -358,10 +361,11 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                   <Button
                     variant="default"
                     size="xs"
+                    aria-label="工作区工具"
                     leftSection={<Wrench size={14} strokeWidth={1.7} />}
                     rightSection={<ChevronDown size={12} strokeWidth={1.7} />}
                   >
-                    工作区工具
+                    工具
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
@@ -382,23 +386,20 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                   </>}
                 </Menu.Dropdown>
               </Menu>
-              <Button
-                variant="default"
-                size="xs"
-                leftSection={<Settings size={14} strokeWidth={1.7} />}
-                onClick={() => onOpenTool("settings")}
-              >
-                设置
-              </Button>
+              <Tooltip label="工作台设置">
+                <ActionIcon variant="default" size="lg" aria-label="设置" onClick={() => onOpenTool("settings")}>
+                  <Settings size={15} strokeWidth={1.7} />
+                </ActionIcon>
+              </Tooltip>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
                 <Badge
-                  className={`workspace-status-badge${hasErrors ? " is-error" : controller.dirtyCount ? " is-dirty" : ""}`}
-                  color={hasErrors ? "red" : controller.dirtyCount ? "orange" : "green"}
+                  className={`workspace-status-badge${hasErrors ? " is-error" : controller.dirtyCount ? " is-dirty" : isBusy ? " is-busy" : " is-valid"}`}
+                  color={hasErrors ? "red" : controller.dirtyCount || isBusy ? "orange" : "gray"}
                   variant="light"
                   leftSection={hasErrors ? <CircleAlert size={12} /> : <Check size={12} />}
                   aria-label={`工作区状态：${workspaceStatus}`}
                 >
-                  {workspaceStatus}
+                  {workspaceStatus === "工作区有效" ? "有效" : workspaceStatus}
                 </Badge>
               </Tooltip>
               {controller.operationJobs.length > 0 && <Tooltip label={`${controller.operationJobs.map((job) => `${job.operation} · ${job.stage === "executing" ? "执行中" : job.stage}`).join("；")}。取消会终止对应计算进程。`}>
@@ -441,32 +442,22 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
               )}
             </Box>
             <ScrollArea flex={1} type="never" px={compactNavigation ? 6 : 10} py="sm">
-              <Stack gap="md">
-                {navigationGroups.map((group) => (
-                  <Stack key={group.label} gap={2}>
-                    {!compactNavigation && <Text className="nav-group-label">{group.label}</Text>}
-                    {group.items.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <Tooltip
-                          key={item.id}
-                          label={item.label}
-                          position="right"
-                          disabled={!compactNavigation}
-                        >
-                          <NavLink
-                            component="button"
-                            active={item.kind === "view" ? activeView === item.id : activeTool === item.id}
-                            aria-label={item.label}
-                            label={item.label}
-                            leftSection={<Icon size={17} strokeWidth={1.65} />}
-                            onClick={() => item.kind === "view" ? onViewChange(item.id) : onOpenTool(item.id)}
-                          />
-                        </Tooltip>
-                      );
-                    })}
-                  </Stack>
-                ))}
+              <Stack gap={2}>
+                {navigationGroups.flatMap((group) => group.items).map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Tooltip key={item.id} label={item.label} position="right" disabled={!compactNavigation}>
+                      <NavLink
+                        component="button"
+                        active={item.kind === "view" ? activeView === item.id : activeTool === item.id}
+                        aria-label={item.label}
+                        label={item.label}
+                        leftSection={<Icon size={17} strokeWidth={1.65} />}
+                        onClick={() => item.kind === "view" ? onViewChange(item.id) : onOpenTool(item.id)}
+                      />
+                    </Tooltip>
+                  );
+                })}
               </Stack>
             </ScrollArea>
             <Tooltip label={workspacePath ?? "正在连接工作区"} position="right">

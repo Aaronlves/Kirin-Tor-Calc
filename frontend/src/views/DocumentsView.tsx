@@ -673,7 +673,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           {emptyWorkspace ? (
             <div className="workspace-welcome" aria-label="Kirin Tor 入门">
               <section className="workspace-welcome-intro">
-                <Text className="page-kicker">GET STARTED</Text>
+                <Text className="page-kicker">开始使用</Text>
                 <Title order={3}>从一份真正的 Kirin Tor 源码开始</Title>
                 <Text c="dimmed" maw={720}>
                   当前工作区仍然为空。可以复制只读教程、新建草稿，或让本地 Agent 直接创建 `entries/**/*.kirin`；工作台只显示写入后的源码与结果。
@@ -689,7 +689,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
               <section className="workspace-tutorials" aria-labelledby="workspace-tutorial-heading">
                 <Group justify="space-between" align="end" mb="md">
                   <Box>
-                    <Text className="page-kicker">BUILT-IN TUTORIALS</Text>
+                    <Text className="page-kicker">内置教程</Text>
                     <Title id="workspace-tutorial-heading" order={4}>三个虚构、游戏中立的练习</Title>
                   </Box>
                   <Text c="dimmed" fz="xs">查看源码不会修改工作区</Text>
@@ -1208,7 +1208,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
       >
         <div className="tutorial-library">
           <nav className="tutorial-library-index" aria-label="内置教程">
-            <Text className="page-kicker">LEARNING PATH</Text>
+            <Text className="page-kicker">学习路径</Text>
             {tutorials.map((tutorial, index) => (
               <button
                 type="button"
@@ -1227,7 +1227,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           <ScrollArea className="tutorial-library-detail" type="auto">
             {selectedTutorial && (
               <article>
-                <Text className="page-kicker">READ-ONLY KIRIN SOURCE</Text>
+                <Text className="page-kicker">只读 Kirin 源码</Text>
                 <Title order={3}>{selectedTutorial.title}</Title>
                 <Text c="dimmed" fz="sm" mt="xs">{selectedTutorial.description}</Text>
                 <ol className="tutorial-learning-points">

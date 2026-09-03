@@ -88,7 +88,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
     <div className="syntax-reference" aria-label="Kirin Tor 语法参考内容">
       <header className="syntax-reference-header">
         <Box>
-          <Text className="page-kicker">AUTHORING REFERENCE</Text>
+          <Text className="page-kicker">写作参考</Text>
           <Text fw={680} fz="lg">在源码旁确认写法与创作边界</Text>
           <Text c="dimmed" fz="xs" mt={4}>
             这是随应用发布的只读速查。语法、Agent 协作和严格语义仍由当前版本实现与校验器决定。

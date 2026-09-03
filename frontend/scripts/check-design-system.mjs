@@ -27,15 +27,15 @@ const flattened = flattenTokens(tokens);
 const directlyUsed = directTokenLeaves(sourceText, flattened);
 const cssUsed = cssTokenDependencies(sourceText, flattened, directlyUsed);
 const styles = sourceByPath.get(join(sourceRoot, "styles.css")) ?? "";
-const mediaThresholds = new Set([...styles.matchAll(/@media\s*\(max-width:\s*(\d+px)\)/g)].map((match) => match[1]));
+const responsiveThresholds = new Set([...styles.matchAll(/@(?:media|container)[^{]*\(max-width:\s*(\d+px)\)/g)].map((match) => match[1]));
 const sizeScaleValues = new Set(Object.values(tokens.size.scale));
 
-for (const threshold of mediaThresholds) {
+for (const threshold of responsiveThresholds) {
   if (!sizeScaleValues.has(threshold)) failures.push(`styles.css uses unregistered responsive threshold ${threshold}`);
 }
 
 const unusedTokens = flattened.filter((token) => {
-  const responsiveUse = token.path[0] === "size" && token.path[1] === "scale" && mediaThresholds.has(token.value);
+  const responsiveUse = token.path[0] === "size" && token.path[1] === "scale" && responsiveThresholds.has(token.value);
   return !cssUsed.has(token.name) && !directlyUsed.has(token.name) && !responsiveUse;
 });
 if (unusedTokens.length) {
@@ -53,8 +53,8 @@ for (const path of files) {
     if (/\btransition(?:-[\w-]+)?\s*:[^;]*(?:\d+ms|cubic-bezier\(|\bease\b)/.test(line)) {
       failures.push(`${name}:${index + 1} contains raw motion values`);
     }
-    const mediaMatch = line.match(/^\s*@media \(max-width: (\d+px)\)/);
-    if (/\d+px\b/.test(line) && !(mediaMatch && sizeScaleValues.has(mediaMatch[1]))) {
+    const responsiveMatch = line.match(/^\s*@(media|container)[^{]*\(max-width: (\d+px)\)/);
+    if (/\d+px\b/.test(line) && !(responsiveMatch && sizeScaleValues.has(responsiveMatch[2]))) {
       failures.push(`${name}:${index + 1} contains a raw pixel value`);
     }
   });

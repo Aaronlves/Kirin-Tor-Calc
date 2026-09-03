@@ -1,3 +1,5 @@
+import tokens from "./design/tokens.json";
+
 export type BuiltinDestinationId =
   | "documents"
   | "graph"
@@ -52,37 +54,37 @@ export const builtinDestinations: BuiltinDestination[] = [
     id: "syntax", kind: "tool", placement: "sidebar", group: "参考", title: "Kirin Tor 语法参考", eyebrow: "参考",
     description: "搜索写作规则并查看可复制的完整示例。", commandLabel: "打开 Kirin Tor 语法参考",
     keywords: ["syntax", "reference", "docs", "help", "语法", "参考", "文档", "帮助", "示例", "Agent", "协作"],
-    icon: "book", drawerSize: 820,
+    icon: "book", drawerSize: tokens.size.drawerReference,
   },
   {
     id: "search", kind: "tool", placement: "tool-menu", group: "工作区工具", title: "工作区搜索与替换", eyebrow: "工具",
     menuLabel: "全文搜索与替换", description: "搜索当前草稿和 Package 源码；替换只生成可审查草稿。", commandLabel: "搜索与替换整个工作区",
-    keywords: ["search", "replace", "全文", "搜索", "替换"], icon: "search", drawerSize: "92%",
+    keywords: ["search", "replace", "全文", "搜索", "替换"], icon: "search", drawerSize: tokens.size.drawerFull,
   },
   {
     id: "changes", kind: "tool", placement: "tool-menu", group: "工作区工具", title: "保存前变更审查", eyebrow: "工具",
     description: "比较浏览器草稿与磁盘基线，并决定保存或放弃。", commandLabel: "审查未保存变更",
-    keywords: ["diff", "changes", "review", "变更", "审查", "差异"], icon: "changes", drawerSize: "92%",
+    keywords: ["diff", "changes", "review", "变更", "审查", "差异"], icon: "changes", drawerSize: tokens.size.drawerFull,
   },
   {
     id: "runs", kind: "tool", placement: "tool-menu", group: "工作区工具", title: "运行记录", eyebrow: "工具",
     description: "检查并重放带定义快照的不可变计算记录。", commandLabel: "打开运行记录",
-    keywords: ["runs", "history", "运行记录"], icon: "history", drawerSize: "92%",
+    keywords: ["runs", "history", "运行记录"], icon: "history", drawerSize: tokens.size.drawerFull,
   },
   {
     id: "packages", kind: "tool", placement: "tool-menu", group: "依赖与扩展", title: "Package 管理", eyebrow: "管理",
     description: "安装、锁定、验证并开发社区数据包。", commandLabel: "打开 Package 管理",
-    keywords: ["package", "依赖", "安装"], icon: "package", drawerSize: "92%",
+    keywords: ["package", "依赖", "安装"], icon: "package", drawerSize: tokens.size.drawerWide,
   },
   {
     id: "plugins", kind: "tool", placement: "tool-menu", group: "依赖与扩展", title: "Workbench Plugins", eyebrow: "管理",
     description: "安装、批准、停用或验证沙箱界面插件。", commandLabel: "打开 Workbench Plugins",
-    keywords: ["plugin", "extension", "插件", "扩展", "安全模式"], icon: "plugin", drawerSize: "92%",
+    keywords: ["plugin", "extension", "插件", "扩展", "安全模式"], icon: "plugin", drawerSize: tokens.size.drawerWide,
   },
   {
     id: "settings", kind: "tool", placement: "header", group: "设置", title: "工作台设置", eyebrow: "设置",
     description: "查看当前工作区并调整界面、通知、Profile 与快捷键。", commandLabel: "打开工作台设置",
-    keywords: ["settings", "preferences", "设置", "通知", "快捷键", "工作区"], icon: "settings", drawerSize: 760,
+    keywords: ["settings", "preferences", "设置", "通知", "快捷键", "工作区"], icon: "settings", drawerSize: tokens.size.drawerSettings,
   },
 ];
 

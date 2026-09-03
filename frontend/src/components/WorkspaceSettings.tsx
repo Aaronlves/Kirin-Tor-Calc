@@ -133,7 +133,7 @@ export function WorkspaceSettings({
         <Box>
           <Group gap="xs">
             <Settings2 size={18} />
-            <Text className="page-kicker">WORKBENCH PREFERENCES</Text>
+            <Text className="page-kicker">工作台偏好</Text>
           </Group>
           <Text c="dimmed" fz="xs" mt={4}>界面偏好只保存在当前浏览器；工作区选择记录在用户本地，不会写入 `.kirin`、锁文件或运行记录。</Text>
         </Box>

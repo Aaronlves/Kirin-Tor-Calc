@@ -17,7 +17,7 @@ The JSON source has two levels. Primitive palettes and scales make the available
 
 ## Renderer adapters
 
-- Mantine receives its palettes, font families, type sizes, line heights, spacing, radii, and shadows from the JSON source in `frontend/src/theme.ts`; `frontend/src/mantine.css` imports only the component styles the workbench renders.
+- Mantine receives its palettes, font families, type sizes, line heights, spacing, radii, and shadows from the JSON source in `frontend/src/theme.ts`; `frontend/src/mantine.css` retains Mantine's baseline and default geometry variables, then imports only the component styles the workbench renders. The default variable sheet is a renderer contract, not a second visual authority.
 - Ordinary component styling consumes generated `--kt-*` custom properties in `frontend/src/styles.css`.
 - CodeMirror consumes the same custom properties for editor typography, syntax roles, selection, focus, shape, elevation, and its localized find/replace controls.
 - ECharts receives concrete canvas values from the same JSON source through the registered `kirin-tor` theme. Chart-specific option objects may choose layout and interaction behavior, but cannot create another palette or type scale.
