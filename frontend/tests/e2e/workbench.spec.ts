@@ -670,9 +670,16 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await editor.press("Enter");
     await editor.type("条件筛选最小值");
+    const excludedCompletionResponse = page.waitForResponse((response) => {
+      if (!response.url().endsWith("/api/completions") || response.request().method() !== "POST") return false;
+      const payload = response.request().postDataJSON() as { prefix?: string; explicit?: boolean } | null;
+      return payload?.prefix === "条件筛选最小值" && payload.explicit === true;
+    });
     await editor.press("Control+Space");
+    await excludedCompletionResponse;
     await expect(page.getByRole("option", { name: "条件筛选最小值轨迹 Measure · minimum_where", exact: true })).toHaveCount(0);
     await editor.press("Escape");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
 
     await editor.press("Enter");
     await editor.type("真");
