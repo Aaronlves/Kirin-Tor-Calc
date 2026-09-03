@@ -197,6 +197,53 @@ def test_web_catalog_marks_package_documents_read_only(tmp_path: Path) -> None:
     assert packaged["package"]["name"] == "community.example"
 
 
+def test_workbench_completion_indexes_labels_from_locked_packages(tmp_path: Path) -> None:
+    workspace = initialize(tmp_path / "workspace")
+    package = _package(tmp_path / "package")
+    (package / "entries" / "value.kirin").write_text(
+        """@kirin 2
+@entry community_example_value "Example package"
+
+domain community_example_probability "Package probability": dimensionless in 0..1
+
+type profile "Package profile":
+  amount "Package amount": dimensionless
+
+output result: dimensionless = 1
+""",
+        encoding="utf-8",
+    )
+    add_path_package(workspace, "example", package)
+    (workspace / "entries" / "local.kirin").write_text(
+        """@kirin 2
+@entry local
+
+output result: dimensionless = 1
+""",
+        encoding="utf-8",
+    )
+
+    from kirin_tor.workbench import Workbench
+
+    workbench = Workbench(workspace)
+    probability = workbench.completions(
+        "entries/local.kirin", "Package probability"
+    )["items"][0]
+    assert probability["insert_text"] == "community_example_probability"
+    assert probability["kind"] == "domain"
+
+    profile = workbench.completions("entries/local.kirin", "Package profile")["items"][0]
+    assert profile["insert_text"] == "community_example_value.profile"
+    assert profile["kind"] == "type"
+
+    amount = workbench.completions("entries/local.kirin", "Package amount")["items"][0]
+    assert amount["insert_text"] == "amount"
+    assert amount["kind"] == "type_field"
+    assert amount["detail"] == (
+        "类型字段 · community_example_value.profile.amount · dimensionless"
+    )
+
+
 def test_package_namespace_is_enforced(tmp_path: Path) -> None:
     workspace = initialize(tmp_path / "workspace")
     package = _package(tmp_path / "package", document_id="unscoped")

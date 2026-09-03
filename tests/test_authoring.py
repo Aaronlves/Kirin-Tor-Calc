@@ -46,7 +46,11 @@ dimension damage "伤害"
 
 unit damage = damage
 
-domain probability: dimensionless in 0..1
+domain probability "概率": dimensionless in 0..1
+
+type effect "效果字段":
+  amount "效果数值": damage
+  enabled? "是否启用": boolean
 
 input crit "暴击率": number[dimensionless] = 0.25
 
@@ -66,6 +70,20 @@ output result "总计": dimensionless = 技能(base.crit)
 """
     sources = {base: base_source, model: model_source}
     assert build_completion_candidates(sources, model, "暴击")[0].insert_text == "base.crit"
+    probability = next(
+        item
+        for item in build_completion_candidates(sources, model, "概率")
+        if item.kind == "domain"
+    )
+    assert probability.insert_text == "probability"
+    assert probability.kind == "domain"
+    effect = build_completion_candidates(sources, model, "效果字段")[0]
+    assert effect.insert_text == "base.effect"
+    assert effect.kind == "type"
+    amount = build_completion_candidates(sources, model, "效果数值")[0]
+    assert amount.insert_text == "amount"
+    assert amount.kind == "type_field"
+    assert amount.detail == "类型字段 · base.effect.amount · damage"
     assert build_completion_candidates(sources, model, "技能")[0].insert_text == "技能($0)"
     assert build_completion_candidates(sources, model, "输出")[0].label == "输出声明"
     assert build_completion_candidates(sources, model, "平方根")[0].insert_text == "sqrt($0)"
@@ -226,6 +244,12 @@ output dot: dimensionless = arcane_blast.coefficient.periodic
     index = build_authoring_index(
         [AuthoringSource("entries/skills.kirin", "entries/skills.kirin", source)]
     )
+    periodic_field = next(
+        item for item in index["symbols"] if item["id"] == "skills.coefficient.periodic"
+    )
+    assert periodic_field["label"] == "周期伤害"
+    assert periodic_field["kind"] == "type_field"
+    assert periodic_field["unit"] == "dimensionless"
     assert any(
         item["id"] == "skills.arcane_blast.coefficient.periodic"
         for item in index["symbols"]

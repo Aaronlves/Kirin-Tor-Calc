@@ -23,6 +23,7 @@ const kindTopics: Record<string, string> = {
   table: "tables",
   distribution: "distributions",
   type: "structures",
+  type_field: "structures",
   object: "structures",
   object_field: "structures",
   process: "process",

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserved source labels in tolerant completion and added structure-type and type-field candidates
+  from local and locked Package sources, including qualified owner and declared-type details.
 - Retained explicit Package feature-line compatibility for 0.3 Packages on Kirin Tor 0.4 while
   continuing to apply the current strict parser, graph validation, and engine checks.
 - Kept the browser workbench available when a locked Package graph cannot load: local documents,

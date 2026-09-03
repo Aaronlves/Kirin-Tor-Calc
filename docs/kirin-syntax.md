@@ -355,7 +355,12 @@ configured SVG/CSV explicitly; preview data itself never becomes editable author
 
 The browser editor provides v2 snippets, syntax highlighting, completion for canonical and
 multi-level paths, navigation, safe rename for scalar declarations, diagnostics, and live scalar,
-chart and Process Analysis previews. Process/Scenario/Analysis have insertion snippets,
+chart and Process Analysis previews. Completion searches source-authored labels as well as stable
+IDs for scalar members, dimensions, domains, structure types, and type fields in both local and
+locked Package sources. A type-field candidate inserts its short field ID for use inside an object
+body, while its detail names the owning type and declared field type. Unit declarations currently
+have no label syntax and therefore remain discoverable by stable unit ID.
+Process/Scenario/Analysis have insertion snippets,
 top-level outline identities, contextual syntax help, variant/objective result tables, proof badges,
 interactive multi-chart selection, and explicit export-all. These authoring projections do not
 extend the grammar or make invalid source executable.

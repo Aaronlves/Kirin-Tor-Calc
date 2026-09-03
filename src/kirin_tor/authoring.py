@@ -50,6 +50,7 @@ class _Member:
     name: str
     kind: str
     label: Optional[str]
+    value_type: Optional[str] = None
 
     @property
     def canonical(self) -> str:
@@ -66,6 +67,7 @@ _KIND_LABELS = {
     "outputs": "输出",
     "objects": "类型化对象",
     "object_fields": "对象属性",
+    "type_fields": "类型字段",
     "processes": "过程",
     "scenarios": "场景",
     "analyses": "分析",
@@ -83,6 +85,22 @@ _KIND_LABELS = {
     "builtin": "内置函数",
     "keyword": "关键字",
     "snippet": "片段",
+}
+
+_COMPLETION_KINDS = {
+    "inputs": "input",
+    "fields": "field",
+    "functions": "function",
+    "tables": "table",
+    "distributions": "distribution",
+    "outputs": "output",
+    "objects": "object",
+    "object_fields": "object_field",
+    "types": "type",
+    "type_fields": "type_field",
+    "processes": "process",
+    "scenarios": "scenario",
+    "analyses": "analysis",
 }
 
 _DECLARATION_KIND = {
@@ -456,11 +474,11 @@ def _type_fields(lines: Sequence[str]) -> dict[str, list[tuple[str, str, Optiona
 
 def _index_source(
     source: str,
-) -> Tuple[Optional[str], List[_Member], Dict[str, str], List[Tuple[str, str]]]:
+) -> Tuple[Optional[str], List[_Member], Dict[str, str], List[Tuple[str, str, Optional[str]]]]:
     entry_id: Optional[str] = None
     members: List[_Member] = []
     aliases: Dict[str, str] = {}
-    semantics: List[Tuple[str, str]] = []
+    semantics: List[Tuple[str, str, Optional[str]]] = []
     lines = source.splitlines()
     types = _type_fields(lines)
     prose_fence: Optional[str] = None
@@ -479,7 +497,7 @@ def _index_source(
                     (*seen, local_type),
                 )
             elif entry_id is not None:
-                members.append(_Member(entry_id, path, "object_fields", label))
+                members.append(_Member(entry_id, path, "object_fields", label, field_type))
 
     for line in lines:
         stripped = line.lstrip()
@@ -509,7 +527,19 @@ def _index_source(
         kind = declaration["kind"]
         name = declaration["name"]
         if kind in {"dimensions", "units", "domains"}:
-            semantics.append((name, kind))
+            semantics.append((name, kind, declaration["label"]))
+        elif kind == "types":
+            members.append(_Member(entry_id, name, kind, declaration["label"]))
+            for field_name, field_type, label in types.get(name, []):
+                members.append(
+                    _Member(
+                        entry_id,
+                        f"{name}.{field_name}",
+                        "type_fields",
+                        label,
+                        field_type,
+                    )
+                )
         elif kind in {
             "inputs", "fields", "functions", "tables", "distributions",
             "outputs", "objects", "processes", "scenarios", "analyses",
@@ -599,6 +629,8 @@ def _scan_authoring_source(source: AuthoringSource) -> dict:
     active_object: Optional[str] = None
     object_indent: Optional[int] = None
     object_path: list[tuple[int, str]] = []
+    active_type: Optional[str] = None
+    type_field_indent: Optional[int] = None
 
     def add_symbol(symbol: dict[str, Any], start: int, end: int) -> None:
         symbols.append(symbol)
@@ -645,6 +677,8 @@ def _scan_authoring_source(source: AuthoringSource) -> dict:
             active_object = None
             object_indent = None
             object_path = []
+            active_type = None
+            type_field_indent = None
             alias = _ALIAS_RE.match(stripped)
             if alias:
                 name = alias.group("name")
@@ -735,6 +769,45 @@ def _scan_authoring_source(source: AuthoringSource) -> dict:
             }
             if section == "objects":
                 active_object = name
+            elif section == "types":
+                active_type = name
+            continue
+        if active_type is not None:
+            if type_field_indent is None:
+                type_field_indent = indent
+            if indent != type_field_indent:
+                continue
+            field = re.match(
+                rf"^({_IDENTIFIER})\??(?:\s+({_QUOTED}))?\s*:\s*"
+                rf"(boolean|number\[{_IDENTIFIER}\]|{_IDENTIFIER}(?:\.{_IDENTIFIER})*)",
+                stripped,
+            )
+            if field is None:
+                continue
+            field_name = field.group(1)
+            field_type = field.group(3)
+            canonical = f"{entry_id}.{active_type}.{field_name}"
+            start = indent + field.start(1)
+            end = indent + field.end(1)
+            add_symbol(
+                {
+                    "id": canonical,
+                    "name": f"{active_type}.{field_name}",
+                    "label": _decode_label(field.group(2)) or field_name,
+                    "kind": "type_field",
+                    "entry_id": entry_id,
+                    "detail": f"类型字段 · {canonical}",
+                    "signature": _member_signature(stripped),
+                    "unit": field_type,
+                    "parameters": [],
+                    "definition": _location(source, line_number, start, end),
+                    "renameable": False,
+                    "outline": False,
+                    "outline_level": 2,
+                },
+                start,
+                end,
+            )
             continue
         if active_object is None:
             continue
@@ -821,7 +894,7 @@ def build_authoring_index(sources: Sequence[AuthoringSource]) -> dict:
         entry_id = symbol.get("entry_id")
         if entry_id and symbol["kind"] in {
             "input", "field", "function", "table", "distribution", "output",
-            "object", "object_field", "process", "scenario", "analysis",
+            "type", "object", "object_field", "process", "scenario", "analysis",
         }:
             local_members.setdefault(entry_id, {})[symbol["name"]] = symbol["id"]
         if symbol["kind"] == "input":
@@ -1022,7 +1095,7 @@ def build_completion_candidates(
 ) -> List[CompletionCandidate]:
     """Build resilient completion candidates from valid or incomplete Kirin Tor buffers."""
     all_members: List[_Member] = []
-    all_semantics: List[Tuple[str, str]] = []
+    all_semantics: List[Tuple[str, str, Optional[str]]] = []
     current_entry = None
     current_aliases: Dict[str, str] = {}
     for path, source in sources.items():
@@ -1052,6 +1125,32 @@ def build_completion_candidates(
         )
 
     for member in all_members:
+        if member.kind == "type_fields":
+            field_name = member.name.rsplit(".", 1)[-1]
+            detail = f"{_KIND_LABELS[member.kind]} · {member.canonical}"
+            if member.value_type:
+                detail += f" · {member.value_type}"
+            candidates.append(
+                CompletionCandidate(
+                    member.label or field_name,
+                    detail,
+                    field_name,
+                    _COMPLETION_KINDS[member.kind],
+                    tuple(
+                        item
+                        for item in (
+                            field_name,
+                            member.name,
+                            member.canonical,
+                            member.label,
+                            member.value_type,
+                        )
+                        if item
+                    ),
+                    45,
+                )
+            )
+            continue
         local = member.entry_id == current_entry
         typed_qualified_local = bool(
             local and prefix.casefold().startswith(f"{member.entry_id}.".casefold())
@@ -1063,7 +1162,7 @@ def build_completion_candidates(
                 member.label or reference,
                 f"{_KIND_LABELS[member.kind]} · {member.canonical}",
                 inserted,
-                member.kind,
+                _COMPLETION_KINDS.get(member.kind, member.kind),
                 tuple(
                     item
                     for item in (member.name, member.canonical, member.label)
@@ -1072,14 +1171,14 @@ def build_completion_candidates(
                 30 if local else 50,
             )
         )
-    for name, kind in all_semantics:
+    for name, kind, label in all_semantics:
         candidates.append(
             CompletionCandidate(
-                name,
+                label or name,
                 f"{_KIND_LABELS[kind]} · {name}",
                 name,
-                kind,
-                (name, _KIND_LABELS[kind]),
+                _COMPLETION_KINDS.get(kind, kind[:-1] if kind.endswith("s") else kind),
+                tuple(item for item in (name, label, _KIND_LABELS[kind]) if item),
                 28,
             )
         )
@@ -1109,7 +1208,11 @@ def build_completion_candidates(
     seen = set()
     result = []
     for candidate in sorted(candidates, key=score):
-        key = (candidate.insert_text, candidate.kind)
+        key = (
+            candidate.insert_text,
+            candidate.kind,
+            candidate.detail if candidate.kind == "type_field" else "",
+        )
         if key in seen:
             continue
         seen.add(key)

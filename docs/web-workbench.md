@@ -115,7 +115,13 @@ Diagnostics live beside the document editor rather than in a duplicate top-level
 
 Preview results, chart definitions, formula explanations, diagnostics, and relationship nodes expose source navigation when their validated projection carries a source coordinate. Navigation restores Split focus mode, opens the authoritative `.kirin` document when necessary, and focuses the defining line instead of creating an editable projection.
 
-The editor adds a tolerant authoring projection over complete or incomplete drafts. This projection may offer navigation and completion while strict workspace validation is failing, but it does not make an incomplete draft executable or saveable.
+The editor adds a tolerant authoring projection over complete or incomplete drafts. Completion
+searches stable IDs and source-authored labels for scalar members, dimensions, domains, structure
+types, and type fields from local drafts, saved documents, and locked Package sources. Type fields
+insert only their short field ID and show the qualified owning type plus declared field type in the
+detail line; units remain ID-only because unit declarations have no label syntax. This projection
+may offer navigation and completion while strict workspace validation is failing, but it does not
+make an incomplete draft executable or saveable.
 
 ## Workbench Extension Plugins
 
