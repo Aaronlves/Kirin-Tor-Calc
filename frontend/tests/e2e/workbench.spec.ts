@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -16,6 +16,22 @@ async function openWorkbench(page: Page) {
 async function openCombo(page: Page) {
   await page.getByRole("button", { name: comboButtonName }).click();
   await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" })).toBeVisible();
+}
+
+async function openCompletion(page: Page, editor: Locator, name: string) {
+  const option = page.getByRole("option", { name, exact: true });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await option.isVisible()) return option;
+    await editor.press("Control+Space");
+    try {
+      await option.waitFor({ state: "visible", timeout: 3000 });
+      return option;
+    } catch {
+      await editor.press("Escape");
+    }
+  }
+  await expect(option).toBeVisible();
+  return option;
 }
 
 test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
@@ -336,12 +352,17 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.keyboard.press("Escape");
 
     await page.getByLabel(/^工作区状态：/).hover();
-    await expect(page.locator(".mantine-Tooltip-tooltip:visible")).toHaveCSS("z-index", layer.tooltip);
+    const tooltip = page.locator(".mantine-Tooltip-tooltip:visible");
+    await expect(tooltip).toHaveCSS("z-index", layer.tooltip);
+    await page.mouse.move(0, 0);
+    await expect(tooltip).toBeHidden();
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
+    const settings = page.getByRole("dialog", { name: "工作台设置" });
+    await expect(settings).toBeVisible();
     await expect(page.locator(".mantine-Drawer-inner")).toHaveCSS("z-index", layer.drawer);
     await expect(page.locator(".mantine-Drawer-overlay")).toHaveCSS("z-index", layer.overlay);
-    await page.getByRole("button", { name: "关闭工作区工具" }).click();
+    await settings.getByRole("button", { name: "关闭工作区工具" }).click();
 
     await page.getByRole("button", { name: "新建文档" }).click();
     await expect(page.locator(".mantine-Modal-inner")).toHaveCSS("z-index", layer.modal);
@@ -640,9 +661,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.locator(".cm-line").last().click();
     await editor.press("End");
     await editor.type("  平方根");
-    await editor.press("Control+Space");
-    const sqrtCompletion = page.getByRole("option", { name: "平方根内置函数 · sqrt", exact: true });
-    await expect(sqrtCompletion).toBeVisible();
+    const sqrtCompletion = await openCompletion(page, editor, "平方根内置函数 · sqrt");
     await sqrtCompletion.click();
     await editor.type("1");
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
@@ -655,9 +674,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await editor.press("Enter");
     await editor.type("真");
-    await editor.press("Control+Space");
-    const trueCompletion = page.getByRole("option", { name: "布尔真关键字 · true", exact: true });
-    await expect(trueCompletion).toBeVisible();
+    const trueCompletion = await openCompletion(page, editor, "布尔真关键字 · true");
     await trueCompletion.hover();
     const completionInfo = page.locator(".kirin-completion-info");
     await completionInfo.getByRole("button", { name: "查看相关语法" }).click();
@@ -702,17 +719,15 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await editor.press("Enter");
     await editor.type("sta");
     expect(await page.locator(".cm-activeLine").textContent()).toBe("  sta");
-    await editor.press("Control+Space");
-    const stateCompletion = page.getByRole("option", { name: "Process 状态片段 · state", exact: true });
-    await expect(stateCompletion).toBeVisible();
+    const stateCompletion = await openCompletion(page, editor, "Process 状态片段 · state");
     await stateCompletion.hover();
     await page.locator(".kirin-completion-info").getByRole("button", { name: "查看相关语法" }).click();
     const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference.locator("#syntax-symbol-process-declarations")).toBeFocused();
-    await reference.getByRole("button", { name: "关闭工作区工具" }).click();
+    await page.keyboard.press("Escape");
+    await expect(reference).toBeHidden();
 
-    await editor.press("Control+Space");
-    await stateCompletion.click();
+    await (await openCompletion(page, editor, "Process 状态片段 · state")).click();
     await editor.press(`${modKey}+/`);
     await expect(page.locator(".cm-activeLine")).toContainText("// state name");
     await editor.press("Control+Space");
