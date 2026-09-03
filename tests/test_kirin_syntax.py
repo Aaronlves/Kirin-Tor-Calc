@@ -57,6 +57,93 @@ def test_bundled_syntax_reference_examples_are_complete_and_valid(tmp_path: Path
         assert result["status"] == "ok", section["id"]
 
 
+def test_bundled_syntax_reference_catalog_is_complete_and_structured() -> None:
+    root = Path(__file__).parents[1]
+    sections = json.loads(
+        (root / "frontend" / "src" / "syntax-reference.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    catalog = json.loads(
+        (
+            root
+            / "frontend"
+            / "src"
+            / "syntax-reference-catalog.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    section_ids = {section["id"] for section in sections}
+    catalog_section_ids = [group["sectionId"] for group in catalog]
+    assert len(catalog_section_ids) == len(set(catalog_section_ids))
+    assert set(catalog_section_ids) == section_ids - {"external-authoring"}
+
+    expected_symbols = {
+        "document-header",
+        "metadata-directives",
+        "comments-and-prose",
+        "input",
+        "field",
+        "require",
+        "function",
+        "output",
+        "alias",
+        "source",
+        "display",
+        "group",
+        "preset",
+        "table",
+        "table-functions",
+        "distribution",
+        "distribution-observers",
+        "distribution-transforms",
+        "dimension",
+        "unit",
+        "numeric-domain",
+        "symbolic-domain",
+        "scalar-expression",
+        "type",
+        "object",
+        "process-types",
+        "process-declarations",
+        "process-effects",
+        "scenario",
+        "scenario-policies-decisions",
+        "scenario-measures-objectives",
+        "analysis",
+        "analysis-chart",
+        "static-chart",
+    }
+    symbols = [symbol for group in catalog for symbol in group["symbols"]]
+    assert {symbol["id"] for symbol in symbols} == expected_symbols
+    assert len(symbols) == len({symbol["id"] for symbol in symbols})
+
+    for symbol in symbols:
+        assert {
+            "id",
+            "name",
+            "kind",
+            "signature",
+            "summary",
+            "context",
+            "fields",
+        } <= set(symbol)
+        assert all(symbol[key] for key in ("name", "kind", "signature", "summary", "context"))
+        assert symbol["fields"]
+        assert len(symbol["fields"]) == len(
+            {field["name"] for field in symbol["fields"]}
+        )
+        for field in symbol["fields"]:
+            assert set(field) == {
+                "name",
+                "requirement",
+                "value",
+                "default",
+                "description",
+            }
+            assert all(field.values())
+
+
 @pytest.mark.parametrize(
     "body, message",
     [

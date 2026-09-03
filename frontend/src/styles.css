@@ -45,7 +45,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .mantine-Tabs-tab[data-active]::before { border-color: var(--kt-c-a-base); }
 .mantine-Table-th { color: var(--kt-c-t-muted); font-size: var(--kt-t-s-meta); font-weight: var(--kt-t-w-medium); letter-spacing: var(--kt-t-tr-label); }
 .mantine-Table-tr { border-color: var(--kt-c-b-soft); }
-.mantine-Button-root:focus-visible, .mantine-ActionIcon-root:focus-visible, .mantine-NavLink-root:focus-visible, .workspace-meta:focus-visible, .document-directory-row:focus-visible, .document-list-row:focus-visible, .diagnostic-row:focus-visible, .local-graph-selection:focus-visible, .disclosure-trigger:focus-visible, .canvas-data-fallback summary:focus-visible, .relationship-node-list button:focus-visible, .graph-neighbor-list button:focus-visible, .chart-source-targets button:focus-visible, .chart-data-list li:focus-visible, .outline-list button:focus-visible, .reference-list button:focus-visible, .syntax-reference-link:focus-visible { position: relative; z-index: var(--kt-z-focus); outline: var(--kt-shp-border-emphasis) solid var(--kt-c-a-base); outline-offset: var(--kt-shp-focus-offset); }
+.mantine-Button-root:focus-visible, .mantine-ActionIcon-root:focus-visible, .mantine-NavLink-root:focus-visible, .workspace-meta:focus-visible, .document-directory-row:focus-visible, .document-list-row:focus-visible, .diagnostic-row:focus-visible, .local-graph-selection:focus-visible, .disclosure-trigger:focus-visible, .canvas-data-fallback summary:focus-visible, .relationship-node-list button:focus-visible, .graph-neighbor-list button:focus-visible, .chart-source-targets button:focus-visible, .chart-data-list li:focus-visible, .outline-list button:focus-visible, .reference-list button:focus-visible, .syntax-reference-link:focus-visible, .syntax-symbol-index a:focus-visible { position: relative; z-index: var(--kt-z-focus); outline: var(--kt-shp-border-emphasis) solid var(--kt-c-a-base); outline-offset: var(--kt-shp-focus-offset); }
 
 .workbench-shell { display: grid; width: 100vw; height: 100dvh; grid-template-columns: var(--kt-sz-navigation) minmax(0,1fr); grid-template-rows: var(--kt-sz-header) minmax(0,1fr); overflow: hidden; background: var(--kt-c-s-workspace); }
 .workbench-shell.is-compact { --kt-sz-navigation: var(--kt-sz-navigation-compact); }
@@ -427,8 +427,29 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .syntax-reference-link[aria-pressed="true"] small { color: var(--kt-c-p-gray-3); }
 .syntax-reference-link strong { font-size: var(--kt-t-s-body); }
 .syntax-reference-link small { overflow: hidden; color: var(--kt-c-t-muted); font: var(--kt-t-s-meta) var(--kt-t-f-mono); text-overflow: ellipsis; white-space: nowrap; }
-.syntax-reference-detail article { max-width: var(--kt-sz-content-wide); margin: 0 auto; padding: var(--kt-sp-6); }
+.syntax-reference-detail article { max-width: var(--kt-sz-920); margin: 0 auto; padding: var(--kt-sp-6); }
 .syntax-reference-rules { display: grid; gap: calc(var(--kt-sp-2) + var(--kt-sp-hairline)); margin: 0; padding-left: calc(var(--kt-sp-4) + var(--kt-sp-1)); color: var(--kt-c-t-subtle); font-size: var(--kt-t-s-body); line-height: var(--kt-t-lh-code); }
+.syntax-reference-catalog { display: grid; gap: var(--kt-sp-3); }
+.syntax-symbol-index { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-b-default); gap: var(--kt-sp-hairline); }
+.syntax-symbol-index a { display: grid; min-width: 0; gap: var(--kt-sp-1); padding: var(--kt-sp-dense); background: var(--kt-c-s-navigation); color: var(--kt-c-t-primary); text-decoration: none; }
+.syntax-symbol-index a:hover { background: var(--kt-c-s-hover); }
+.syntax-symbol-index code { color: var(--kt-c-a-strong); font: var(--kt-t-s-body) var(--kt-t-f-mono); }
+.syntax-symbol-index span { overflow: hidden; color: var(--kt-c-t-muted); font-size: var(--kt-t-s-meta); line-height: var(--kt-t-lh-body); text-overflow: ellipsis; white-space: nowrap; }
+.syntax-symbol { overflow: hidden; scroll-margin-top: var(--kt-sp-5); border: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-panel); }
+.syntax-symbol-header { padding: var(--kt-sp-3); background: var(--kt-c-s-raised); }
+.syntax-symbol-header h5 { margin: 0; }
+.syntax-symbol-header h5 .mantine-Code-root { color: var(--kt-c-t-code); font-size: inherit; }
+.syntax-reference-signature { margin: 0; overflow: auto; padding: var(--kt-sp-3); border-top: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-code); }
+.syntax-reference-signature .mantine-Code-root { padding: 0; background: transparent; color: var(--kt-c-t-code); font: var(--kt-t-s-meta)/var(--kt-t-lh-code) var(--kt-t-f-mono); white-space: pre; }
+.syntax-field-table-wrap { overflow-x: auto; border-top: var(--kt-shp-border) solid var(--kt-c-b-default); }
+.syntax-field-table { width: 100%; min-width: var(--kt-sz-900); border-collapse: collapse; color: var(--kt-c-t-subtle); font-size: var(--kt-t-s-meta); line-height: var(--kt-t-lh-body); }
+.syntax-field-table th, .syntax-field-table td { padding: var(--kt-sp-2) var(--kt-sp-dense); border-right: var(--kt-shp-border) solid var(--kt-c-b-soft); border-bottom: var(--kt-shp-border) solid var(--kt-c-b-soft); text-align: left; vertical-align: top; }
+.syntax-field-table thead th { background: var(--kt-c-s-floating); color: var(--kt-c-t-muted); font-weight: var(--kt-t-w-semibold); }
+.syntax-field-table tbody th { width: var(--kt-sz-150); background: var(--kt-c-s-navigation); color: var(--kt-c-t-primary); font-weight: var(--kt-t-w-medium); }
+.syntax-field-table tbody th code, .syntax-field-table td code { color: inherit; font: inherit; }
+.syntax-field-table tr > :last-child { border-right: 0; }
+.syntax-field-table tbody tr:last-child > * { border-bottom: 0; }
+.syntax-symbol-notes { display: grid; gap: var(--kt-sp-1); margin: 0; padding: var(--kt-sp-dense) var(--kt-sp-4); border-top: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-navigation); color: var(--kt-c-t-muted); font-size: var(--kt-t-s-meta); line-height: var(--kt-t-lh-body); }
 .syntax-example { overflow: hidden; border: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-code); }
 .syntax-example-toolbar { min-height: var(--kt-sz-58); padding: var(--kt-sp-dense) var(--kt-sp-3); border-bottom: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-floating); }
 .syntax-example pre { max-height: 48vh; margin: 0; overflow: auto; padding: var(--kt-sp-4); }

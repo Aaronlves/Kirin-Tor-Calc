@@ -74,24 +74,28 @@
   },
   {
     "id": "aliases",
-    "title": "中文别名与显示标签",
-    "summary": "正式身份保持稳定的 ASCII ID；局部中文别名方便写公式，双引号标签只改变呈现。",
+    "title": "别名、显示标签与来源",
+    "summary": "正式身份保持稳定的 ASCII ID；局部中文别名方便写公式，双引号标签只改变呈现，source 保存可核验的来源元数据。",
     "keywords": [
       "aliases",
       "label",
       "unicode",
       "canonical",
+      "source",
+      "citation",
       "别名",
       "标签",
+      "来源",
       "正式 ID"
     ],
     "rules": [
       "别名只在当前 entry 的公式中生效。",
       "跨文档、CLI、参数方案和运行记录继续使用 entry.member。",
-      "修改显示标签不会改变依赖关系。"
+      "修改显示标签不会改变依赖关系。",
+      "source 必须声明 citation；其余来源字段及格式见下方官方字段表。"
     ],
-    "exampleTitle": "局部中文公式名",
-    "code": "@kirin 2\n@entry aliases_demo\n\nalias 基础值 = aliases_demo.base\n\nfield base \"基础值\": dimensionless = 2\n\noutput total \"合计\": dimensionless = 基础值 * 2\n"
+    "exampleTitle": "局部中文公式名与来源",
+    "code": "@kirin 2\n@entry aliases_demo\n\nsource formula_note:\n  citation = \"Fixture design note\"\n  location = \"Formula 1\"\n\nalias 基础值 = aliases_demo.base\n\nfield base \"基础值\": dimensionless = 2\n\noutput total \"合计\": dimensionless = 基础值 * 2\n"
   },
   {
     "id": "presets",

@@ -13,6 +13,7 @@ import {
 import { Check, Copy, Search } from "lucide-react";
 
 import rawSections from "../syntax-reference.json";
+import rawCatalog from "../syntax-reference-catalog.json";
 
 interface SyntaxReferenceSection {
   id: string;
@@ -24,7 +25,62 @@ interface SyntaxReferenceSection {
   code: string;
 }
 
+interface SyntaxReferenceField {
+  name: string;
+  requirement: string;
+  value: string;
+  default: string;
+  description: string;
+}
+
+interface SyntaxReferenceSymbol {
+  id: string;
+  name: string;
+  kind: string;
+  signature: string;
+  summary: string;
+  context: string;
+  fields: SyntaxReferenceField[];
+  notes?: string[];
+}
+
+interface SyntaxReferenceCatalogSection {
+  sectionId: string;
+  symbols: SyntaxReferenceSymbol[];
+}
+
 const sections = rawSections as SyntaxReferenceSection[];
+const catalogSections = rawCatalog as SyntaxReferenceCatalogSection[];
+const catalogBySection = new Map(
+  catalogSections.map((section) => [section.sectionId, section.symbols]),
+);
+const totalCatalogSymbols = catalogSections.reduce(
+  (count, section) => count + section.symbols.length,
+  0,
+);
+
+function searchableSymbolText(symbol: SyntaxReferenceSymbol): string {
+  return [
+    symbol.id,
+    symbol.name,
+    symbol.kind,
+    symbol.signature,
+    symbol.summary,
+    symbol.context,
+    ...symbol.fields.flatMap((field) => [
+      field.name,
+      field.requirement,
+      field.value,
+      field.default,
+      field.description,
+    ]),
+    ...(symbol.notes ?? []),
+  ].join("\n");
+}
+
+function symbolMatches(symbol: SyntaxReferenceSymbol, query: string): boolean {
+  return searchableSymbolText(symbol).toLocaleLowerCase().includes(query.toLocaleLowerCase());
+}
 
 function fallbackCopy(text: string): boolean {
   const textarea = document.createElement("textarea");
@@ -41,6 +97,7 @@ function fallbackCopy(text: string): boolean {
 
 function matches(section: SyntaxReferenceSection, query: string): boolean {
   if (!query) return true;
+  const symbols = catalogBySection.get(section.id) ?? [];
   const haystack = [
     section.title,
     section.summary,
@@ -48,8 +105,16 @@ function matches(section: SyntaxReferenceSection, query: string): boolean {
     ...section.keywords,
     ...section.rules,
     section.code,
+    ...symbols.map(searchableSymbolText),
   ].join("\n").toLocaleLowerCase();
   return haystack.includes(query.toLocaleLowerCase());
+}
+
+function visibleSymbols(sectionId: string, query: string): SyntaxReferenceSymbol[] {
+  const symbols = catalogBySection.get(sectionId) ?? [];
+  if (!query) return symbols;
+  const matched = symbols.filter((symbol) => symbolMatches(symbol, query));
+  return matched.length > 0 ? matched : symbols;
 }
 
 export function SyntaxReference({ initialTopic = null }: { initialTopic?: string | null }) {
@@ -62,6 +127,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
     [query],
   );
   const selected = filtered.find((section) => section.id === selectedId) ?? filtered[0] ?? null;
+  const selectedSymbols = selected ? visibleSymbols(selected.id, query.trim()) : [];
 
   useEffect(() => {
     if (!initialTopic || !sections.some((section) => section.id === initialTopic)) return;
@@ -91,7 +157,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
           <Text className="page-kicker">写作参考</Text>
           <Text fw={680} fz="lg">在源码旁确认写法与创作边界</Text>
           <Text c="dimmed" fz="xs" mt={4}>
-            这是随应用发布的只读速查。语法、Agent 协作和严格语义仍由当前版本实现与校验器决定。
+            {totalCatalogSymbols} 个官方语法项集中列出公开声明、字段、约束和可验证示例；这里是只读投影，不替代源码校验。
           </Text>
         </Box>
         <TextInput
@@ -120,7 +186,11 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                 }}
               >
                 <strong>{section.title}</strong>
-                <small>{section.keywords.slice(0, 3).join(" · ")}</small>
+                <small>
+                  {(catalogBySection.get(section.id)?.length ?? 0) > 0
+                    ? `${catalogBySection.get(section.id)?.length ?? 0} 项官方语法`
+                    : section.keywords.slice(0, 3).join(" · ")}
+                </small>
               </button>
             ))}
           </nav>
@@ -133,7 +203,7 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                 <Box>
                   <Group gap="xs" mb="xs">
                     <Badge variant="outline" color="gray">Kirin Tor v2</Badge>
-                    <Badge variant="light" color="orange">只读参考</Badge>
+                    <Badge variant="light" color="orange">官方语法参考</Badge>
                   </Group>
                   <Text id={`syntax-reference-${selected.id}`} component="h3" fw={700} fz="xl">
                     {selected.title}
@@ -141,8 +211,90 @@ export function SyntaxReference({ initialTopic = null }: { initialTopic?: string
                   <Text c="dimmed" fz="sm" mt="xs" lh={1.65}>{selected.summary}</Text>
                 </Box>
 
+                {selectedSymbols.length > 0 && (
+                  <section className="syntax-reference-catalog" aria-label={`${selected.title}官方语法项`}>
+                    <Group justify="space-between" align="baseline" mb="xs">
+                      <Text component="h4" fw={700} fz="md">官方语法项</Text>
+                      <Text c="dimmed" fz="xs">{selectedSymbols.length} 项 · 字段封闭</Text>
+                    </Group>
+
+                    {selectedSymbols.length > 1 && (
+                      <nav className="syntax-symbol-index" aria-label={`${selected.title}语法项索引`}>
+                        {selectedSymbols.map((symbol) => (
+                          <a key={symbol.id} href={`#syntax-symbol-${symbol.id}`}>
+                            <code>{symbol.name}</code>
+                            <span>{symbol.summary}</span>
+                          </a>
+                        ))}
+                      </nav>
+                    )}
+
+                    <Stack gap="md">
+                      {selectedSymbols.map((symbol) => (
+                        <section
+                          key={symbol.id}
+                          id={`syntax-symbol-${symbol.id}`}
+                          className="syntax-symbol"
+                          aria-labelledby={`syntax-symbol-heading-${symbol.id}`}
+                        >
+                          <div className="syntax-symbol-header">
+                            <Box>
+                              <Group gap="xs" mb={4}>
+                                <Badge variant="outline" color="gray">{symbol.kind}</Badge>
+                                <Text c="dimmed" fz="xs">{symbol.context}</Text>
+                              </Group>
+                              <Text
+                                id={`syntax-symbol-heading-${symbol.id}`}
+                                component="h5"
+                                fw={700}
+                                fz="md"
+                              >
+                                <Code>{symbol.name}</Code>
+                              </Text>
+                              <Text c="dimmed" fz="sm" mt={5} lh={1.55}>{symbol.summary}</Text>
+                            </Box>
+                          </div>
+
+                          <pre className="syntax-reference-signature"><Code component="code" tabIndex={0}>{symbol.signature}</Code></pre>
+
+                          <div className="syntax-field-table-wrap">
+                            <table className="syntax-field-table">
+                              <thead>
+                                <tr>
+                                  <th scope="col">字段或组成项</th>
+                                  <th scope="col">要求</th>
+                                  <th scope="col">类型或允许值</th>
+                                  <th scope="col">默认</th>
+                                  <th scope="col">说明</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {symbol.fields.map((field) => (
+                                  <tr key={`${symbol.id}-${field.name}`}>
+                                    <th scope="row"><code>{field.name}</code></th>
+                                    <td>{field.requirement}</td>
+                                    <td><code>{field.value}</code></td>
+                                    <td>{field.default}</td>
+                                    <td>{field.description}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {symbol.notes && symbol.notes.length > 0 && (
+                            <ul className="syntax-symbol-notes">
+                              {symbol.notes.map((note) => <li key={note}>{note}</li>)}
+                            </ul>
+                          )}
+                        </section>
+                      ))}
+                    </Stack>
+                  </section>
+                )}
+
                 <section aria-label={`${selected.title}规则`}>
-                  <Text className="page-kicker" mb="xs">规则</Text>
+                  <Text component="h4" className="page-kicker" mb="xs">主题规则</Text>
                   <ul className="syntax-reference-rules">
                     {selected.rules.map((rule) => <li key={rule}>{rule}</li>)}
                   </ul>

@@ -15,6 +15,7 @@ const sectionTopics: Record<string, string> = {
 const kindTopics: Record<string, string> = {
   entry: "document",
   alias: "aliases",
+  source: "aliases",
   input: "members",
   field: "members",
   function: "members",
@@ -49,7 +50,7 @@ export function syntaxTopicForLine(line: string): string | null {
   if (/^type\b/.test(trimmed)) return "structures";
   if (/^(process|scenario|analysis|state|key|phase|event|action|flow|on|observe|let|next|emit|schedule|replace|cancel|when|branch|probability|use|variant|connect|at|every|send|policy|choose|otherwise|decide|measure|objective|maximize|minimize|then|stop|target|operation)\b/.test(trimmed)) return "process";
   if (/^(horizon|maximum_events|maximum_decisions|maximum_branches|maximum_entities|method|time_tolerance|maximum_evaluations)\b/.test(trimmed)) return "process";
-  for (const [pattern, topic] of [[/^alias\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
+  for (const [pattern, topic] of [[/^(alias|source)\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }
   if (/\b(true|false|one-of|boolean|integer|probability|dimensionless|nonnegative_integer|positive_integer)\b/.test(line)) return "semantics";

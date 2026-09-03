@@ -377,6 +377,12 @@ top-level outline identities, contextual syntax help, variant/objective result t
 interactive multi-chart selection, and explicit export-all. These authoring projections do not
 extend the grammar or make invalid source executable.
 
+The Workbench has one bundled Syntax Reference center. It combines topic guidance and validated
+examples with a structured catalog of the current public declarations, signatures, legal context,
+required and optional fields, allowed values, defaults, and important limits. Editor and diagnostic
+links open that same center; the catalog documents the parser contract but does not replace
+validation or become another writable source model.
+
 Highlighting follows the current v2 declaration and nested Process/Scenario/Analysis vocabulary.
 Prose fence contents remain opaque author text. Completion and diagnostic help choose a topic from
 the concrete inserted or failing construct before falling back to its broad symbol kind. Unknown

@@ -52,7 +52,7 @@ export const builtinDestinations: BuiltinDestination[] = [
   },
   {
     id: "syntax", kind: "tool", placement: "sidebar", group: "参考", title: "Kirin Tor 语法参考", eyebrow: "参考",
-    description: "搜索写作规则并查看可复制的完整示例。", commandLabel: "打开 Kirin Tor 语法参考",
+    description: "集中查询官方语法项、字段约束和可复制示例。", commandLabel: "打开 Kirin Tor 语法参考",
     keywords: ["syntax", "reference", "docs", "help", "语法", "参考", "文档", "帮助", "示例", "Agent", "协作"],
     icon: "book", drawerSize: tokens.size.drawerReference,
   },

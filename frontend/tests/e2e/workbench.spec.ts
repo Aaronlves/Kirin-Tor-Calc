@@ -202,6 +202,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     let reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
+    await expect(reference).toContainText("34 个官方语法项集中");
     await expect(reference.getByText("11 个匹配主题", { exact: true })).toBeVisible();
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("Agent");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
@@ -211,6 +212,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有界 Process、场景与策略分析" })).toBeVisible();
     await expect(reference).toContainText("last_before");
+    await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("maximum_entities");
+    await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
+    await expect(reference.getByRole("heading", { name: "scenario", exact: true })).toBeVisible();
+    await expect(reference.getByRole("row", { name: /bounds.*五个封闭字段/ })).toContainText("maximum_entities");
     await reference.getByRole("textbox", { name: "搜索语法参考" }).fill("有限分布");
     await expect(reference.getByText("1 个匹配主题", { exact: true })).toBeVisible();
     await expect(reference.getByRole("heading", { name: "有限离散分布" })).toBeVisible();
@@ -238,6 +243,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByLabel("语法参考", { exact: true }).click();
     const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
     await expect(reference).toBeVisible();
+    await expect(reference.getByText("官方语法参考", { exact: true })).toBeVisible();
+    await expect(reference.getByRole("table").first()).toBeVisible();
     await expect(page.locator(".syntax-example pre > code")).toHaveAttribute("tabindex", "0");
     await page.waitForTimeout(350);
     results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();

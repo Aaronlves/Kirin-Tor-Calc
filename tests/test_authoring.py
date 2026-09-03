@@ -126,6 +126,29 @@ def test_trajectory_measure_authoring_and_help_cover_language_contract() -> None
     visible_help = "\n".join((*process["rules"], process["code"]))
     assert all(name in visible_help for name in TRAJECTORY_MEASURE_OPERATIONS)
 
+    catalog = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "frontend"
+            / "src"
+            / "syntax-reference-catalog.json"
+        ).read_text(encoding="utf-8")
+    )
+    process_catalog = next(item for item in catalog if item["sectionId"] == "process")
+    measure_reference = next(
+        item
+        for item in process_catalog["symbols"]
+        if item["id"] == "scenario-measures-objectives"
+    )
+    structured_help = "\n".join(
+        [
+            measure_reference["signature"],
+            *(field["value"] for field in measure_reference["fields"]),
+            *(field["description"] for field in measure_reference["fields"]),
+        ]
+    )
+    assert all(name in structured_help for name in TRAJECTORY_MEASURE_OPERATIONS)
+
 
 def test_authoring_index_tracks_definitions_aliases_references_and_safe_rename() -> None:
     skill = AuthoringSource(

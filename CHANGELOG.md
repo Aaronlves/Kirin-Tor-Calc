@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Consolidated language help into one Syntax Reference center and added a searchable official
+  catalog of public declarations, signatures, contexts, required and optional fields, allowed
+  values, defaults, limits, and short descriptions while retaining validated full examples.
 - Tightened the sole `@kirin 2` language as a clean cutover: scalar field/function/output types
   are now preserved, enforced, and round-tripped; lowercase boolean literals have one meaning;
   Python-keyword or literal-reserved IDs, duplicate function parameters and block properties, unknown table or
