@@ -13,7 +13,7 @@ npm run tokens:check
 npm run design:check
 npm run typecheck
 npm run build
-npx playwright install chromium firefox webkit
+npx playwright install chromium webkit
 npm run test:e2e
 npm run test:bundle
 ```
@@ -38,8 +38,10 @@ diff -qr frontend/dist src/kirin_tor/web_assets
 The Playwright suite builds the frontend and serves it against disposable
 workspaces. It covers the main authoring, projection, navigation, recovery,
 workspace-search, document-lifecycle, syntax-reference, tutorial, graph, and
-conflict flows. Chromium, Firefox, and WebKit run the functional suite;
-axe-core checks key surfaces and Chromium/WebKit retain layout screenshots.
+conflict flows. Chromium and WebKit run the supported functional suite and
+retain layout screenshots; axe-core checks key surfaces. Firefox is temporarily
+outside the supported and tested browser matrix because Playwright's bundled
+Firefox cannot start on macOS 27.
 Tests never write to the checked-in repository example.
 
 `npm run test:bundle` enforces explicit entry, largest-chunk, total-JavaScript, and total-CSS byte budgets.

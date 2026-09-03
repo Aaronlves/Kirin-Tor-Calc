@@ -38,6 +38,29 @@ async function openCompletion(page: Page, editor: Locator, prefix: string, name:
   return option;
 }
 
+async function selectWorkspaceProfile(page: Page, name: string) {
+  const settings = page.getByRole("dialog", { name: "工作台设置" });
+  const option = page.getByRole("option", { name, exact: true });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!(await settings.isVisible())) {
+      await page.getByRole("button", { name: "设置", exact: true }).click();
+      await expect(settings).toBeVisible();
+    }
+    await settings.getByRole("combobox", { name: "界面 Profile" }).click();
+    try {
+      await option.waitFor({ state: "visible", timeout: 3000 });
+      await option.click();
+      return settings;
+    } catch {
+      // Mantine portals can close while the Settings drawer is being replaced.
+      // Reopen the current drawer and retry the same explicit selection.
+    }
+  }
+  await expect(option).toBeVisible();
+  await option.click();
+  return settings;
+}
+
 test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   test.afterEach(async ({ request }) => {
     await request.post("/api/recovery", {
@@ -77,10 +100,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "关系图" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Build 大厅", exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "工作台设置" });
-    await settings.getByRole("combobox", { name: "界面 Profile" }).click();
-    await page.getByRole("option", { name: "Kirin Tor 默认" }).click();
+    const settings = await selectWorkspaceProfile(page, "Kirin Tor 默认");
     await expect(page.getByRole("button", { name: "关系图" })).toBeVisible();
     await settings.getByRole("button", { name: "关闭工作区工具" }).click();
 
@@ -529,8 +549,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(editor).not.toContainText("// windows shortcut save", { timeout: 8000 });
   });
 
-  test("核心工作台布局保持视觉基线", async ({ page, browserName }) => {
-    test.skip(browserName === "firefox", "Firefox 由完整功能套件覆盖；像素基线保留 Chromium 与 WebKit 两种渲染路径。");
+  test("核心工作台布局保持视觉基线", async ({ page }) => {
     await openWorkbench(page);
     await openCombo(page);
     await expect(page.locator('[aria-label="工作区状态：工作区有效"]')).toBeVisible();

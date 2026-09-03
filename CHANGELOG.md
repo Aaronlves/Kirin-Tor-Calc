@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Narrowed the supported browser and Playwright acceptance matrix to Chromium and WebKit while
+  Firefox remains unable to start under Playwright 1.62.1 on macOS 27; this removes Firefox from
+  the current support claim without treating the upstream launch failure as a Kirin Tor defect.
 - Accepted exact percentage and compatible unit-quantity literals for static input defaults, and
   allowed delimiter-aware nested indentation in static and Process expression continuations.
 - Added read-only bounded Process Analysis execution to the thin MCP server, with event traces

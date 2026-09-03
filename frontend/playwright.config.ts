@@ -10,7 +10,6 @@ export default defineConfig({
   reporter: [["list"]],
   projects: [
     { name: "chromium", use: { browserName: "chromium" } },
-    { name: "firefox", use: { browserName: "firefox" } },
     { name: "webkit", use: { browserName: "webkit" } },
   ],
   globalTeardown: "./tests/e2e_teardown.ts",
