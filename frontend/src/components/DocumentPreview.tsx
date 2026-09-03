@@ -208,6 +208,19 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
 
   const selectedTarget = entryTargets.find((item) => item.value === target);
   const selectedAnalysis = entryAnalyses.find((item) => item.value === analysisTarget);
+  const navigateToTargetSource = (targetId: string) => {
+    const symbol = controller.authoringIndex.symbols.find((item) => item.id === targetId);
+    if (!symbol) return;
+    onNavigateToSource(
+      symbol.definition.key,
+      symbol.definition.line,
+      symbol.definition.column,
+    );
+  };
+  const navigateToAnalysisSource = () => {
+    if (!selectedAnalysis?.line) return;
+    onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column);
+  };
   const relevantInputs = controller.workspaceIndex.inputs.filter((input) => selectedTarget?.inputs?.includes(input.value));
   const trialOverrides = useMemo(() => {
     const overrides: Record<string, string> = {};
@@ -495,9 +508,9 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
                 {processCharts.map((chartResult) => <section className="preview-chart-card" key={String(chartResult.id)}>
                   <Group className="preview-chart-card-header" justify="space-between" wrap="nowrap">
                     <Box><Text fw={650} fz="sm">{String(chartResult.label ?? chartResult.id)}</Text><Text c="dimmed" fz="xs">{String(chartResult.id)}</Text></Box>
-                    <Group gap={4} wrap="nowrap"><Badge variant="outline" color="gray">{String(chartResult.kind ?? "—")}</Badge><Button aria-label="展开预览" variant="subtle" color="gray" size="compact-xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreview({ kind: "process", chart: chartResult })}>展开</Button></Group>
+                    <Group gap={4} wrap="nowrap"><Badge variant="outline" color="gray">{String(chartResult.kind ?? "—")}</Badge>{selectedAnalysis?.line && <Button aria-label="定位分析图表源码" variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={navigateToAnalysisSource}>源码</Button>}<Button aria-label="展开预览" variant="subtle" color="gray" size="compact-xs" leftSection={<Maximize2 size={13} />} onClick={() => setExpandedPreview({ kind: "process", chart: chartResult })}>展开</Button></Group>
                   </Group>
-                  <DeferredChart label={`${String(chartResult.label ?? chartResult.id)}图表`}><ProcessChartCanvas chart={chartResult} /></DeferredChart>
+                  <DeferredChart label={`${String(chartResult.label ?? chartResult.id)}图表`}><ProcessChartCanvas chart={chartResult} onActivate={selectedAnalysis?.line ? navigateToAnalysisSource : undefined} /></DeferredChart>
                 </section>)}
               </div>
             </Box>}
@@ -518,7 +531,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
                       <Button variant="subtle" color="gray" size="compact-xs" leftSection={<FileOutput size={13} />} onClick={() => { setExportChartConfig(config); setExportOpened(true); }}>导出</Button>
                     </Group>
                   </Group>
-                  <DeferredChart label={`${String(chartResult.label ?? config)}图表`}><ChartCanvas result={chartResult as OperationResult} /></DeferredChart>
+                  <DeferredChart label={`${String(chartResult.label ?? config)}图表`}><ChartCanvas result={chartResult as OperationResult} onSelectTarget={navigateToTargetSource} /></DeferredChart>
                   <Group className="preview-chart-card-meta" gap={6}><Badge variant="outline" color="gray">静态扫描</Badge><Badge variant="light" color="green">{Array.isArray(chartResult.rows) ? chartResult.rows.length : 0} 个采样点</Badge><Badge variant="outline" color="gray">{String(chartResult.x || "—")}</Badge></Group>
                 </section>;
               })}
@@ -539,7 +552,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
         <Stack><Text c="dimmed" fz="xs">运行记录只引用已经保存的 `.kirin` 权威源码；临时输入会作为请求参数进入记录。</Text><TextInput label="运行记录 ID" description="仅限 ASCII 字母、数字、下划线和连字符" value={trialRunId} onChange={(event) => setTrialRunId(event.currentTarget.value)} error={trialRunId.trim() && !trialRunIdValid ? "运行记录 ID 无效" : undefined} /><Group justify="flex-end"><Button variant="default" onClick={() => setRunOpened(false)}>取消</Button><Button variant="default" loading={savingRun} disabled={!trialRunIdValid || controller.dirtyCount > 0} onClick={() => { void saveTrialRun(); }}>保存记录</Button></Group></Stack>
       </Modal>
       <Modal fullScreen opened={expandedPreview !== null} onClose={() => setExpandedPreview(null)} title={expandedPreview ? String(expandedPreview.chart.label ?? expandedPreview.chart.id ?? expandedPreview.chart.config ?? "展开图表预览") : "展开图表预览"}>
-        {expandedPreview && <div className="expanded-chart-preview">{expandedPreview.kind === "static" ? <ChartCanvas result={expandedPreview.chart as OperationResult} /> : <ProcessChartCanvas chart={expandedPreview.chart} />}</div>}
+        {expandedPreview && <div className="expanded-chart-preview">{expandedPreview.kind === "static" ? <ChartCanvas result={expandedPreview.chart as OperationResult} onSelectTarget={navigateToTargetSource} /> : <ProcessChartCanvas chart={expandedPreview.chart} onActivate={selectedAnalysis?.line ? navigateToAnalysisSource : undefined} />}</div>}
       </Modal>
     </>
   );

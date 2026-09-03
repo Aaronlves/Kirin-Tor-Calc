@@ -12,6 +12,7 @@ import {
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
 
+import { initKirinEChart, KIRIN_ECHARTS_TOOLTIP_CLASS, kirinEChartsTokens } from "../charts/kirinEChartsTheme";
 import type { OperationResult } from "../types";
 
 echarts.use([
@@ -25,8 +26,6 @@ echarts.use([
   VisualMapComponent,
   CanvasRenderer,
 ]);
-
-const colors = ["#d97757", "#85a56f", "#7599b2", "#c19a5b", "#a88bbb", "#d16f78", "#6fa7a0", "#9a9388"];
 
 function numeric(value: unknown): number | null {
   const parsed = Number(value);
@@ -49,6 +48,48 @@ function displayedCell(cell: unknown): string {
   return cell === null || cell === undefined ? "无效" : String(cell);
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function withUnit(value: unknown, unit: unknown): string {
+  const suffix = unit && unit !== "dimensionless" ? ` ${String(unit)}` : "";
+  return `${displayedCell(value)}${suffix}`;
+}
+
+function lineTooltip(result: OperationResult, params: unknown): string {
+  const items = (Array.isArray(params) ? params : [params]) as Array<{
+    seriesId?: string;
+    seriesName?: string;
+    data?: { rowIndex?: number };
+  }>;
+  const sourceRows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
+  const rowIndex = items.find((item) => Number.isInteger(item.data?.rowIndex))?.data?.rowIndex;
+  const row = rowIndex === undefined ? null : sourceRows[rowIndex];
+  if (!row) return "";
+  const values = row.values && typeof row.values === "object" ? row.values as Record<string, unknown> : {};
+  const units = result.units && typeof result.units === "object" ? result.units as Record<string, unknown> : {};
+  const xLabel = String(result.x_display_label || result.x || "横轴");
+  const lines = items.map((item) => {
+    const target = String(item.seriesId || "");
+    return `${escapeHtml(item.seriesName || target)}：${escapeHtml(withUnit(values[target], units[target]))}`;
+  });
+  return `<strong>${escapeHtml(xLabel)} = ${escapeHtml(withUnit(row.x, result.x_unit))}</strong><br/>${lines.join("<br/>")}`;
+}
+
+function heatmapTooltip(result: OperationResult, row: Record<string, unknown>): string {
+  return [
+    `${escapeHtml(String(result.x || "横轴"))} = ${escapeHtml(withUnit(row.x, result.x_unit))}`,
+    `${escapeHtml(String(result.y || "纵轴"))} = ${escapeHtml(withUnit(row.y, result.y_unit))}`,
+    `<strong>${escapeHtml(String(result.target_label || result.target || "结果"))} = ${escapeHtml(withUnit(row.value, result.unit))}</strong>`,
+  ].join("<br/>");
+}
+
 function accessibleRows(result: OperationResult): string[] {
   const rows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
   if (result.operation === "grid") {
@@ -65,7 +106,15 @@ function accessibleRows(result: OperationResult): string[] {
   });
 }
 
-function lineOption(result: OperationResult): EChartsOption {
+function chartTargets(result: OperationResult): Array<{ id: string; label: string }> {
+  const labels = result.labels && typeof result.labels === "object" ? result.labels as Record<string, string> : {};
+  const targets = result.operation === "grid"
+    ? [result.target].filter((target): target is string => typeof target === "string" && Boolean(target))
+    : Array.isArray(result.targets) ? result.targets.map(String) : [];
+  return [...new Set(targets)].map((id) => ({ id, label: labels[id] || String(result.target_label || id) }));
+}
+
+function lineOption(result: OperationResult, interactive: boolean): EChartsOption {
   const rows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
   const targets = Array.isArray(result.targets) ? result.targets.map(String) : [];
   const labels = result.labels && typeof result.labels === "object" ? result.labels as Record<string, string> : {};
@@ -73,25 +122,20 @@ function lineOption(result: OperationResult): EChartsOption {
   const isNumericAxis = xValues.every((value) => typeof value === "number");
   return {
     animation: false,
-    color: colors,
-    backgroundColor: "transparent",
-    textStyle: { color: "#9c998f", fontFamily: "Inter, sans-serif" },
     grid: { left: 52, right: 18, top: 56, bottom: 72, containLabel: false },
     legend: {
       top: 10,
       left: 10,
       itemWidth: 16,
       itemHeight: 2,
-      textStyle: { color: "#b8b4aa", fontSize: 11 },
+      textStyle: { fontSize: 11 },
       data: targets.map((target) => labels[target] || target),
     },
     tooltip: {
       trigger: "axis",
-      backgroundColor: "#1d1c18",
-      borderColor: "#3a3832",
-      borderWidth: 1,
-      textStyle: { color: "#eeeae1", fontSize: 12 },
-      axisPointer: { lineStyle: { color: "#69645b", type: "dashed" } },
+      className: KIRIN_ECHARTS_TOOLTIP_CLASS,
+      axisPointer: { type: "line", label: { show: true } },
+      formatter: (params: unknown) => lineTooltip(result, params),
     },
     dataZoom: [
       { type: "inside", filterMode: "none" },
@@ -99,11 +143,11 @@ function lineOption(result: OperationResult): EChartsOption {
         type: "slider",
         height: 18,
         bottom: 18,
-        borderColor: "#34322d",
-        backgroundColor: "#151512",
-        fillerColor: "rgba(217, 119, 87, .18)",
-        handleStyle: { color: "#d97757", borderColor: "#d97757" },
-        textStyle: { color: "#8f8a80", fontSize: 11 },
+        borderColor: kirinEChartsTokens.dataZoomBorder,
+        backgroundColor: kirinEChartsTokens.dataZoomBackground,
+        fillerColor: kirinEChartsTokens.dataZoomFiller,
+        handleStyle: { color: kirinEChartsTokens.accent, borderColor: kirinEChartsTokens.accent },
+        textStyle: { color: kirinEChartsTokens.axisText, fontSize: 11 },
       },
     ],
     xAxis: {
@@ -113,22 +157,19 @@ function lineOption(result: OperationResult): EChartsOption {
       nameGap: 46,
       boundaryGap: false,
       data: isNumericAxis ? undefined : xValues,
-      axisLine: { lineStyle: { color: "#45423b" } },
-      axisTick: { lineStyle: { color: "#45423b" } },
-      axisLabel: { color: "#918d84", fontSize: 11, hideOverlap: true },
-      splitLine: { lineStyle: { color: "#25241f" } },
+      axisLabel: { hideOverlap: true },
     } as EChartsOption["xAxis"],
     yAxis: {
       type: "value",
       axisLine: { show: false },
-      axisLabel: { color: "#918d84", fontSize: 11 },
-      splitLine: { lineStyle: { color: "#25241f" } },
     },
     series: targets.map((target, targetIndex) => ({
+      id: target,
       name: labels[target] || target,
       type: "line",
+      cursor: interactive ? "pointer" : "default",
       showSymbol: rows.length <= 24,
-      symbolSize: 5,
+      symbolSize: interactive ? 10 : 5,
       smooth: false,
       connectNulls: false,
       lineStyle: { width: 2 },
@@ -136,38 +177,40 @@ function lineOption(result: OperationResult): EChartsOption {
       data: rows.map((row, rowIndex) => {
         const values = row.values && typeof row.values === "object" ? row.values as Record<string, unknown> : {};
         const y = valueFromCell(values[target]);
-        return isNumericAxis ? [xValues[rowIndex], y] : y;
+        return {
+          value: isNumericAxis ? [xValues[rowIndex], y] : y,
+          rowIndex,
+          target,
+        };
       }),
       z: targets.length - targetIndex,
     })),
   };
 }
 
-function heatmapOption(result: OperationResult): EChartsOption {
+function heatmapOption(result: OperationResult, interactive: boolean): EChartsOption {
   const rows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
   const xValues = [...new Set(rows.map((row) => String(row.x ?? "")))];
   const yValues = [...new Set(rows.map((row) => String(row.y ?? "")))];
-  const data = rows.map((row) => [
+  const values = rows.map((row) => [
     xValues.indexOf(String(row.x ?? "")),
     yValues.indexOf(String(row.y ?? "")),
     valueFromCell(row.value),
   ]);
-  const numbers = data.map((item) => item[2]).filter((value): value is number => typeof value === "number");
+  const data = values.map((value, rowIndex) => ({ value, rowIndex, target: String(result.target || "result") }));
+  const numbers = values.map((item) => item[2]).filter((value): value is number => typeof value === "number");
   const min = numbers.length ? Math.min(...numbers) : 0;
   const max = numbers.length ? Math.max(...numbers) : 1;
   return {
     animation: false,
-    backgroundColor: "transparent",
-    textStyle: { color: "#9c998f", fontFamily: "Inter, sans-serif" },
     grid: { left: 84, right: 88, top: 38, bottom: 66 },
     tooltip: {
       position: "top",
-      backgroundColor: "#1d1c18",
-      borderColor: "#3a3832",
-      textStyle: { color: "#eeeae1" },
+      className: KIRIN_ECHARTS_TOOLTIP_CLASS,
       formatter: (params: unknown) => {
-        const item = params as { data: [number, number, number | null] };
-        return `${String(result.x)} = ${xValues[item.data[0]]}<br/>${String(result.y)} = ${yValues[item.data[1]]}<br/><strong>${item.data[2] ?? "无效"}</strong>`;
+        const item = params as { data?: { rowIndex?: number } };
+        const row = Number.isInteger(item.data?.rowIndex) ? rows[item.data?.rowIndex ?? -1] : null;
+        return row ? heatmapTooltip(result, row) : "";
       },
     },
     xAxis: {
@@ -176,17 +219,15 @@ function heatmapOption(result: OperationResult): EChartsOption {
       name: String(result.x || "横轴"),
       nameLocation: "middle",
       nameGap: 40,
-      splitArea: { show: true, areaStyle: { color: ["#151512", "#171714"] } },
-      axisLine: { lineStyle: { color: "#45423b" } },
-      axisLabel: { color: "#817d74", hideOverlap: true },
+      splitArea: { show: true, areaStyle: { color: [...kirinEChartsTokens.heatmapAreas] } },
+      axisLabel: { color: kirinEChartsTokens.axisTextMuted, hideOverlap: true },
     },
     yAxis: {
       type: "category",
       data: yValues,
       name: String(result.y || "纵轴"),
-      splitArea: { show: true, areaStyle: { color: ["#151512", "#171714"] } },
-      axisLine: { lineStyle: { color: "#45423b" } },
-      axisLabel: { color: "#817d74", hideOverlap: true },
+      splitArea: { show: true, areaStyle: { color: [...kirinEChartsTokens.heatmapAreas] } },
+      axisLabel: { color: kirinEChartsTokens.axisTextMuted, hideOverlap: true },
     },
     visualMap: {
       min,
@@ -195,41 +236,93 @@ function heatmapOption(result: OperationResult): EChartsOption {
       orient: "vertical",
       right: 12,
       top: "center",
-      textStyle: { color: "#918d84", fontSize: 11 },
-      inRange: { color: ["#2a2521", "#7a4738", "#d97757", "#e8b86d"] },
+      inRange: { color: [...kirinEChartsTokens.heatmapScale] },
     },
     series: [{
+      id: String(result.target || "result"),
       name: String(result.target_label || result.target || "结果"),
       type: "heatmap",
+      cursor: interactive ? "pointer" : "default",
       data,
-      label: { show: data.length <= 100, color: "#f5efe6", fontSize: 11 },
-      emphasis: { itemStyle: { borderColor: "#f2efe8", borderWidth: 1 } },
+      label: { show: data.length <= 100, color: kirinEChartsTokens.tooltipText, fontSize: 11 },
+      emphasis: { itemStyle: { borderColor: kirinEChartsTokens.emphasis, borderWidth: 1 } },
     }],
   };
 }
 
-export function ChartCanvas({ result }: { result: OperationResult }) {
+export function ChartCanvas({ result, onSelectTarget }: { result: OperationResult; onSelectTarget?: (target: string) => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReturnType<typeof initKirinEChart> | null>(null);
   const rows = accessibleRows(result);
+  const targets = chartTargets(result);
   const label = result.operation === "grid" ? "计算热力图" : "计算曲线";
+  const interactive = Boolean(onSelectTarget);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const chart = echarts.init(hostRef.current, undefined, { renderer: "canvas" });
-    chart.setOption(result.operation === "grid" ? heatmapOption(result) : lineOption(result), true);
+    const chart = initKirinEChart(hostRef.current);
+    chartRef.current = chart;
+    chart.setOption(result.operation === "grid" ? heatmapOption(result, interactive) : lineOption(result, interactive), true);
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(hostRef.current);
     return () => {
       observer.disconnect();
+      chartRef.current = null;
       chart.dispose();
     };
-  }, [result]);
+  }, [interactive, result]);
+
+  const activateTargetAtPoint = (point: [number, number]) => {
+    const chart = chartRef.current;
+    if (!chart || !hostRef.current) return;
+    const width = hostRef.current.clientWidth;
+    const height = hostRef.current.clientHeight;
+    const gridBounds = result.operation === "grid"
+      ? { left: 84, right: 88, top: 38, bottom: 66 }
+      : { left: 52, right: 18, top: 56, bottom: 72 };
+    if (
+      point[0] < gridBounds.left
+      || point[0] > width - gridBounds.right
+      || point[1] < gridBounds.top
+      || point[1] > height - gridBounds.bottom
+    ) return;
+    if (result.operation === "grid") {
+      if (targets[0]) onSelectTarget?.(targets[0].id);
+      return;
+    }
+    if (targets.length === 1) {
+      onSelectTarget?.(targets[0].id);
+      return;
+    }
+    const sourceRows = Array.isArray(result.rows) ? result.rows as Array<Record<string, unknown>> : [];
+    let nearest: { target: string; distance: number } | null = null;
+    for (const target of targets) {
+      for (const row of sourceRows) {
+        const values = row.values && typeof row.values === "object" ? row.values as Record<string, unknown> : {};
+        const y = valueFromCell(values[target.id]);
+        const x = numeric(row.x_approximate ?? row.x) ?? String(row.x ?? "");
+        if (y === null) continue;
+        const candidate = chart.convertToPixel({ xAxisIndex: 0, yAxisIndex: 0 }, [x, y]);
+        if (!Array.isArray(candidate) || candidate.length < 2) continue;
+        const distance = Math.hypot(Number(candidate[0]) - point[0], Number(candidate[1]) - point[1]);
+        if (!Number.isFinite(distance) || (nearest && nearest.distance <= distance)) continue;
+        nearest = { target: target.id, distance };
+      }
+    }
+    if (nearest && nearest.distance <= 18) onSelectTarget?.(nearest.target);
+  };
 
   return (
     <div className="chart-visualization">
-      <div className="chart-canvas" ref={hostRef} role="img" aria-label={`${label}；下方提供键盘数据列表`} />
+      <div className="chart-canvas" ref={hostRef} role="img" aria-label={`${label}；下方提供键盘数据列表`} onClickCapture={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        activateTargetAtPoint([event.clientX - rect.left, event.clientY - rect.top]);
+      }} />
       <details className="canvas-data-fallback">
         <summary>使用键盘查看 {rows.length} 个图表数据点</summary>
+        {onSelectTarget && targets.length > 0 && <div className="chart-source-targets" role="group" aria-label="图表系列源码">
+          {targets.map((target) => <button type="button" key={target.id} onClick={() => onSelectTarget(target.id)}>定位 {target.label} 源码</button>)}
+        </div>}
         <ol className="chart-data-list" aria-label={`${label}数据`}>
           {rows.map((row, index) => <li key={`${index}-${row}`} tabIndex={0}>{row}</li>)}
         </ol>

@@ -5,6 +5,7 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
 
+import { initKirinEChart, KIRIN_ECHARTS_TOOLTIP_CLASS, kirinEChartsTokens, kirinGraphCategoryColors } from "../charts/kirinEChartsTheme";
 import type { RelationshipEdge, RelationshipNode } from "../types";
 
 echarts.use([GraphChart, LegendComponent, TooltipComponent, CanvasRenderer]);
@@ -22,19 +23,6 @@ const categoryLabels: Record<string, string> = {
   process: "过程",
   scenario: "场景",
   analysis: "分析",
-};
-const categoryColors: Record<string, string> = {
-  document: "#d97757",
-  input: "#6fa7a0",
-  field: "#a88bbb",
-  function: "#c19a5b",
-  table: "#85a56f",
-  distribution: "#d16f78",
-  object: "#9a9388",
-  output: "#7599b2",
-  process: "#d97757",
-  scenario: "#6fa7a0",
-  analysis: "#c19a5b",
 };
 const emptyRootIds: string[] = [];
 
@@ -87,7 +75,7 @@ export function RelationshipGraphCanvas({
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const chart = echarts.init(hostRef.current, undefined, { renderer: "canvas" });
+    const chart = initKirinEChart(hostRef.current);
     const degree = new Map<string, number>();
     const labelCounts = new Map<string, number>();
     for (const node of sortedNodes) labelCounts.set(node.label, (labelCounts.get(node.label) || 0) + 1);
@@ -97,30 +85,26 @@ export function RelationshipGraphCanvas({
     }
     const categories = categoryOrder
       .filter((kind) => sortedNodes.some((node) => node.kind === kind))
-      .map((kind) => ({ name: categoryLabels[kind] || kind, itemStyle: { color: categoryColors[kind] || "#8d887d" } }));
+      .map((kind) => ({ name: categoryLabels[kind] || kind, itemStyle: { color: kirinGraphCategoryColors[kind] || kirinEChartsTokens.graphFallback } }));
     const categoryIndex = new Map(categories.map((category, index) => [category.name, index]));
     const option: EChartsOption = {
       animation: false,
-      backgroundColor: "transparent",
       tooltip: {
-        backgroundColor: "#1d1c18",
-        borderColor: "#3a3832",
-        borderWidth: 1,
-        textStyle: { color: "#eeeae1", fontSize: 12 },
+        className: KIRIN_ECHARTS_TOOLTIP_CLASS,
         formatter: (params: unknown) => {
           const item = params as { dataType?: string; data?: { id?: string } };
           if (item.dataType !== "node" || !item.data?.id) return "公式依赖";
           const node = nodeMap.get(item.data.id);
           if (!node) return "";
           const scope = rootIdSet.has(node.id) ? " · 当前文档" : "";
-          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:#99958b">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}${scope}</span>`;
+          return `<strong>${escapeHtml(node.label)}</strong><br/><span style="color:${kirinEChartsTokens.tooltipMuted}">${escapeHtml(node.id)} · ${escapeHtml(categoryLabels[node.kind] || node.kind)}${scope}</span>`;
         },
       },
       legend: compact ? undefined : [{
         top: 10,
         left: 12,
         data: categories.map((category) => category.name),
-        textStyle: { color: "#a8a399", fontSize: 11 },
+        textStyle: { color: kirinEChartsTokens.legendText, fontSize: 11 },
         itemWidth: 10,
         itemHeight: 10,
       }],
@@ -137,13 +121,13 @@ export function RelationshipGraphCanvas({
           category: categoryIndex.get(categoryLabels[node.kind] || node.kind) ?? 0,
           symbolSize: Math.min(compact ? 25 : 38, (compact ? 13 : 17) + Math.sqrt(degree.get(node.id) || 1) * 3 + (rootIdSet.has(node.id) ? 2 : 0)),
           itemStyle: {
-            color: categoryColors[node.kind] || "#8d887d",
-            borderColor: rootIdSet.has(node.id) ? "#df8665" : "#171612",
+            color: kirinGraphCategoryColors[node.kind] || kirinEChartsTokens.graphFallback,
+            borderColor: rootIdSet.has(node.id) ? kirinEChartsTokens.graphRootBorder : kirinEChartsTokens.graphNodeBorder,
             borderWidth: rootIdSet.has(node.id) ? 2 : 1,
           },
           label: {
             show: sortedNodes.length <= (compact ? 18 : 45),
-            color: "#b9b5aa",
+            color: kirinEChartsTokens.legendText,
             fontSize: compact ? 11 : 12,
             position: "right",
           },
@@ -166,7 +150,7 @@ export function RelationshipGraphCanvas({
         edgeSymbolSize: [0, compact ? 5 : 7],
         lineStyle: { color: "source", opacity: 0.48, width: 1.25, curveness: 0.08 },
         emphasis: { focus: "adjacency", lineStyle: { opacity: 1, width: 2 } },
-        select: { itemStyle: { borderColor: "#fff4e8", borderWidth: 2 } },
+        select: { itemStyle: { borderColor: kirinEChartsTokens.graphSelectedBorder, borderWidth: 2 } },
       }],
     };
     chart.setOption(option, true);
