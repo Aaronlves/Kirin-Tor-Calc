@@ -19,6 +19,7 @@ from .limits import (
     MAX_ANALYSES_PER_ENTRY,
     MAX_PROCESSES_PER_ENTRY,
     MAX_SCENARIOS_PER_ENTRY,
+    MAX_STATIC_CHARTS_PER_ENTRY,
 )
 from .process_ast import ProcessAst
 from .scenario_ast import AnalysisAst, ScenarioAst
@@ -364,7 +365,7 @@ def parse_kirin_v2_source(
     objects: Dict[str, Any] = {}
     displays: Dict[str, Tuple[str, Optional[int], _Line]] = {}
     source_ids: set[str] = set()
-    chart_seen = False
+    charts: Dict[str, Any] = {}
     process_asts = []
     process_ids = set()
     scenario_asts = []
@@ -771,55 +772,73 @@ def parse_kirin_v2_source(
             )
             continue
         if text_head.startswith("chart "):
-            if chart_seen:
-                _fail(path, "an entry may declare only one chart", node.line, "chart")
             match = _NAMED_BLOCK_RE.fullmatch(text_head)
             if not match or match.group("kind") != "chart":
                 _fail(path, 'chart must use chart ID ["LABEL"]:', node.line, "chart")
-            chart_seen = True
+            chart_id = match.group("name")
+            if chart_id in charts:
+                _fail(path, f"duplicate chart {chart_id!r}", node.line, f"charts.{chart_id}")
             values: Dict[str, Any] = {}
             labels: Dict[str, str] = {}
+            curves: List[str] = []
+            chart_properties: set[str] = set()
             for child in node.children:
                 if child.line.text == "y:":
-                    curves = _list(child, path, "y")
-                    raw["y"] = []
-                    for curve in curves:
+                    if "y" in chart_properties:
+                        _fail(path, "duplicate chart property 'y'", child.line, f"charts.{chart_id}.y")
+                    chart_properties.add("y")
+                    raw_curves = _list(child, path, f"charts.{chart_id}.y")
+                    curves = []
+                    for curve in raw_curves:
                         curve_match = re.fullmatch(rf"(.+?)(?:\s+as\s+({QUOTED}))?", curve)
                         assert curve_match is not None
                         target = curve_match.group(1).strip()
-                        raw["y"].append(target)
+                        curves.append(target)
                         if curve_match.group(2):
                             labels[target] = _decode(curve_match.group(2), path, child.line)
+                    _position(positions, f"charts.{chart_id}.y", child.line)
                 else:
                     assignment = _ASSIGN_RE.fullmatch(child.line.text)
                     if not assignment:
                         _fail(path, "chart property must use NAME = VALUE", child.line, "chart")
-                    values[assignment.group("name")] = assignment.group("value").strip()
-            for required in ("x", "range", "points"):
+                    property_name = assignment.group("name")
+                    if property_name in chart_properties:
+                        _fail(path, f"duplicate chart property {property_name!r}", child.line, f"charts.{chart_id}.{property_name}")
+                    chart_properties.add(property_name)
+                    values[property_name] = assignment.group("value").strip()
+                    _position(positions, f"charts.{chart_id}.{property_name}", child.line)
+            for required in ("x", "range", "points", "y"):
+                if required == "y" and curves:
+                    continue
                 if required not in values:
                     _fail(path, f"chart is missing {required}", node.line, "chart")
-            raw["x"] = values["x"]
+            chart: Dict[str, Any] = {"x": values["x"], "y": curves}
             start, separator, end = values["range"].partition("..")
             if not separator:
                 _fail(path, "chart range must use START..END", node.line, "chart")
-            raw["range"] = [normalize_expression(start.strip()), normalize_expression(end.strip())]
+            chart["range"] = [normalize_expression(start.strip()), normalize_expression(end.strip())]
             try:
-                raw["points"] = int(values["points"])
+                chart["points"] = int(values["points"])
             except ValueError:
                 _fail(path, "chart points must be an integer", node.line, "chart")
             key_map = {
                 "using": "preset", "title": "title", "x_label": "x_label", "y_label": "y_label",
                 "export_svg": "out", "export_csv": "data_out",
             }
+            unknown = sorted(set(values) - {"x", "range", "points", *key_map})
+            if unknown:
+                _fail(path, f"unknown chart property {unknown[0]!r}", node.line, f"charts.{chart_id}")
             for source, target in key_map.items():
                 if source in values:
-                    raw[target] = _atom(values[source], path, node.line)
+                    chart[target] = _atom(values[source], path, node.line)
             if labels:
-                raw["curve_labels"] = labels
-            if match.group("label") and "title" not in raw:
-                raw["title"] = _decode(match.group("label"), path, node.line)
-            _position(positions, "x", node.line)
-            _position(positions, "display", node.line)
+                chart["curve_labels"] = labels
+            if match.group("label") and "title" not in chart:
+                chart["title"] = _decode(match.group("label"), path, node.line)
+            charts[chart_id] = chart
+            _position(positions, f"charts.{chart_id}", node.line)
+            if len(charts) > MAX_STATIC_CHARTS_PER_ENTRY:
+                _fail(path, f"entry exceeds {MAX_STATIC_CHARTS_PER_ENTRY} static charts", node.line, "charts")
             continue
 
         declaration = _NAMED_BLOCK_RE.fullmatch(text_head)
@@ -855,6 +874,14 @@ def parse_kirin_v2_source(
     if aliases:
         raw["aliases"] = aliases
     raw["constraints"] = constraints
+    if len(charts) == 1 and "preview" in charts:
+        # Preserve the structured representation used by existing single-chart
+        # sources and immutable run-record snapshots.
+        raw.update(charts["preview"])
+        positions["x"] = positions.get("charts.preview.x", positions["charts.preview"])
+        positions["display"] = positions["charts.preview"]
+    elif charts:
+        raw["charts"] = charts
     for key, value in (
         ("tables", tables), ("distributions", distributions),
         ("groups", groups), ("presets", presets),
@@ -1087,18 +1114,30 @@ def render_kirin_v2_document(
         for key, value in data["values"].items():
             rendered = "true" if value is True else "false" if value is False else str(value)
             lines.append(f"  {key} = {rendered}")
-    if raw.get("x") is not None:
-        chart = {"label": raw.get("title", raw["id"])}
-        lines.extend(["", _labeled("chart", "preview", chart), f"  x = {raw['x']}", f"  range = {raw['range'][0]}..{raw['range'][1]}", f"  points = {raw['points']}", "  y:"])
-        labels = raw.get("curve_labels", {})
-        for target in raw["y"]:
+    charts = raw.get("charts", {})
+    if not charts and raw.get("x") is not None:
+        charts = {
+            "preview": {
+                key: raw[key]
+                for key in (
+                    "x", "range", "points", "y", "preset", "out", "data_out",
+                    "title", "x_label", "y_label", "curve_labels",
+                )
+                if key in raw
+            }
+        }
+    for chart_id, chart_raw in charts.items():
+        chart = {"label": chart_raw.get("title", chart_id)}
+        lines.extend(["", _labeled("chart", chart_id, chart), f"  x = {chart_raw['x']}", f"  range = {chart_raw['range'][0]}..{chart_raw['range'][1]}", f"  points = {chart_raw['points']}", "  y:"])
+        labels = chart_raw.get("curve_labels", {})
+        for target in chart_raw["y"]:
             line = f"    - {target}"
             if target in labels:
                 line += " as " + _quoted(labels[target])
             lines.append(line)
         mapping = {"preset": "using", "x_label": "x_label", "y_label": "y_label", "out": "export_svg", "data_out": "export_csv"}
         for source, target in mapping.items():
-            if raw.get(source):
-                value = raw[source]
+            if chart_raw.get(source):
+                value = chart_raw[source]
                 lines.append(f"  {target} = {_quoted(value) if source not in {'preset'} else value}")
     return "\n".join(lines).rstrip() + "\n"

@@ -17,6 +17,7 @@ from .limits import (
     MAX_ENTRY_ALIASES,
     MAX_MODEL_INPUTS,
     MAX_NUMERIC_LITERAL_LENGTH,
+    MAX_STATIC_CHARTS_PER_ENTRY,
     MAX_STRUCTURE_FIELDS,
     MAX_STRUCTURE_DEPTH,
     MAX_STRUCTURE_TYPES,
@@ -231,6 +232,43 @@ class Document:
         return SourceLocation(str(self.path), self.id, field_name, line, column)
 
 
+@dataclass(frozen=True)
+class StaticChart:
+    id: str
+    owner_id: str
+    label: str
+    x: str
+    range_start: str
+    range_end: str
+    points: int
+    y: Tuple[str, ...]
+    preset: Optional[str] = None
+    out: Optional[str] = None
+    data_out: Optional[str] = None
+    title: Optional[str] = None
+    x_label: Optional[str] = None
+    y_label: Optional[str] = None
+    curve_labels: Dict[str, str] = field(default_factory=dict)
+    path: Path = field(default=Path("."), compare=False)
+    positions: Dict[str, Tuple[int, int]] = field(default_factory=dict, compare=False)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.owner_id}.{self.id}"
+
+    def location(self, field_name: Optional[str] = None) -> SourceLocation:
+        candidate = f"charts.{self.id}"
+        if field_name:
+            candidate = f"{candidate}.{field_name}"
+        line = column = None
+        while candidate:
+            if candidate in self.positions:
+                line, column = self.positions[candidate]
+                break
+            candidate = candidate.rsplit(".", 1)[0] if "." in candidate else ""
+        return SourceLocation(str(self.path), self.owner_id, field_name, line, column)
+
+
 @dataclass
 class Entry(Document):
     game_version: Optional[str] = None
@@ -255,6 +293,9 @@ class Entry(Document):
     scenarios: Dict[str, "ScenarioIR"] = field(default_factory=dict)
     analysis_asts: Tuple["AnalysisAst", ...] = ()
     analyses: Dict[str, "AnalysisIR"] = field(default_factory=dict)
+    charts: Dict[str, StaticChart] = field(default_factory=dict)
+    # The first chart remains projected through these fields for compatibility
+    # with callers that treated the Entry itself as its sole chart config.
     x: Optional[str] = None
     range_start: Optional[str] = None
     range_end: Optional[str] = None
@@ -270,7 +311,7 @@ class Entry(Document):
 
     @property
     def has_chart(self) -> bool:
-        return self.x is not None
+        return bool(self.charts) or self.x is not None
 
 
 @dataclass(frozen=True)
@@ -680,7 +721,7 @@ TOP_KEYS = {
     "validation_status", "semantics", "aliases", "inputs", "constraints", "fields", "functions", "tables",
     "distributions", "outputs",
     "groups", "presets", "x", "range", "points", "y", "preset", "out", "data_out",
-    "title", "x_label", "y_label", "curve_labels", "types", "objects",
+    "title", "x_label", "y_label", "curve_labels", "charts", "types", "objects",
 }
 
 
@@ -1243,7 +1284,117 @@ def parse_document(
             "x", "range", "points", "y", "preset", "out", "data_out", "title",
             "x_label", "y_label", "curve_labels",
         }
-        chart_present = bool(chart_keys.intersection(raw))
+        legacy_chart_present = bool(chart_keys.intersection(raw))
+        declared_charts = raw.get("charts", {})
+        if legacy_chart_present and declared_charts:
+            raise SchemaError(
+                "entry cannot mix legacy chart fields with named charts",
+                root_location,
+            )
+        charts_raw = require_mapping(declared_charts, "charts", root_location)
+        if len(charts_raw) > MAX_STATIC_CHARTS_PER_ENTRY:
+            raise SchemaError(
+                f"entry exceeds {MAX_STATIC_CHARTS_PER_ENTRY} static charts",
+                root_location,
+            )
+        if legacy_chart_present:
+            charts_raw = {"preview": {key: raw[key] for key in chart_keys if key in raw}}
+
+        static_charts: Dict[str, StaticChart] = {}
+        for chart_id, raw_chart_value in charts_raw.items():
+            chart_prefix = f"charts.{chart_id}" if not legacy_chart_present else ""
+            chart_location = _location(path, doc_id, positions, chart_prefix or "x")
+            require_identifier(chart_id, "chart id", chart_location)
+            raw_chart = require_mapping(raw_chart_value, f"chart {chart_id}", chart_location)
+            _reject_unknown(raw_chart, chart_keys, "chart", chart_location)
+            missing = sorted({"x", "range", "points", "y"} - set(raw_chart))
+            if missing:
+                raise SchemaError(
+                    "chart configuration is missing required key(s): " + ", ".join(missing),
+                    chart_location,
+                )
+
+            def chart_field(name: str) -> str:
+                return f"{chart_prefix}.{name}" if chart_prefix else name
+
+            chart_x = require_parameter_name(
+                raw_chart.get("x"),
+                "chart x",
+                _location(path, doc_id, positions, chart_field("x")),
+            )
+            range_value = raw_chart.get("range")
+            if not isinstance(range_value, list) or len(range_value) != 2:
+                raise SchemaError(
+                    "chart range must be a two-item list",
+                    _location(path, doc_id, positions, chart_field("range")),
+                )
+            range_start = number_text(range_value[0], "chart range start", chart_location)
+            range_end = number_text(range_value[1], "chart range end", chart_location)
+            points = raw_chart.get("points")
+            if not isinstance(points, int) or isinstance(points, bool):
+                raise SchemaError(
+                    "chart points must be an integer",
+                    _location(path, doc_id, positions, chart_field("points")),
+                )
+            y = raw_chart.get("y")
+            if not isinstance(y, list) or not y or not all(isinstance(item, str) for item in y):
+                raise SchemaError(
+                    "chart y must be a non-empty list of targets",
+                    _location(path, doc_id, positions, chart_field("y")),
+                )
+            chart_preset = raw_chart.get("preset")
+            if chart_preset is not None:
+                chart_preset = require_parameter_name(
+                    chart_preset,
+                    "chart preset",
+                    _location(path, doc_id, positions, chart_field("preset")),
+                )
+            text_values: Dict[str, Optional[str]] = {}
+            for key in ("out", "data_out", "title", "x_label", "y_label"):
+                value = raw_chart.get(key)
+                text_values[key] = (
+                    require_text(
+                        value,
+                        f"chart {key}",
+                        _location(path, doc_id, positions, chart_field(key)),
+                    )
+                    if value is not None
+                    else None
+                )
+            labels_raw = require_mapping(
+                raw_chart.get("curve_labels", {}),
+                "curve_labels",
+                chart_location,
+            )
+            if not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in labels_raw.items()
+            ):
+                raise SchemaError(
+                    "curve_labels must map target text to label text",
+                    chart_location,
+                )
+            static_charts[chart_id] = StaticChart(
+                id=chart_id,
+                owner_id=doc_id,
+                label=text_values["title"] or chart_id,
+                x=chart_x,
+                range_start=range_start,
+                range_end=range_end,
+                points=points,
+                y=tuple(y),
+                preset=chart_preset,
+                out=text_values["out"],
+                data_out=text_values["data_out"],
+                title=text_values["title"],
+                x_label=text_values["x_label"],
+                y_label=text_values["y_label"],
+                curve_labels=dict(labels_raw),
+                path=path,
+                positions=positions,
+            )
+
+        first_chart = next(iter(static_charts.values()), None)
         chart = {
             "x": None,
             "range_start": None,
@@ -1258,60 +1409,21 @@ def parse_document(
             "y_label": None,
             "curve_labels": {},
         }
-        if chart_present:
-            missing = sorted({"x", "range", "points", "y"} - set(raw))
-            if missing:
-                raise SchemaError(
-                    "chart configuration is missing required key(s): " + ", ".join(missing),
-                    root_location,
-                )
-            chart["x"] = require_parameter_name(
-                raw.get("x"), "chart x", _location(path, doc_id, positions, "x")
-            )
-            range_value = raw.get("range")
-            if not isinstance(range_value, list) or len(range_value) != 2:
-                raise SchemaError(
-                    "chart range must be a two-item list",
-                    _location(path, doc_id, positions, "range"),
-                )
-            chart["range_start"] = number_text(range_value[0], "chart range start", root_location)
-            chart["range_end"] = number_text(range_value[1], "chart range end", root_location)
-            points = raw.get("points")
-            if not isinstance(points, int) or isinstance(points, bool):
-                raise SchemaError(
-                    "chart points must be an integer",
-                    _location(path, doc_id, positions, "points"),
-                )
-            chart["points"] = points
-            y = raw.get("y")
-            if not isinstance(y, list) or not y or not all(isinstance(item, str) for item in y):
-                raise SchemaError(
-                    "chart y must be a non-empty list of targets",
-                    _location(path, doc_id, positions, "y"),
-                )
-            chart["y"] = list(y)
-            preset = raw.get("preset")
-            if preset is not None:
-                chart["preset"] = require_parameter_name(
-                    preset, "chart preset", _location(path, doc_id, positions, "preset")
-                )
-            for key in ("out", "data_out", "title", "x_label", "y_label"):
-                value = raw.get(key)
-                if value is not None:
-                    chart[key] = require_text(
-                        value, f"chart {key}", _location(path, doc_id, positions, key)
-                    )
-            labels_raw = require_mapping(
-                raw.get("curve_labels", {}), "curve_labels", root_location
-            )
-            if not all(
-                isinstance(key, str) and isinstance(value, str)
-                for key, value in labels_raw.items()
-            ):
-                raise SchemaError(
-                    "curve_labels must map target text to label text", root_location
-                )
-            chart["curve_labels"] = dict(labels_raw)
+        if first_chart is not None:
+            chart.update({
+                "x": first_chart.x,
+                "range_start": first_chart.range_start,
+                "range_end": first_chart.range_end,
+                "points": first_chart.points,
+                "y": list(first_chart.y),
+                "preset": first_chart.preset,
+                "out": first_chart.out,
+                "data_out": first_chart.data_out,
+                "title": first_chart.title,
+                "x_label": first_chart.x_label,
+                "y_label": first_chart.y_label,
+                "curve_labels": dict(first_chart.curve_labels),
+            })
 
         if process_asts is None:
             from .process_parser import parse_process_asts
@@ -1401,6 +1513,7 @@ def parse_document(
             processes=processes,
             scenario_asts=scenario_asts,
             analysis_asts=analysis_asts,
+            charts=static_charts,
             **chart,
         )
 

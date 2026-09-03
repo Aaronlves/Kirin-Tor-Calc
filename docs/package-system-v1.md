@@ -238,7 +238,7 @@ not check, download, or replace the installed `kirin-tor-cli` application; appli
 and upgrades remain outside the Package protocol.
 
 Packages may additionally ship static creation templates under `templates/entries/**/*.kirin`.
-These files may contain optional `x/y` chart configuration and are included in the Package content digest and
+These files may contain optional named `x/y` chart configurations and are included in the Package content digest and
 immutable cache snapshot. Installation and `package check` expand and validate each template
 against the resolved dependency graph. A selected template creates one independent workspace
 source draft; no template identity or runtime inheritance is written into that document.

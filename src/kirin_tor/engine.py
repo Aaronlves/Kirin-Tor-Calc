@@ -1421,12 +1421,12 @@ class Engine:
                     chart.location("y"),
                 )
                 self._check_package_dependency_scope(
-                    chart,
+                    self.workspace.get_entry(chart.owner_id),
                     MathValue(sp.Integer(0), dependencies=chart_dependencies),
                     chart.location("y"),
                 )
 
-            capture(chart.id, validate_chart)
+            capture(chart.qualified_id, validate_chart)
         if errors:
             unique = []
             seen = set()

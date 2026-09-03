@@ -1030,10 +1030,7 @@ class Workbench:
                 run_with_timeout(_validate_workspace, (workspace,), timeout)
                 return build_relationship_graph(workspace)
 
-            if operation == "preview_plot":
-                config_id = str(payload.get("config", ""))
-                config = workspace.get_chart(config_id)
-                preview_overrides = self._player_overrides(workspace, payload.get("overrides"))
+            def preview_static_chart(config):
                 result = scan_values(
                     engine,
                     config.x,
@@ -1041,14 +1038,92 @@ class Workbench:
                     config.points,
                     list(config.y),
                     str(payload["preset"]) if payload.get("preset") else config.preset,
-                    preview_overrides,
+                    overrides,
                     precision,
                     display_digits,
                     timeout,
                 )
-                result["operation"] = "preview_plot"
-                result["config"] = config_id
+                result.update({
+                    "operation": "preview_plot",
+                    "config": config.qualified_id,
+                    "label": config.label,
+                    "title": config.title,
+                    "export_svg": config.out,
+                    "export_csv": config.data_out,
+                })
                 return result
+
+            if operation == "preview_plot":
+                config_id = str(payload.get("config", ""))
+                config = workspace.get_chart(config_id)
+                return preview_static_chart(config)
+
+            if operation == "preview_plots":
+                entry_id = str(payload.get("entry", ""))
+                entry = workspace.get_entry(entry_id)
+                if not entry.charts:
+                    raise ReferenceError(f"entry {entry_id!r} does not define static charts")
+                return {
+                    "status": "ok",
+                    "operation": "preview_plots",
+                    "entry": entry_id,
+                    "charts": [
+                        preview_static_chart(chart)
+                        for chart in entry.charts.values()
+                    ],
+                }
+
+            if operation == "export_static_charts":
+                entry_id = str(payload.get("entry", ""))
+                entry = workspace.get_entry(entry_id)
+                force = bool(payload.get("force"))
+                allow_outside = bool(payload.get("allow_outside_workspace"))
+                configured = [
+                    chart for chart in entry.charts.values()
+                    if chart.out or chart.data_out
+                ]
+                if not configured:
+                    raise ParameterError(
+                        "entry has no chart export_svg or export_csv paths"
+                    )
+                paths = [
+                    artifact_path(workspace, value, allow_outside)
+                    for chart in configured
+                    for value in (chart.out, chart.data_out)
+                    if value is not None
+                ]
+                preflight_artifacts(paths, force)
+                artifacts = []
+                for chart in configured:
+                    result = preview_static_chart(chart)
+                    item = {"chart": chart.qualified_id}
+                    if chart.out is not None:
+                        item["svg"] = str(run_with_timeout(
+                            render_plot,
+                            (
+                                result,
+                                artifact_path(workspace, chart.out, allow_outside),
+                                force,
+                                chart.title,
+                                chart.x_label,
+                                chart.y_label,
+                                chart.curve_labels,
+                            ),
+                            timeout,
+                        ))
+                    if chart.data_out is not None:
+                        item["csv"] = str(write_scan_csv(
+                            result,
+                            artifact_path(workspace, chart.data_out, allow_outside),
+                            overwrite=force,
+                        ))
+                    artifacts.append(item)
+                return {
+                    "status": "ok",
+                    "operation": "export_static_charts",
+                    "entry": entry_id,
+                    "artifacts": artifacts,
+                }
 
             if operation == "eval":
                 request = {
@@ -1358,7 +1433,7 @@ class Workbench:
                     if data_path:
                         result["data_out"] = str(write_scan_csv(result, data_path, overwrite=bool(payload.get("force"))))
                     return result
-                extras = [item for item in (chosen_preset, config_id) if item]
+                extras = [item for item in (chosen_preset, config.owner_id if config else None) if item]
                 return record_operation(workspace, save_run_id, "plot", request, compute_plot, extras)
 
             if operation == "replay":

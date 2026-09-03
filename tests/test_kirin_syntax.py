@@ -125,6 +125,81 @@ chart preview "Preview":
     assert plot.preset == "model.baseline"
 
 
+def test_kirin_entry_supports_multiple_named_static_charts(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "multiple-charts")
+    source = ENTRY_SOURCE + """
+
+chart result_curve "结果曲线":
+  x = model.x
+  range = 0..1
+  points = 3
+  y:
+    - model.result
+  export_svg = "results/result.svg"
+
+chart doubled_curve "倍增曲线":
+  x = model.x
+  range = 0..1
+  points = 3
+  y:
+    - model.doubled
+  export_svg = "results/doubled.svg"
+"""
+    path = root / "entries" / "model.kirin"
+    path.write_text(source, encoding="utf-8")
+
+    workspace = Workspace.load(root)
+    assert Engine(workspace).validate_all()["status"] == "ok"
+    assert list(workspace.charts) == ["model.result_curve", "model.doubled_curve"]
+    assert workspace.get_chart("result_curve").qualified_id == "model.result_curve"
+    assert workspace.get_chart("model.doubled_curve").label == "倍增曲线"
+    with pytest.raises(ReferenceError, match="ambiguous"):
+        workspace.get_chart("model")
+
+    rendered = render_kirin_document(load_kirin_document(path))
+    assert rendered.count("\nchart ") == 2
+    assert 'chart result_curve "结果曲线":' in rendered
+    assert 'chart doubled_curve "倍增曲线":' in rendered
+
+
+def test_kirin_static_charts_have_a_bounded_strict_schema(tmp_path: Path) -> None:
+    root = initialize(tmp_path / "bounded-charts")
+    path = root / "entries" / "model.kirin"
+    chart = """
+
+chart {chart_id}:
+  x = model.x
+  range = 0..1
+  points = 3
+  y:
+    - model.result
+"""
+    path.write_text(
+        ENTRY_SOURCE + "".join(chart.format(chart_id=f"curve_{index}") for index in range(65)),
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="exceeds 64 static charts"):
+        Workspace.load(root)
+
+    path.write_text(
+        ENTRY_SOURCE
+        + """
+
+chart repeated:
+  x = model.x
+  range = 0..1
+  points = 3
+  y:
+    - model.result
+  y:
+    - model.doubled
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SchemaError, match="duplicate chart property 'y'"):
+        Workspace.load(root)
+
+
 def test_kirin_reports_source_line_and_rejects_unknown_sections(tmp_path: Path) -> None:
     root = initialize(tmp_path / "workspace")
     path = root / "entries" / "broken.kirin"

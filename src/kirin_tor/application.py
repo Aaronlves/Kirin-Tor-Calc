@@ -59,6 +59,7 @@ class NamedOption:
 class ChartOption:
     value: str
     label: str
+    owner_id: Optional[str] = None
     line: Optional[int] = None
     column: Optional[int] = None
 
@@ -218,24 +219,26 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
         for reference, preset in sorted(workspace.presets.items())
     )
     charts = []
-    for document in sorted(workspace.charts.values(), key=lambda item: item.id):
-        position = document.positions.get("x") or document.positions.get("display")
+    for chart in sorted(workspace.charts.values(), key=lambda item: item.qualified_id):
+        location = chart.location()
         charts.append(
             ChartOption(
-                document.id,
-                document.name,
-                position[0] if position else None,
-                position[1] if position else None,
+                chart.qualified_id,
+                chart.label,
+                chart.owner_id,
+                location.line,
+                location.column,
             )
         )
     analyses = []
     for analysis in sorted(workspace.analyses.values(), key=lambda item: item.qualified_id):
         analyses.append(
             ChartOption(
-                analysis.qualified_id,
-                analysis.label or analysis.id,
-                analysis.location.line if analysis.location else None,
-                analysis.location.column if analysis.location else None,
+                value=analysis.qualified_id,
+                label=analysis.label or analysis.id,
+                owner_id=analysis.owner_id,
+                line=analysis.location.line if analysis.location else None,
+                column=analysis.location.column if analysis.location else None,
             )
         )
     return WorkspaceIndex(

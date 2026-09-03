@@ -1177,7 +1177,7 @@ def plot_command(
     set_values: List[str] = typer.Option([], "--set"),
     out: Optional[str] = typer.Option(None, "--out"),
     data_out: Optional[str] = typer.Option(None, "--data-out"),
-    config: Optional[str] = typer.Option(None, "--config", help="Saved plot config id."),
+    config: Optional[str] = typer.Option(None, "--config", help="Saved plot config ID (ENTRY.CHART)."),
     precision: int = typer.Option(30, "--precision"),
     display_digits: int = typer.Option(12, "--display-digits"),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
@@ -1226,7 +1226,7 @@ def plot_command(
             "y_label": y_label,
             "curve_labels": curve_labels,
         }
-        extra_ids = [item for item in (chosen_preset, config) if item]
+        extra_ids = [item for item in (chosen_preset, saved.owner_id if config else None) if item]
         plot_path = _artifact_path(workspace, chosen_out, allow_outside)
         data_path = (
             _artifact_path(workspace, chosen_data_out, allow_outside) if chosen_data_out else None

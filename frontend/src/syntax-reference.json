@@ -244,7 +244,7 @@
   {
     "id": "charts",
     "title": "图表投影与导出",
-    "summary": "图表配置和公式保存在同一个 entry 中；预览自动出现，导出仍需要作者明确选择路径。",
+    "summary": "一个 entry 可以保存多张具名静态图；每张图都从当前公式派生，预览自动出现，导出仍需要作者明确选择路径。",
     "keywords": [
       "chart",
       "x",
@@ -257,11 +257,12 @@
       "导出"
     ],
     "rules": [
-      "出现任一图表键时，x、range、points 和至少一个 y 必须一起完整声明。",
+      "一个 entry 最多声明 64 张具名静态图；每张图都必须完整声明 x、range、points 和至少一个 y。",
+      "图表正式身份是 entry.chart；只有一张图时仍兼容用 entry 选择图表。",
       "as 后的标签只影响曲线显示。",
       "导出路径默认必须位于工作区内，已有文件不会被静默覆盖。"
     ],
-    "exampleTitle": "一条自动预览曲线",
-    "code": "@kirin 2\n@entry chart_demo\n\ninput x_value \"横轴\": number[dimensionless] = 0 in 0..1\n\noutput result \"平方\": dimensionless = x_value ** 2\n\nchart preview \"示例曲线\":\n  x = chart_demo.x_value\n  range = 0..1\n  points = 21\n  y:\n    - chart_demo.result as \"平方曲线\"\n  x_label = \"输入\"\n  y_label = \"结果\"\n"
+    "exampleTitle": "两张自动预览曲线",
+    "code": "@kirin 2\n@entry chart_demo\n\ninput x_value \"横轴\": number[dimensionless] = 0 in 0..1\n\noutput result \"平方\": dimensionless = x_value ** 2\noutput complement \"剩余\": dimensionless = 1 - x_value\n\nchart square \"平方曲线\":\n  x = chart_demo.x_value\n  range = 0..1\n  points = 21\n  y:\n    - chart_demo.result\n  x_label = \"输入\"\n  y_label = \"结果\"\n\nchart remaining \"剩余曲线\":\n  x = chart_demo.x_value\n  range = 0..1\n  points = 21\n  y:\n    - chart_demo.complement\n  x_label = \"输入\"\n  y_label = \"剩余\"\n"
   }
 ]

@@ -302,6 +302,7 @@ export interface PresetItem {
 export interface ChartItem {
   value: string;
   label: string;
+  owner_id?: string | null;
   line?: number | null;
   column?: number | null;
   [key: string]: unknown;

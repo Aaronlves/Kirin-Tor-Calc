@@ -334,12 +334,15 @@ chart preview "伤害曲线":
   export_csv = "results/damage.csv"
 ```
 
-One entry may declare one chart. `x`, `range`, `points`, and at least one `y` item are required.
-Preview is derived from the current source; export paths are explicit and confined to the workspace
-unless the caller deliberately opts out.
+An entry may declare up to 64 independently named static charts. Each chart has the stable qualified
+identity `ENTRY.CHART`; `x`, `range`, `points`, and at least one `y` item are required. A chart may
+still contain several `y` curves. `kt plot --config ENTRY.CHART` selects one chart; the legacy
+`--config ENTRY` spelling remains accepted when that entry declares exactly one chart. Preview is
+derived from the current source; export paths are explicit and confined to the workspace unless the
+caller deliberately opts out.
 
-This one-chart limit applies only to the static scan chart above. A Process `analysis` may contain up
-to 64 chart blocks with `kind = trajectory|decision_surface|pareto|variant_comparison`. Trajectory
+A Process `analysis` may likewise contain up to 64 chart blocks with
+`kind = trajectory|decision_surface|pareto|variant_comparison`. Trajectory
 charts apply to `run`, `compare`, `optimize`, `reach`, and `cycle`, read public observations, and may
 mark `event INSTANCE.PUBLIC_EVENT` or `decision ACTION`; a `steady` result has no time trajectory.
 The three search-result chart kinds require `optimize`. Pareto axes require explicit `x_direction`

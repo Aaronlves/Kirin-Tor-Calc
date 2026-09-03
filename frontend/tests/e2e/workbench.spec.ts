@@ -362,8 +362,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await openCombo(page);
     const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
-    await page.locator(".cm-line").last().click();
-    await editor.press("End");
+    await editor.focus();
+    await editor.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+    await editor.press("Enter");
     await editor.type("unknown：");
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
@@ -649,23 +650,61 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText("// recovered after reload");
   });
 
-  test("检查器自动派生结果、图表与公式且不提供参数填写", async ({ page }) => {
+  test("检查器提供非权威试算、运行记录、preset 草稿与多图排列", async ({ page, request }) => {
     await openWorkbench(page);
     await openCombo(page);
     await page.getByRole("tab", { name: "预览", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "临时参数" })).toHaveCount(0);
+    const trialInput = page.getByRole("textbox", { name: "暴击率临时试算值" });
+    await expect(trialInput).toBeVisible();
     await expect(page.getByRole("combobox", { name: "参数方案" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "计算结果" })).toHaveCount(0);
     await expect(page.locator(".document-result-preview")).toContainText("2,420");
     await expect(page.locator(".preview-input-identity strong")).toHaveText("暴击率");
-    await expect(page.locator(".preview-input-identity small")).toHaveText("combo.crit");
+    await expect(page.locator(".preview-input-identity small")).toContainText("combo.crit");
+    await expect(page.locator(".trial-default")).toContainText("源码默认值");
+    await expect(page.getByRole("button", { name: "保存全部" }).first()).toBeDisabled();
+
+    await trialInput.fill("0.2");
+    await expect(page.locator(".trial-result-card")).toHaveCount(2);
+    await expect(page.locator(".trial-result-card.is-current")).toContainText("2,640");
+    await expect(page.locator(".trial-result-card.is-current")).toContainText("差值 220");
+    await page.getByRole("button", { name: "重置", exact: true }).click();
+    await expect(trialInput).toHaveValue("");
+    await expect(page.locator(".trial-result-card")).toHaveCount(0);
+    await expect(page.locator(".document-result-preview")).toContainText("2,420");
+    await trialInput.fill("0.2");
+    await expect(page.locator(".trial-result-card.is-current")).toContainText("2,640");
+
+    await page.getByRole("button", { name: "保存运行记录" }).click();
+    await page.getByRole("dialog", { name: "保存当前试算记录" }).getByRole("textbox", { name: "运行记录 ID" }).fill("trial_e2e");
+    await page.getByRole("dialog", { name: "保存当前试算记录" }).getByRole("button", { name: "保存记录" }).click();
+    await expect(page.getByText("运行记录已保存", { exact: true })).toBeVisible();
+    await expect.poll(async () => {
+      const response = await request.get("/api/bootstrap", { headers: { "X-Kirin-Token": "kirin-e2e-token" } });
+      const data = await response.json();
+      return data.runs.some((run: { id: string }) => run.id === "trial_e2e");
+    }).toBe(true);
+
+    await page.getByRole("button", { name: "生成 preset 草稿" }).click();
+    const presetDialog = page.getByRole("dialog", { name: "生成参数方案草稿" });
+    await presetDialog.getByRole("textbox", { name: "Preset ID" }).fill("trial_e2e");
+    await presetDialog.getByRole("button", { name: "生成草稿" }).click();
+    await expect(page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" })).toContainText("preset trial_e2e");
+    await expect(page.getByRole("button", { name: "保存全部" }).first()).toBeEnabled();
 
     await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
     await expect(page.getByRole("button", { name: "生成图表" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "展开预览" })).toBeVisible();
-    await expect(page.locator(".document-chart-preview .canvas-data-fallback summary")).toContainText("使用键盘查看");
-    await page.getByRole("button", { name: "展开预览" }).click();
-    await expect(page.getByRole("dialog", { name: "展开图表预览" })).toBeVisible();
+    await expect(page.locator(".preview-chart-card")).toHaveCount(3);
+    await expect(page.locator(".preview-chart-card").first()).toContainText("combo");
+    await expect(page.locator(".preview-chart-card").first()).toContainText("静态扫描");
+    await expect(page.getByRole("button", { name: "导出全部图表" })).toBeVisible();
+    const chartGrid = page.locator(".preview-chart-grid").first();
+    await expect.poll(() => chartGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+    await page.locator(".document-focus-switch .mantine-SegmentedControl-label").filter({ hasText: "仅预览" }).click();
+    await expect.poll(() => chartGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+    await expect(page.locator(".document-chart-preview .canvas-data-fallback summary").first()).toContainText("使用键盘查看");
+    await page.getByRole("button", { name: "展开预览" }).first().click();
+    await expect(page.getByRole("dialog", { name: "combo" })).toBeVisible();
     await page.locator(".mantine-Modal-close").click();
 
     await page.getByRole("tab", { name: "公式", exact: true }).click();
@@ -683,6 +722,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(preview).toContainText("证明边界周期");
     await expect(preview).toContainText("2 次迭代");
     await expect(preview).toContainText("cycle");
+    await expect(preview.locator(".preview-chart-card")).toHaveCount(2);
     await preview.locator(".technical-result summary").click();
     await expect(preview.locator(".technical-result")).toContainText('"preperiod": 1');
     await expect(preview.locator(".technical-result")).toContainText('"period": 1');
@@ -712,8 +752,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
 
     await focusChoice("仅预览").click();
     await page.locator(".mantine-SegmentedControl-label").filter({ hasText: "图表" }).click();
-    await expect(page.getByRole("button", { name: "定位图表源码" })).toBeVisible();
-    await page.getByRole("button", { name: "定位图表源码" }).click();
+    await expect(page.getByRole("button", { name: "定位图表源码" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "定位图表源码" }).first().click();
     await expect(activeLine).toContainText('chart preview "combo"');
 
     await focusChoice("仅预览").click();

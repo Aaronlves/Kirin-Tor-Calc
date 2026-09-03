@@ -336,7 +336,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const visibleDiagnostics = diagnosticScope === "current" ? currentDiagnostics : controller.validationItems;
   const currentHasPreviewProjection = Boolean(currentEntryId && (
     currentExplainTargets.length
-    || controller.workspaceIndex.charts.some((item) => item.value === currentEntryId)
+    || controller.workspaceIndex.charts.some((item) => item.owner_id === currentEntryId)
     || controller.workspaceIndex.analyses.some((item) => item.value.startsWith(`${currentEntryId}.`))
     || controller.pluginSummary.contributions.renderers.some((renderer) => {
       const match = renderer.match;

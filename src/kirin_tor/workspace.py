@@ -14,6 +14,7 @@ from .schema import (
     Entry,
     PackageOrigin,
     Preset,
+    StaticChart,
     build_semantic_registry,
     parse_document,
     require_identifier,
@@ -77,9 +78,13 @@ class Workspace:
         return result
 
     @property
-    def charts(self) -> Dict[str, Entry]:
-        """Return documents that opt into a chart through x/y syntax."""
-        return {key: value for key, value in self.entries.items() if value.has_chart}
+    def charts(self) -> Dict[str, StaticChart]:
+        """Return every named static chart by its stable qualified ID."""
+        return {
+            chart.qualified_id: chart
+            for entry in self.entries.values()
+            for chart in entry.charts.values()
+        }
 
     @property
     def processes(self) -> Dict[str, ProcessIR]:
@@ -849,13 +854,25 @@ class Workspace:
             raise ReferenceError(f"preset {preset_id!r} is ambiguous; use one of: {choices}")
         return matches[0]
 
-    def get_chart(self, document_id: str) -> Entry:
-        document = self.documents.get(document_id)
-        if document is None:
-            raise ReferenceError(f"missing chart document {document_id!r}")
-        if not isinstance(document, Entry) or not document.has_chart:
-            raise ReferenceError(f"{document_id!r} does not define x/y chart configuration")
-        return document
+    def get_chart(self, chart_id: str) -> StaticChart:
+        charts = self.charts
+        if chart_id in charts:
+            return charts[chart_id]
+        document = self.documents.get(chart_id)
+        if isinstance(document, Entry) and len(document.charts) == 1:
+            return next(iter(document.charts.values()))
+        if isinstance(document, Entry) and len(document.charts) > 1:
+            choices = ", ".join(sorted(chart.qualified_id for chart in document.charts.values()))
+            raise ReferenceError(
+                f"chart document {chart_id!r} is ambiguous; use one of: {choices}"
+            )
+        matches = [chart for chart in charts.values() if chart.id == chart_id]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            choices = ", ".join(sorted(chart.qualified_id for chart in matches))
+            raise ReferenceError(f"chart {chart_id!r} is ambiguous; use one of: {choices}")
+        raise ReferenceError(f"missing chart {chart_id!r}")
 
 
 def initialize(root: Path) -> Path:

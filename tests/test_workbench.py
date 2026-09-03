@@ -132,10 +132,13 @@ def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
         "build_math.power->build_math.total",
         "build_math.speed->build_math.total",
     }
-    plot_preview = workbench.execute("preview_plot", {"config": "build_math"})
+    plot_preview = workbench.execute("preview_plot", {"config": "build_math.preview"})
     assert plot_preview["operation"] == "preview_plot"
     assert plot_preview["valid_points"] == {"build_math.total": 3}
     assert not (root / "results" / "build.svg").exists()
+    assert workbench.execute("preview_plot", {"config": "build_math"})["valid_points"] == {
+        "build_math.total": 3
+    }
 
     evaluated = workbench.execute(
         "eval", {"target": "build_math.total", "save_run": "web_eval"}
@@ -258,6 +261,43 @@ def test_workbench_exposes_every_cli_calculation_family(tmp_path: Path) -> None:
         "replay", {"run_id": "web_comparison_chart"}
     )
     assert comparison_replay["matches_recorded_result"] is True
+
+
+def test_workbench_previews_and_exports_all_named_static_charts(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    path = root / "entries" / "build_math.kirin"
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + """
+
+chart balance "属性差曲线":
+  x = build_math.power
+  range = 1..3
+  points = 3
+  y:
+    - build_math.balance
+  export_svg = "results/balance.svg"
+  export_csv = "results/balance.csv"
+""",
+        encoding="utf-8",
+    )
+    workbench = Workbench(root)
+
+    preview = workbench.execute("preview_plots", {"entry": "build_math"})
+    assert [chart["config"] for chart in preview["charts"]] == [
+        "build_math.preview",
+        "build_math.balance",
+    ]
+    assert preview["charts"][1]["rows"][-1]["values"]["build_math.balance"]["exact"] == "2"
+
+    exported = workbench.execute("export_static_charts", {"entry": "build_math"})
+    assert [item["chart"] for item in exported["artifacts"]] == [
+        "build_math.preview",
+        "build_math.balance",
+    ]
+    assert (root / "results" / "build.svg").is_file()
+    assert (root / "results" / "balance.svg").is_file()
+    assert (root / "results" / "balance.csv").is_file()
 
 
 def test_workbench_authoring_actions_and_recovery_are_non_durable(tmp_path: Path) -> None:

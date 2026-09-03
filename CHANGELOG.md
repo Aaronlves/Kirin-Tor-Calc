@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added up to 64 independently named static charts per Entry with stable `ENTRY.CHART` identities, responsive and deferred-rendering static/Process chart grids, individual expansion/export, and explicit export-all.
+- Added an in-flow non-authoritative result trial area that compares temporary dependency-input values with source defaults, resets without touching source, can append an unsaved preset draft to the existing editor, and saves run records only against clean durable source.
+
 ## 0.3.0rc3 — 2026-09-03 (pre-release)
 
 - Added credential-free PyPI publication through GitHub trusted publishing and documented the persistent `uv tool` installation, upgrade, launch, and removal path.
