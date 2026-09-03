@@ -554,6 +554,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(review.getByText("当前草稿", { exact: true })).toBeVisible();
     await expect(review).toContainText("伤害合计");
     await review.locator(".mantine-Drawer-close").click();
+    await expect(review).toBeHidden();
 
     await openCombo(page);
     const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
@@ -564,6 +565,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByRole("tab", { name: /诊断 1/ }).click();
     await page.getByRole("button", { name: "查看相关语法" }).click();
     const syntaxReference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    await expect(syntaxReference).toBeVisible();
     await expect(syntaxReference.getByRole("heading", { name: "图表投影与导出" })).toBeVisible();
     await expect(syntaxReference.getByRole("region", { name: "chart" })).toBeFocused();
   });
