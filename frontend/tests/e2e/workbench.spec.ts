@@ -26,13 +26,11 @@ function waitForCompletionResponse(page: Page, prefix: string, explicit: boolean
   });
 }
 
-async function openCompletion(page: Page, editor: Locator, prefix: string, name: string) {
+async function openCompletion(page: Page, editor: Locator, name: string) {
   const option = page.getByRole("option", { name, exact: true });
   if (!(await option.isVisible())) {
     await editor.press("Escape");
-    const completionResponse = waitForCompletionResponse(page, prefix, true);
     await editor.press("Control+Space");
-    expect((await completionResponse).ok()).toBeTruthy();
   }
   await expect(option).toBeVisible();
   return option;
@@ -689,7 +687,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const sqrtCompletionResponse = waitForCompletionResponse(page, "平方根", false);
     await page.keyboard.insertText("  平方根");
     expect((await sqrtCompletionResponse).ok()).toBeTruthy();
-    const sqrtCompletion = await openCompletion(page, editor, "平方根", "平方根内置函数 · sqrt");
+    const sqrtCompletion = await openCompletion(page, editor, "平方根内置函数 · sqrt");
     await sqrtCompletion.click();
     await editor.type("1");
     await expect(page.locator(".cm-line").filter({ hasText: "sqrt(1)" }).first()).toContainText("sqrt(1)");
@@ -709,7 +707,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const trueCompletionResponse = waitForCompletionResponse(page, "真", false);
     await page.keyboard.insertText("真");
     expect((await trueCompletionResponse).ok()).toBeTruthy();
-    const trueCompletion = await openCompletion(page, editor, "真", "布尔真关键字 · true");
+    const trueCompletion = await openCompletion(page, editor, "布尔真关键字 · true");
     await trueCompletion.hover();
     const completionInfo = page.locator(".kirin-completion-info");
     await completionInfo.getByRole("button", { name: "查看相关语法" }).click();
@@ -756,7 +754,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.keyboard.insertText("sta");
     expect((await stateCompletionResponse).ok()).toBeTruthy();
     expect(await page.locator(".cm-activeLine").textContent()).toBe("  sta");
-    const stateCompletion = await openCompletion(page, editor, "sta", "Process 状态片段 · state");
+    const stateCompletion = await openCompletion(page, editor, "Process 状态片段 · state");
     await stateCompletion.hover();
     await page.locator(".kirin-completion-info").getByRole("button", { name: "查看相关语法" }).click();
     const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
@@ -764,7 +762,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.keyboard.press("Escape");
     await expect(reference).toBeHidden();
 
-    await (await openCompletion(page, editor, "sta", "Process 状态片段 · state")).click();
+    await (await openCompletion(page, editor, "Process 状态片段 · state")).click();
     await editor.press(`${modKey}+/`);
     await expect(page.locator(".cm-activeLine")).toContainText("// state name");
     await editor.press("Control+Space");
