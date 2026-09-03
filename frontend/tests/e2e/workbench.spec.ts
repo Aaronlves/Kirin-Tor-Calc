@@ -989,6 +989,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await rename(entries, backup);
     await mkdir(entries);
     try {
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await page.goto(sessionUrl);
       await expect(page.getByLabel("Kirin Tor 入门")).toBeVisible();
       await expect(page.getByRole("heading", { name: "从一份真正的 Kirin Tor 源码开始" })).toBeVisible();

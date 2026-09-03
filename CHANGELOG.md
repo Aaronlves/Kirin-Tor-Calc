@@ -13,6 +13,7 @@
 - Kept the editor focus frame continuous above CodeMirror gutters, search panels, active lines, and horizontally overflowing content without intercepting pointer input.
 - Extended document-row hover and selection surfaces through their trailing action buttons, and centered compact-navigation labels beneath their icons.
 - Unified host, CodeMirror, and ECharts tooltip surfaces; confined editor and chart tooltips to their owning regions and rejected native host `title` tooltips at the design-system gate.
+- Raised muted and quiet text tokens to preserve WCAG AA contrast on selected tutorial surfaces.
 
 ## 0.3.0rc3 — 2026-09-03 (pre-release)
 
