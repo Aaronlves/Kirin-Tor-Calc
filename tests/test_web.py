@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
 import urllib.error
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from kirin_tor.package_authoring import add_path_package, create_package_template
 from kirin_tor.web import create_web_server
 from kirin_tor.plugin_store import PluginManager
 
@@ -97,6 +99,61 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         with pytest.raises(urllib.error.HTTPError) as failure:
             running.request("/api/bootstrap", token="wrong")
         assert failure.value.code == 403
+
+
+def test_web_bootstrap_degrades_when_the_package_graph_is_unavailable(
+    example_workspace: Path,
+    tmp_path: Path,
+) -> None:
+    package = create_package_template(
+        tmp_path / "package",
+        name="community.unavailable",
+        namespace="community_unavailable",
+    )
+    resolution = add_path_package(example_workspace, "unavailable", package)
+    shutil.rmtree(resolution.packages[0].root)
+
+    with RunningServer(example_workspace) as running:
+        status, _headers, body = running.request("/api/bootstrap")
+        bootstrap = decoded(body)
+
+        assert status == 200
+        assert bootstrap["status"] == "ok"
+        assert bootstrap["packages"] == []
+        assert bootstrap["package_state"]["status"] == "error"
+        assert bootstrap["package_state"]["error"]["code"] == "package_error"
+        assert bootstrap["package_state"]["requirements"] == [
+            {
+                "alias": "unavailable",
+                "source": f"path:{package.resolve()}",
+                "version": "1.0.0",
+            }
+        ]
+        assert bootstrap["validation"]["code"] == "package_error"
+        assert any(item["path"] == "entries/组合模型.kirin" for item in bootstrap["documents"])
+        assert any(item["value"] == "builtin:model" for item in bootstrap["templates"])
+
+        status, _headers, body = running.request(
+            "/api/document?key=" + urllib.parse.quote("entries/组合模型.kirin")
+        )
+        assert status == 200
+        assert decoded(body)["path"] == "entries/组合模型.kirin"
+
+        status, _headers, body = running.request(
+            "/api/document/create",
+            {"template": "builtin:model", "document_id": "degraded_draft"},
+        )
+        assert status == 200
+        assert decoded(body)["path"] == "entries/degraded_draft.kirin"
+        assert not (example_workspace / "entries" / "degraded_draft.kirin").exists()
+
+        status, _headers, body = running.request(
+            "/api/package",
+            {"action": "remove", "payload": {"alias": "unavailable"}},
+        )
+        assert status == 200
+        assert decoded(body)["packages"] == []
+        assert decoded(running.request("/api/bootstrap")[2])["package_state"]["status"] == "ok"
 
 
 def test_web_serves_only_active_sandboxed_plugin_assets_and_projections(

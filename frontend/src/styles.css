@@ -296,6 +296,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 /* Packages */
 .package-toolbar-surface { padding: var(--kt-sp-roomy) var(--kt-sp-4); }
+.package-error-surface { padding: var(--kt-sp-roomy) var(--kt-sp-4); border-color: var(--kt-c-st-error-border); background: var(--kt-c-st-error-surface); color: var(--kt-c-st-error-strong-text); }
 .package-card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(var(--kt-sz-290),1fr)); gap: var(--kt-sp-3); }
 .package-card-modern { min-height: var(--kt-sz-292); padding: var(--kt-sp-4); }
 .package-icon { display: grid; width: var(--kt-sz-36); height: var(--kt-sz-36); place-items: center; border: var(--kt-shp-border) solid var(--kt-c-a-border-muted); background: var(--kt-c-a-wash-surface); color: var(--kt-c-a-text); }

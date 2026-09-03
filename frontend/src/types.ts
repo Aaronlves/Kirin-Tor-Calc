@@ -376,6 +376,18 @@ export interface InstalledPackage {
   dependencies?: Record<string, { source: string; version: string }>;
 }
 
+export interface PackageRequirement {
+  alias: string;
+  source: string;
+  version: string;
+}
+
+export interface PackageState {
+  status: "ok" | "error";
+  requirements: PackageRequirement[];
+  error?: DiagnosticItem | null;
+}
+
 export interface BootstrapPayload {
   status: "ok";
   version: string;
@@ -384,6 +396,7 @@ export interface BootstrapPayload {
   templates: TemplateItem[];
   tutorials: TutorialItem[];
   packages: InstalledPackage[];
+  package_state: PackageState;
   plugins: PluginSummary;
   runs: RunItem[];
   validation: ValidationResult;

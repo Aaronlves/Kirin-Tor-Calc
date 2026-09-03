@@ -29,6 +29,14 @@ The workbench keeps the following authority boundary:
 | `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
 | Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
 
+A missing, invalid, or incompatible Package keeps the locked Package graph inactive but does not
+prevent the browser workbench from bootstrapping. The host continues to expose local documents,
+recovered drafts, built-in and workspace templates, settings, and Package recovery controls. It
+shows the Package failure as a persistent workspace diagnostic and lists the declared direct
+requirements so they can be updated or removed. Package documents and templates remain unavailable,
+and validation-dependent calculation and Save All operations remain strict until the complete graph
+is valid again. The workbench never presents a partial Package graph as a valid workspace.
+
 Host presentation follows the shared [Workbench design system](design-system.md). Its eight token families cover color, typography, spacing, dimensions, shape, elevation, motion, and stacking across Mantine, ordinary CSS, CodeMirror, and ECharts. Those tokens are application presentation, never document or calculation authority.
 
 ## Launch, process, and distribution boundary

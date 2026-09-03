@@ -94,7 +94,11 @@ Required fields are `schema`, `name`, `version`, `namespace`, `description`, `li
   range solver.
 - `namespace` matches `[a-z][a-z0-9_]*` and scopes exported Kirin Tor identifiers.
 - `description` and `license` are non-empty text. `license` should normally be an SPDX identifier.
-- `requires_kirin` is an exact supported `MAJOR.MINOR` feature line.
+- `requires_kirin` names the exact `MAJOR.MINOR` feature line against which the Package was
+  authored. A Kirin Tor release explicitly declares the Package feature lines it still supports;
+  Kirin Tor 0.4 supports both `0.3` and `0.4`. This is a tested backward-compatibility promise,
+  not an implicit acceptance of every older or future line. The current strict parser, dependency
+  graph checks, and engine validation still apply before compatible Package content becomes active.
 - `game` and `game_version` are optional descriptive compatibility values. Entry-level
   `@game-version` remains the calculation-time authority.
 - Dependency aliases match `[a-z][a-z0-9_]*`. Each dependency specifies one normalized source and
@@ -157,8 +161,9 @@ explicit **Discover Package** action searches that topic and reads `kirin.packag
 candidate repository's current default branch. GitHub normalizes topic names to lower case.
 
 Topic membership is a self-declaration, not an official listing or correctness review. The
-discovery surface shows only candidates whose manifest is strict, uses the current Kirin Tor feature
-line, and declares only GitHub dependencies. Repositories with missing, invalid, or incompatible
+discovery surface shows only candidates whose manifest is strict, uses a Package feature line
+explicitly supported by the current Kirin Tor release, and declares only GitHub dependencies.
+Repositories with missing, invalid, or incompatible
 manifests are counted but not presented as compatible Packages. Repository activity, stars,
 forks, and license are independent descriptive signals and never form a trust score.
 

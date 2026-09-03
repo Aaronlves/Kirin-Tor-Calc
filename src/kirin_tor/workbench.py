@@ -35,7 +35,7 @@ from .authoring import (
 from .community_discovery import discover_community
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
-from .errors import KTError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
+from .errors import KTError, PackageError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .operations import (
     analyze_process,
@@ -59,8 +59,8 @@ from .package_authoring import (
     update_package,
     verify_packages,
 )
-from .package_manifest import package_source_paths
-from .package_store import PackageResolver, PackageStoreManager, locked_workspace_resolution
+from .package_manifest import load_workspace_requirements, package_source_paths
+from .package_store import PackageResolution, PackageResolver, PackageStoreManager, locked_workspace_resolution
 from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .process_chart import render_process_chart_svg, write_process_chart_csv
 from .plugin_store import PluginManager
@@ -190,6 +190,17 @@ def package_summary(resolution) -> dict:
     }
 
 
+def package_requirement_summary(requirements) -> list[dict]:
+    return [
+        {
+            "alias": item.alias,
+            "source": item.source,
+            "version": item.version,
+        }
+        for item in requirements.packages
+    ]
+
+
 def _split_values(value, separators: str = ",;\n") -> list[str]:
     if value is None:
         return []
@@ -271,9 +282,21 @@ class Workbench:
                 )
         return items
 
-    def _document_catalog(self) -> list[dict]:
+    def _document_catalog(
+        self,
+        package_resolution: Optional[PackageResolution] = None,
+        *,
+        load_packages: bool = True,
+    ) -> list[dict]:
         items = self._local_document_catalog()
-        resolution = locked_workspace_resolution(self.root)
+        if not load_packages:
+            return items
+        try:
+            resolution = package_resolution or locked_workspace_resolution(self.root)
+        except PackageError:
+            # The browser shell and local authoring catalog remain available while
+            # bootstrap exposes the Package failure as a first-class diagnostic.
+            return items
         for package in resolution.packages:
             for path in package_source_paths(package.root):
                 relative = path.relative_to(package.root).as_posix()
@@ -295,6 +318,30 @@ class Workbench:
                     }
                 )
         return items
+
+    def _package_state(self) -> tuple[Optional[PackageResolution], dict]:
+        try:
+            requirements = load_workspace_requirements(self.root)
+        except PackageError as exc:
+            return None, {
+                "status": "error",
+                "requirements": [],
+                "error": author_error_payload(exc, self.root),
+            }
+        requirement_items = package_requirement_summary(requirements)
+        try:
+            resolution = locked_workspace_resolution(self.root)
+        except PackageError as exc:
+            return None, {
+                "status": "error",
+                "requirements": requirement_items,
+                "error": author_error_payload(exc, self.root),
+            }
+        return resolution, {
+            "status": "ok",
+            "requirements": requirement_items,
+            "error": None,
+        }
 
     def workspace_state(self) -> dict:
         """Return a lightweight revision for externally written local sources."""
@@ -436,7 +483,12 @@ class Workbench:
 
     def bootstrap(self, overlays: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
-            documents = self._document_catalog()
+            package_resolution, package_state = self._package_state()
+            packages_available = package_resolution is not None
+            documents = self._document_catalog(
+                package_resolution,
+                load_packages=packages_available,
+            )
             validation = self.validate(overlays)
             index = validation.get(
                 "index",
@@ -447,9 +499,21 @@ class Workbench:
                 "version": __version__,
                 "workspace": str(self.root),
                 "documents": documents,
-                "templates": [item.as_dict() for item in list_templates(self.root)],
+                "templates": [
+                    item.as_dict()
+                    for item in list_templates(
+                        self.root,
+                        package_resolution=package_resolution,
+                        include_packages=packages_available,
+                    )
+                ],
                 "tutorials": [item.as_dict() for item in list_tutorials()],
-                "packages": package_summary(locked_workspace_resolution(self.root))["packages"],
+                "packages": (
+                    package_summary(package_resolution)["packages"]
+                    if package_resolution is not None
+                    else []
+                ),
+                "package_state": package_state,
                 "plugins": self.plugins.summary(),
                 "runs": self.list_runs(),
                 "validation": validation,
@@ -694,7 +758,14 @@ class Workbench:
 
     def create_document(self, template: str, document_id: str) -> dict:
         with self._lock:
-            draft = build_from_template(self.root, template, document_id)
+            package_resolution, _package_state = self._package_state()
+            draft = build_from_template(
+                self.root,
+                template,
+                document_id,
+                package_resolution=package_resolution,
+                include_packages=package_resolution is not None,
+            )
             if draft.path.exists():
                 raise WorkspaceError(f"document already exists: {draft.path.relative_to(self.root)}")
             return {

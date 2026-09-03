@@ -33,6 +33,10 @@ WORKSPACE_LOCK = "kirin.lock"
 PACKAGE_STORE = Path(".kirin") / "packages"
 PACKAGE_SCHEMA_VERSION = 1
 LOCK_VERSION = 1
+# Package feature-line support is an explicit compatibility promise. A release may
+# retain an older line only while its manifests and source documents continue to pass
+# the current strict parser, graph validation, and engine checks.
+SUPPORTED_PACKAGE_FEATURE_LINES = ("0.3", "0.4")
 
 PACKAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
 NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -94,6 +98,17 @@ def current_feature_line() -> str:
     if match is None:  # pragma: no cover - guarded by project version tests
         raise PackageError(f"installed Kirin Tor version {__version__!r} has no feature line")
     return f"{match.group(1)}.{match.group(2)}"
+
+
+def supported_package_feature_lines() -> Tuple[str, ...]:
+    """Return the Package feature lines explicitly supported by this build."""
+
+    current = current_feature_line()
+    if current not in SUPPORTED_PACKAGE_FEATURE_LINES:
+        raise PackageError(
+            f"installed Kirin Tor feature line {current} is missing from its Package compatibility declaration"
+        )
+    return SUPPORTED_PACKAGE_FEATURE_LINES
 
 
 def normalize_source(source: str, *, relative_to: Optional[Path] = None) -> str:
@@ -309,9 +324,11 @@ def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> Pa
         raise PackageError(
             "requires_kirin must use exact MAJOR.MINOR", _location(path, "requires_kirin")
         )
-    if check_compatibility and requires_kirin != current_feature_line():
+    if check_compatibility and requires_kirin not in supported_package_feature_lines():
+        supported = ", ".join(supported_package_feature_lines())
         raise PackageError(
-            f"package requires Kirin Tor {requires_kirin}, installed feature line is {current_feature_line()}",
+            f"package requires Kirin Tor feature line {requires_kirin}; "
+            f"installed feature line {current_feature_line()} supports Package lines {supported}",
             _location(path, "requires_kirin"),
         )
     game = raw.get("game")

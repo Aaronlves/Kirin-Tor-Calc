@@ -9,7 +9,7 @@ from typing import Iterable, Optional, Tuple
 
 from .diagnostics import extract_author_title
 from .errors import SchemaError, WorkspaceError
-from .package_store import locked_workspace_resolution
+from .package_store import PackageResolution, locked_workspace_resolution
 from .schema import require_identifier
 from .tutorials import list_tutorials
 from .workspace import DocumentDraft, Workspace, build_document_draft
@@ -106,7 +106,12 @@ def _file_info(
     )
 
 
-def list_templates(root: Path) -> Tuple[TemplateInfo, ...]:
+def list_templates(
+    root: Path,
+    *,
+    package_resolution: Optional[PackageResolution] = None,
+    include_packages: bool = True,
+) -> Tuple[TemplateInfo, ...]:
     """List built-in, workspace, and locked Package templates."""
     root = root.resolve()
     result = [
@@ -134,20 +139,21 @@ def list_templates(root: Path) -> Tuple[TemplateInfo, ...]:
                 origin="workspace",
             )
         )
-    resolution = locked_workspace_resolution(root)
-    for package in resolution.packages:
-        for kind, path in _template_files(package.root):
-            relative = path.relative_to(package.root / TEMPLATE_DIRECTORY).as_posix()
-            result.append(
-                _file_info(
-                    path,
-                    kind,
-                    value=f"package:{package.source}:{relative}",
-                    origin="package",
-                    package_name=package.manifest.name,
-                    package_version=package.manifest.version,
+    if include_packages:
+        resolution = package_resolution or locked_workspace_resolution(root)
+        for package in resolution.packages:
+            for kind, path in _template_files(package.root):
+                relative = path.relative_to(package.root / TEMPLATE_DIRECTORY).as_posix()
+                result.append(
+                    _file_info(
+                        path,
+                        kind,
+                        value=f"package:{package.source}:{relative}",
+                        origin="package",
+                        package_name=package.manifest.name,
+                        package_version=package.manifest.version,
+                    )
                 )
-            )
     return tuple(result)
 
 
@@ -164,12 +170,24 @@ def expand_template_source(source: str, kind: str, document_id: str) -> str:
 
 
 def build_from_template(
-    root: Path, template_value: str, document_id: str
+    root: Path,
+    template_value: str,
+    document_id: str,
+    *,
+    package_resolution: Optional[PackageResolution] = None,
+    include_packages: bool = True,
 ) -> DocumentDraft:
     """Expand one static template into an independent in-memory document draft."""
     root = root.resolve()
     require_identifier(document_id, "id", None)
-    templates = {item.value: item for item in list_templates(root)}
+    templates = {
+        item.value: item
+        for item in list_templates(
+            root,
+            package_resolution=package_resolution,
+            include_packages=include_packages,
+        )
+    }
     selected = templates.get(template_value)
     if selected is None:
         raise WorkspaceError(f"unknown document template: {template_value}")

@@ -22,6 +22,7 @@ import {
   ArchiveRestore,
   Box as PackageIcon,
   Check,
+  CircleAlert,
   Compass,
   Download,
   FolderInput,
@@ -36,10 +37,11 @@ import {
 import { errorMessage, request } from "../api";
 import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
 import type { WorkbenchController } from "../hooks/useWorkbench";
-import type { InstalledPackage, OperationResult } from "../types";
+import type { InstalledPackage, OperationResult, PackageRequirement } from "../types";
 import { EmptyState, Surface, TechnicalResult } from "../components/ui";
 
 type InstallMode = "github" | "local";
+type ManagedPackage = InstalledPackage | PackageRequirement;
 
 export function PackagesView({ controller }: { controller: WorkbenchController }) {
   const [installOpened, setInstallOpened] = useState(false);
@@ -50,9 +52,9 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
   const [path, setPath] = useState("");
   const [working, setWorking] = useState(false);
   const [result, setResult] = useState<OperationResult | null>(null);
-  const [updatePackage, setUpdatePackage] = useState<InstalledPackage | null>(null);
+  const [updatePackage, setUpdatePackage] = useState<ManagedPackage | null>(null);
   const [updateVersion, setUpdateVersion] = useState("");
-  const [removePackage, setRemovePackage] = useState<InstalledPackage | null>(null);
+  const [removePackage, setRemovePackage] = useState<ManagedPackage | null>(null);
   const [authorToolsOpened, setAuthorToolsOpened] = useState(false);
   const [authorTab, setAuthorTab] = useState<string | null>("new-package");
   const [packageDirectory, setPackageDirectory] = useState("");
@@ -64,6 +66,9 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
   const [discoverOpened, setDiscoverOpened] = useState(false);
 
   const packages = controller.bootstrapData?.packages ?? [];
+  const packageState = controller.bootstrapData?.package_state;
+  const unavailableRequirements = packageState?.status === "error" ? packageState.requirements : [];
+  const packageError = packageState?.status === "error" ? packageState.error : null;
 
   const act = async (action: string, payload: Record<string, unknown> = {}, success?: string) => {
     setWorking(true);
@@ -140,7 +145,7 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
         <Stack gap="lg" pb="xl">
           <Surface className="package-toolbar-surface">
             <Group justify="space-between" wrap="nowrap">
-              <Box><Text fw={650} fz="sm">依赖健康</Text><Text c="dimmed" fz="xs" mt={3}>{packages.length ? `${packages.filter((item) => item.direct).length} 个直接依赖，${packages.filter((item) => !item.direct).length} 个传递依赖` : "当前工作区没有社区依赖"}</Text></Box>
+              <Box><Text fw={650} fz="sm">依赖健康</Text><Text c="dimmed" fz="xs" mt={3}>{packageState?.status === "error" ? `${unavailableRequirements.length} 个直接依赖已声明，Package 图暂未载入` : packages.length ? `${packages.filter((item) => item.direct).length} 个直接依赖，${packages.filter((item) => !item.direct).length} 个传递依赖` : "当前工作区没有社区依赖"}</Text></Box>
               <Group gap="xs">
                 <Button variant="default" size="xs" leftSection={<ArchiveRestore size={14} />} loading={working} onClick={() => { void act("restore", {}, "Package 缓存已恢复"); }}>恢复缓存</Button>
                 <Button variant="default" size="xs" leftSection={<ShieldCheck size={14} />} loading={working} onClick={() => { void act("verify", {}, "离线验证通过"); }}>离线验证</Button>
@@ -148,6 +153,19 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
               </Group>
             </Group>
           </Surface>
+
+          {packageError && (
+            <Surface className="package-error-surface">
+              <Group align="flex-start" wrap="nowrap">
+                <CircleAlert size={18} aria-hidden="true" />
+                <Box>
+                  <Text fw={650} fz="sm">Package 图未能载入</Text>
+                  <Text fz="xs" mt={4}>{packageError.author_message || packageError.message || "Package 状态不可用。"}</Text>
+                  <Text c="dimmed" fz="xs" mt={7}>本地文档、恢复草稿和工作区管理仍可使用；依赖完整语义图的校验、计算与保存继续保持严格。</Text>
+                </Box>
+              </Group>
+            </Surface>
+          )}
 
           {packages.length ? (
             <div className="package-card-grid">
@@ -174,6 +192,27 @@ export function PackagesView({ controller }: { controller: WorkbenchController }
                           <ActionIcon className="danger-action" variant="subtle" onClick={() => setRemovePackage(item)} aria-label={`移除 ${item.alias}`}><Trash2 size={14} /></ActionIcon>
                         </>
                       ) : <Text c="dimmed" fz="xs">由直接依赖自动引入</Text>}
+                    </Group>
+                  </Stack>
+                </Surface>
+              ))}
+            </div>
+          ) : unavailableRequirements.length ? (
+            <div className="package-card-grid">
+              {unavailableRequirements.map((item) => (
+                <Surface className="package-card-modern" key={`${item.alias}-${item.source}`}>
+                  <Stack gap="md" h="100%">
+                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                      <div className="package-icon"><PackageIcon size={19} strokeWidth={1.6} /></div>
+                      <Badge size="xs" variant="light" color="red">未载入</Badge>
+                    </Group>
+                    <Box>
+                      <Group gap={6} wrap="nowrap"><Text fw={680} fz="sm" truncate>{item.alias}</Text><Code>{item.version}</Code></Group>
+                      <Text c="dimmed" fz="xs" mt={7} lineClamp={3}>{item.source}</Text>
+                    </Box>
+                    <Group mt="auto" gap="xs">
+                      <Button variant="default" size="xs" flex={1} leftSection={<Download size={14} />} onClick={() => { setUpdatePackage(item); setUpdateVersion(""); }}>更新</Button>
+                      <ActionIcon className="danger-action" variant="subtle" onClick={() => setRemovePackage(item)} aria-label={`移除 ${item.alias}`}><Trash2 size={14} /></ActionIcon>
                     </Group>
                   </Stack>
                 </Surface>

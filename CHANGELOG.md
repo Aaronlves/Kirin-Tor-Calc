@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Retained explicit Package feature-line compatibility for 0.3 Packages on Kirin Tor 0.4 while
+  continuing to apply the current strict parser, graph validation, and engine checks.
+- Kept the browser workbench available when a locked Package graph cannot load: local documents,
+  recovery, built-in/workspace templates, and Package repair controls remain accessible while
+  validation-dependent operations stay blocked and the Package error remains visible.
+
 ## 0.4.0 — 2026-09-03
 
 - Added up to 64 independently named static charts per Entry with stable `ENTRY.CHART` identities, responsive and deferred-rendering static/Process chart grids, individual expansion/export, and explicit export-all.

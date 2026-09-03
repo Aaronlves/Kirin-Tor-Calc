@@ -24,6 +24,7 @@ from kirin_tor.package_manifest import (
     load_package_manifest,
     load_workspace_requirements,
     render_package_manifest,
+    supported_package_feature_lines,
     write_package_lock,
     write_workspace_requirements,
 )
@@ -87,6 +88,35 @@ def test_manifest_is_strict_and_round_trips_template(tmp_path: Path) -> None:
     (root / "kirin.package.toml").write_text(rendered + "hook = \"run-me\"\n", encoding="utf-8")
     with pytest.raises(PackageError, match="unknown package manifest field"):
         load_package_manifest(root)
+
+
+def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    assert supported_package_feature_lines() == ("0.3", "0.4")
+
+    supported = _package(tmp_path / "supported")
+    supported_manifest = supported / "kirin.package.toml"
+    supported_manifest.write_text(
+        supported_manifest.read_text(encoding="utf-8").replace(
+            f'requires_kirin = "{current_feature_line()}"',
+            'requires_kirin = "0.3"',
+        ),
+        encoding="utf-8",
+    )
+    assert load_package_manifest(supported).requires_kirin == "0.3"
+
+    unsupported = _package(tmp_path / "unsupported")
+    unsupported_manifest = unsupported / "kirin.package.toml"
+    unsupported_manifest.write_text(
+        unsupported_manifest.read_text(encoding="utf-8").replace(
+            f'requires_kirin = "{current_feature_line()}"',
+            'requires_kirin = "0.2"',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(PackageError, match="supports Package lines 0.3, 0.4"):
+        load_package_manifest(unsupported)
 
 
 def test_content_digest_covers_only_authoritative_package_sources(tmp_path: Path) -> None:
