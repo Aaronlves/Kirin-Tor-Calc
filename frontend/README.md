@@ -37,7 +37,7 @@ diff -qr frontend/dist src/kirin_tor/web_assets
 
 The Playwright suite builds the frontend and serves it against disposable
 workspaces. It covers the main authoring, projection, navigation, recovery,
-workspace-search, document-lifecycle, syntax-reference, tutorial, graph, and
+workspace-search, document-lifecycle, syntax-reference, graph, and
 conflict flows. Chromium and WebKit run the supported functional suite and
 retain layout screenshots; axe-core checks key surfaces. Firefox is temporarily
 outside the supported and tested browser matrix because Playwright's bundled

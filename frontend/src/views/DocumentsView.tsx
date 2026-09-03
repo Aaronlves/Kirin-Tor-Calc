@@ -23,7 +23,6 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
-  ArrowRight,
   BookOpen,
   BookTemplate,
   Box as PackageIcon,
@@ -58,7 +57,7 @@ import tokens from "../design/tokens.json";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import { primaryShortcut } from "../platform";
 import { documentOutline, referencesFor, symbolFor, type AuthoringTarget } from "../authoring";
-import type { AuthoringLocation, DiagnosticItem, DocumentFocusMode, DocumentItem, DocumentPayload, OperationResult, TemplateItem, TutorialItem } from "../types";
+import type { AuthoringLocation, DiagnosticItem, DocumentFocusMode, DocumentItem, DocumentPayload, OperationResult, TemplateItem } from "../types";
 import { CodeEditor, type CodeEditorHandle, type EditorCursorContext } from "../components/CodeEditor";
 import { DocumentPreview } from "../components/DocumentPreview";
 import { DocumentRelationshipPreview } from "../components/DocumentRelationshipPreview";
@@ -79,7 +78,6 @@ function diagnosticPath(item: DiagnosticItem, workspace?: string): string {
 }
 
 function templateOrigin(item: TemplateItem): string {
-  if (item.origin === "tutorial") return "教程";
   if (item.origin === "workspace") return "工作区";
   if (item.origin === "package") return `${item.package_name}@${item.package_version}`;
   return "内置";
@@ -142,10 +140,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const [filter, setFilter] = useState("");
   const [newDocumentOpened, setNewDocumentOpened] = useState(false);
   const [templateDrawerOpened, setTemplateDrawerOpened] = useState(false);
-  const [tutorialDrawerOpened, setTutorialDrawerOpened] = useState(false);
-  const [selectedTutorialId, setSelectedTutorialId] = useState<string | null>(null);
-  const [tutorialDocumentId, setTutorialDocumentId] = useState("");
-  const [copyingTutorial, setCopyingTutorial] = useState(false);
   const [saveTemplateOpened, setSaveTemplateOpened] = useState(false);
   const [deleteTemplate, setDeleteTemplate] = useState<TemplateItem | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
@@ -190,9 +184,7 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const currentText = current ? controller.buffers[current.key] ?? "" : "";
   const currentDirty = Boolean(current && controller.dirtyOverlays[current.key] !== undefined);
   const templates = controller.bootstrapData?.templates ?? [];
-  const tutorials = controller.bootstrapData?.tutorials ?? [];
   const availableTemplates = templates.filter((item) => !item.error);
-  const selectedTutorial = tutorials.find((item) => item.id === selectedTutorialId) ?? null;
   const emptyWorkspace = controller.documents.length === 0;
   const currentEntryId = sourceEntryId(currentText);
   const currentExplainTargets = useMemo(
@@ -204,9 +196,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   const currentExplainTargetSignature = currentExplainTargets.map((item) => item.value).join("\u0000");
   const selectedExplainTarget = currentExplainTargets.find((item) => item.value === explainTarget);
   const validDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentId.trim());
-  const validTutorialDocumentId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(tutorialDocumentId.trim());
-  const tutorialDocumentPath = `entries/${tutorialDocumentId.trim()}.kirin`;
-  const tutorialDocumentExists = controller.documents.some((item) => item.path === tutorialDocumentPath);
   const safeMovePath = isSafeDocumentPath(documentLifecycleValue.trim());
   const validMovePath = safeMovePath && documentLifecycleValue.trim() !== documentLifecycleDocument?.path;
   const validDuplicateId = /^[A-Za-z_][A-Za-z0-9_]*$/.test(documentLifecycleValue.trim());
@@ -235,13 +224,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
   useEffect(() => {
     if (!selectedTemplate && availableTemplates.length) setSelectedTemplate(availableTemplates[0].value);
   }, [availableTemplates, selectedTemplate]);
-
-  useEffect(() => {
-    if (!selectedTutorialId && tutorials.length) {
-      setSelectedTutorialId(tutorials[0].id);
-      setTutorialDocumentId(tutorials[0].document_id);
-    }
-  }, [selectedTutorialId, tutorials]);
 
   useEffect(() => {
     setExplainTarget((selected) => (
@@ -429,37 +411,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
     }
   };
 
-  const openTutorial = (tutorial?: TutorialItem) => {
-    const selected = tutorial ?? selectedTutorial ?? tutorials[0];
-    if (!selected) return;
-    setSelectedTutorialId(selected.id);
-    setTutorialDocumentId(selected.document_id);
-    setTutorialDrawerOpened(true);
-  };
-
-  const selectTutorial = (tutorial: TutorialItem) => {
-    setSelectedTutorialId(tutorial.id);
-    setTutorialDocumentId(tutorial.document_id);
-  };
-
-  const handleCopyTutorial = async () => {
-    if (!selectedTutorial || !validTutorialDocumentId || tutorialDocumentExists || copyingTutorial) return;
-    setCopyingTutorial(true);
-    try {
-      await controller.createDocument(selectedTutorial.template, tutorialDocumentId.trim());
-      setTutorialDrawerOpened(false);
-      notifications.show({
-        color: "orange",
-        title: "教程已复制为草稿",
-        message: `${tutorialDocumentPath} 尚未写入磁盘；可以先编辑和预览，再使用“保存全部”。`,
-      });
-    } catch (error) {
-      notifications.show({ color: "red", title: "无法复制教程", message: errorMessage(error), autoClose: false });
-    } finally {
-      setCopyingTutorial(false);
-    }
-  };
-
   const openDocumentLifecycle = (action: "move" | "duplicate" | "remove", document = current) => {
     if (!document || document.read_only) return;
     if (controller.dirtyCount > 0) {
@@ -552,7 +503,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
             <Group justify="space-between" wrap="nowrap">
               <Text component="h2" id="document-index-heading" fw={650} fz="sm">工作区文档</Text>
               <Group gap={4} wrap="nowrap">
-                <Tooltip label="教程与示例"><ActionIcon variant="subtle" color="gray" aria-label="教程与示例" onClick={() => openTutorial()}><BookOpen size={14} /></ActionIcon></Tooltip>
                 <Tooltip label="管理创建模板"><ActionIcon variant="subtle" color="gray" aria-label="管理创建模板" onClick={() => setTemplateDrawerOpened(true)}><BookTemplate size={14} /></ActionIcon></Tooltip>
                 <Tooltip label="新建文档"><ActionIcon aria-label="新建文档" onClick={() => setNewDocumentOpened(true)}><FilePlus2 size={14} /></ActionIcon></Tooltip>
               </Group>
@@ -675,47 +625,20 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
                 <Text className="page-kicker">开始使用</Text>
                 <Title order={3}>从一份真正的 Kirin Tor 源码开始</Title>
                 <Text c="dimmed" maw={720}>
-                  当前工作区仍然为空。可以复制只读教程、新建草稿，或让本地 Agent 直接创建 `entries/**/*.kirin`；工作台只显示写入后的源码与结果。
+                  当前工作区仍然为空。可以新建草稿，或让本地 Agent 直接创建 `entries/**/*.kirin`；工作台只显示写入后的源码与结果。
                 </Text>
                 <Group gap="xs" mt="lg">
-                  <Button className="tutorial-primary-action" leftSection={<ArrowRight size={14} />} onClick={() => openTutorial(tutorials[0])}>开始基础教程</Button>
-                  <Button variant="default" leftSection={<FilePlus2 size={14} />} onClick={() => setNewDocumentOpened(true)}>新建空白文档</Button>
+                  <Button className="welcome-primary-action" leftSection={<FilePlus2 size={14} />} onClick={() => setNewDocumentOpened(true)}>新建文档</Button>
                   <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => openSyntaxReference("document")}>打开语法参考</Button>
                   <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => openSyntaxReference("external-authoring")}>了解 Agent 协作</Button>
                 </Group>
-              </section>
-
-              <section className="workspace-tutorials" aria-labelledby="workspace-tutorial-heading">
-                <Group justify="space-between" align="end" mb="md">
-                  <Box>
-                    <Text className="page-kicker">内置教程</Text>
-                    <Title id="workspace-tutorial-heading" order={4}>三个虚构、游戏中立的练习</Title>
-                  </Box>
-                  <Text c="dimmed" fz="xs">查看源码不会修改工作区</Text>
-                </Group>
-                <div className="workspace-tutorial-grid">
-                  {tutorials.map((tutorial, index) => (
-                    <article className="workspace-tutorial-card" key={tutorial.id}>
-                      <Group justify="space-between" align="flex-start" wrap="nowrap">
-                        <span className="workspace-tutorial-number">0{index + 1}</span>
-                        <Badge size="xs" color="gray" variant="light">{tutorial.duration}</Badge>
-                      </Group>
-                      <Title order={5}>{tutorial.title}</Title>
-                      <Text c="dimmed" fz="xs">{tutorial.description}</Text>
-                      <ul>
-                        {tutorial.learning_points.map((point) => <li key={point}>{point}</li>)}
-                      </ul>
-                      <Button variant="default" rightSection={<ArrowRight size={13} />} onClick={() => openTutorial(tutorial)}>查看完整源码</Button>
-                    </article>
-                  ))}
-                </div>
               </section>
 
               <section className="workspace-authority-note">
                 <FileCode2 size={18} />
                 <Box>
                   <Text fw={650} fz="sm">真正的 `.kirin` 才是工作区数据</Text>
-                  <Text c="dimmed" fz="xs" mt={3}>教程保持只读；复制产生的草稿或 Agent 写入磁盘的本地源码才进入校验。工作台不会显示 Agent 的操作过程。</Text>
+                  <Text c="dimmed" fz="xs" mt={3}>新建草稿或 Agent 写入磁盘的本地源码才进入校验。工作台不会显示 Agent 的操作过程。</Text>
                 </Box>
               </section>
             </div>
@@ -1198,95 +1121,6 @@ export function DocumentsView({ controller, focusMode, onFocusModeChange }: Docu
           </Stack>
         )}
       </Modal>
-
-      <Drawer
-        opened={tutorialDrawerOpened}
-        onClose={() => setTutorialDrawerOpened(false)}
-        position="right"
-        size="min(var(--kt-sz-900), 94vw)"
-        title="教程与示例"
-        className="tutorial-drawer"
-      >
-        <div className="tutorial-library">
-          <nav className="tutorial-library-index" aria-label="内置教程">
-            <Text className="page-kicker">学习路径</Text>
-            {tutorials.map((tutorial, index) => (
-              <button
-                type="button"
-                key={tutorial.id}
-                aria-pressed={tutorial.id === selectedTutorial?.id}
-                onClick={() => selectTutorial(tutorial)}
-              >
-                <span>0{index + 1}</span>
-                <strong>{tutorial.title}</strong>
-                <small>{tutorial.duration}</small>
-              </button>
-            ))}
-            <Button variant="subtle" leftSection={<BookOpen size={14} />} onClick={() => { setTutorialDrawerOpened(false); openSyntaxReference("document"); }}>完整语法参考</Button>
-          </nav>
-
-          <ScrollArea className="tutorial-library-detail" type="auto">
-            {selectedTutorial && (
-              <article>
-                <Text className="page-kicker">只读 Kirin 源码</Text>
-                <Title order={3}>{selectedTutorial.title}</Title>
-                <Text c="dimmed" fz="sm" mt="xs">{selectedTutorial.description}</Text>
-                <ol className="tutorial-learning-points">
-                  {selectedTutorial.learning_points.map((point) => <li key={point}>{point}</li>)}
-                </ol>
-
-                <div className="tutorial-source">
-                  <Group justify="space-between" className="tutorial-source-toolbar">
-                    <Box>
-                      <Text fw={650} fz="sm">完整示例源码</Text>
-                      <Text c="dimmed" fz="xs">只读 · 尚未进入当前工作区</Text>
-                    </Box>
-                    <Badge size="sm" color="gray" variant="light">.kirin</Badge>
-                  </Group>
-                  <pre tabIndex={0}><Code>{selectedTutorial.source}</Code></pre>
-                </div>
-
-                <div className="tutorial-copy-panel">
-                  <Box>
-                    <Text fw={650} fz="sm">复制到当前工作区</Text>
-                    <Text c="dimmed" fz="xs" mt={3}>复制只创建内存草稿；保存全部前不会写入磁盘。</Text>
-                  </Box>
-                  <TextInput
-                    label="文档 ID"
-                    description="正式 ID 会替换示例中的 @entry 和限定引用。"
-                    value={tutorialDocumentId}
-                    onChange={(event) => setTutorialDocumentId(event.currentTarget.value)}
-                    error={
-                      tutorialDocumentId && !validTutorialDocumentId
-                        ? "文档 ID 格式无效"
-                        : tutorialDocumentExists
-                          ? "当前工作区已经有同路径文档"
-                          : null
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      if (validTutorialDocumentId && !tutorialDocumentExists && !copyingTutorial) void handleCopyTutorial();
-                    }}
-                  />
-                  <Group justify="flex-end">
-                    <Button variant="default" onClick={() => setTutorialDrawerOpened(false)}>关闭</Button>
-                    <Button
-                      className="tutorial-primary-action"
-                      leftSection={<Copy size={14} />}
-                      loading={copyingTutorial}
-                      disabled={!validTutorialDocumentId || tutorialDocumentExists}
-                      onClick={() => { void handleCopyTutorial(); }}
-                    >
-                      复制为未保存草稿
-                    </Button>
-                  </Group>
-                </div>
-              </article>
-            )}
-          </ScrollArea>
-        </div>
-      </Drawer>
 
       <Drawer opened={templateDrawerOpened} onClose={() => setTemplateDrawerOpened(false)} position="right" title="创建模板" size="md">
         <Stack gap="lg">

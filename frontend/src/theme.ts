@@ -80,6 +80,8 @@ export const kirinTheme = createTheme({
     }),
     Menu: Menu.extend({
       defaultProps: {
+        shadow: "md",
+        width: tokens.size.scale["280"],
         zIndex: Number(tokens.layer.popover),
       },
     }),

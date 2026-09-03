@@ -74,7 +74,6 @@ from .templates import (
     save_workspace_template,
 )
 from .timeout import run_with_timeout
-from .tutorials import list_tutorials
 from .workspace import Workspace, initialize
 
 
@@ -514,7 +513,6 @@ class Workbench:
                         include_packages=packages_available,
                     )
                 ],
-                "tutorials": [item.as_dict() for item in list_tutorials()],
                 "packages": (
                     package_summary(package_resolution)["packages"]
                     if package_resolution is not None

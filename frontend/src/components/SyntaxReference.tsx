@@ -183,7 +183,7 @@ export function SyntaxReference({ initialTopic = null, initialSymbol = null }: {
       </header>
 
       <div className="syntax-reference-layout">
-        <ScrollArea className="syntax-reference-index" type="auto">
+        <ScrollArea className="syntax-reference-index" type="auto" scrollbars="y">
           <nav aria-label="语法主题">
             <Text className="nav-group-label">{filtered.length} 个匹配主题</Text>
             {filtered.map((section) => (
@@ -209,7 +209,7 @@ export function SyntaxReference({ initialTopic = null, initialSymbol = null }: {
           </nav>
         </ScrollArea>
 
-        <ScrollArea className="syntax-reference-detail" type="auto">
+        <ScrollArea className="syntax-reference-detail" type="auto" scrollbars="y">
           {selected ? (
             <article aria-labelledby={`syntax-reference-${selected.id}`}>
               <Stack gap="lg">

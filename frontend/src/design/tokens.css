@@ -20,7 +20,6 @@
   --kt-c-s-notification: #20211d;
   --kt-c-s-graph-start: #1c1b17;
   --kt-c-s-graph-end: #10110e;
-  --kt-c-s-tutorial: rgba(20, 21, 18, 0.92);
   --kt-c-s-header: rgba(14, 15, 13, 0.97);
   --kt-c-t-primary: #eceee9;
   --kt-c-t-strong: #eeeae1;
@@ -47,7 +46,6 @@
   --kt-c-a-strong: #f08b66;
   --kt-c-a-editor-focus: #8f543f;
   --kt-c-a-text: #e9ab91;
-  --kt-c-a-quiet: #b98a76;
   --kt-c-a-border: #734a3b;
   --kt-c-a-border-muted: #4a382f;
   --kt-c-a-surface: #33241f;
@@ -111,8 +109,6 @@
   --kt-t-s-code: 13px;
   --kt-t-s-label: 14px;
   --kt-t-s-title-small: 16px;
-  --kt-t-s-title-medium: 19px;
-  --kt-t-s-title-large: 24px;
   --kt-t-s-display: clamp(28px, 4vw, 48px);
   --kt-t-w-medium: 600;
   --kt-t-w-semibold: 650;
@@ -178,7 +174,6 @@
   --kt-sz-158: 158px;
   --kt-sz-178: 178px;
   --kt-sz-180: 180px;
-  --kt-sz-210: 210px;
   --kt-sz-214: 214px;
   --kt-sz-216: 216px;
   --kt-sz-220: 220px;
@@ -191,7 +186,6 @@
   --kt-sz-290: 290px;
   --kt-sz-292: 292px;
   --kt-sz-296: 296px;
-  --kt-sz-310: 310px;
   --kt-sz-320: 320px;
   --kt-sz-330: 330px;
   --kt-sz-340: 340px;
@@ -202,7 +196,6 @@
   --kt-sz-500: 500px;
   --kt-sz-520: 520px;
   --kt-sz-610: 610px;
-  --kt-sz-900: 900px;
   --kt-sz-920: 920px;
   --kt-sz-1100: 1100px;
   --kt-sz-control-compact: 28px;

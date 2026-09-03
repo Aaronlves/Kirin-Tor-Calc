@@ -234,6 +234,31 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("region", { name: "文档索引" })).toBeVisible();
   });
 
+  test("菜单、分段控件与语法参考使用统一的稳定布局", async ({ page }) => {
+    await openWorkbench(page);
+
+    const focusModes = page.getByRole("radiogroup", { name: "文档专注模式" });
+    await expect(focusModes.locator(".mantine-SegmentedControl-indicator")).toHaveCSS("display", "none");
+    await expect(focusModes.locator('.mantine-SegmentedControl-label[data-active]')).toHaveCSS("background-color", "rgb(51, 36, 31)");
+
+    await page.getByRole("button", { name: "工作区工具" }).click();
+    const toolMenu = page.locator(".mantine-Menu-dropdown:visible");
+    const searchItem = toolMenu.getByRole("menuitem", { name: "全文搜索与替换" });
+    await expect(toolMenu).toBeVisible();
+    expect((await toolMenu.boundingBox())?.width).toBeGreaterThanOrEqual(275);
+    expect((await searchItem.boundingBox())?.height).toBeGreaterThanOrEqual(40);
+    await searchItem.hover();
+    await expect(page.getByRole("tooltip")).toContainText("搜索当前草稿和 Package 源码");
+    await page.keyboard.press("Escape");
+
+    await page.getByLabel("语法参考", { exact: true }).click();
+    const reference = page.getByRole("dialog", { name: "Kirin Tor 语法参考" });
+    const referenceViewport = reference.locator(".syntax-reference-detail .mantine-ScrollArea-viewport");
+    await expect(reference).toBeVisible();
+    expect((await reference.boundingBox())?.width).toBeGreaterThanOrEqual(1000);
+    await expect.poll(async () => referenceViewport.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  });
+
   test("语法参考可搜索、复制示例并从命令面板打开", async ({ page }) => {
     await openWorkbench(page);
     await page.getByLabel("语法参考", { exact: true }).click();
@@ -1180,9 +1205,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.getByRole("button", { name: "保存全部" }).first()).toBeDisabled();
   });
 
-  test("空工作区展示只读教程并只复制为未保存草稿", async ({ page, browserName }) => {
+  test("空工作区直接提供文档创建与写作参考", async ({ page, browserName }) => {
     const entries = resolve(".e2e-workspace", "entries");
-    const backup = resolve(".e2e-workspace", "entries-tutorial-backup");
+    const backup = resolve(".e2e-workspace", "entries-empty-backup");
     await rename(entries, backup);
     await mkdir(entries);
     try {
@@ -1192,7 +1217,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       await expect(page.getByRole("heading", { name: "从一份真正的 Kirin Tor 源码开始" })).toBeVisible();
       await expect(page.getByText(/让本地 Agent 直接创建/)).toBeVisible();
       await expect(page.getByText("真正的 `.kirin` 才是工作区数据", { exact: true })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "三个虚构、游戏中立的练习" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "教程与示例" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "开始基础教程" })).toHaveCount(0);
       expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
       if (browserName !== "firefox") {
         await expect(page.locator(".workspace-welcome")).toHaveScreenshot("empty-workspace-welcome.png", {
@@ -1207,17 +1233,11 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       await expect(reference.getByRole("heading", { name: "Agent 与外部编辑器" })).toBeVisible();
       await reference.locator(".mantine-Drawer-close").click();
 
-      await page.getByRole("button", { name: "开始基础教程" }).click();
-      const tutorial = page.getByRole("dialog", { name: "教程与示例" });
-      await expect(tutorial.getByRole("heading", { name: "基础公式" })).toBeVisible();
-      await expect(tutorial.getByRole("button", { name: "关闭抽屉" })).toBeVisible();
-      await expect(tutorial.locator(".tutorial-source pre")).toContainText("@entry tutorial_basic");
-      await expect(tutorial).toContainText("只读 · 尚未进入当前工作区");
-      expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
-
-      await tutorial.getByRole("textbox", { name: "文档 ID" }).fill("my_first_model");
-      await tutorial.getByRole("button", { name: "复制为未保存草稿" }).click();
-      const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：教程 1：基础公式" });
+      await page.getByRole("button", { name: "新建文档" }).click();
+      const createDialog = page.getByRole("dialog", { name: "新建文档" });
+      await createDialog.getByRole("textbox", { name: "文档 ID" }).fill("my_first_model");
+      await createDialog.getByRole("button", { name: "创建草稿" }).click();
+      const editor = page.getByRole("textbox", { name: /Kirin Tor 源码：/ });
       await expect(editor).toContainText("@entry my_first_model");
       await expect(page.getByText("已修改", { exact: true })).toBeVisible();
       await expect(access(resolve(entries, "my_first_model.kirin"))).rejects.toThrow();

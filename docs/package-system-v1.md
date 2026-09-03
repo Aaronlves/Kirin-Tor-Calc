@@ -33,11 +33,9 @@ finite discrete distributions, bounded Process execution and analysis, and the g
 grammar. It may also provide uncontroversial game-neutral vocabulary such
 as probability, non-negative integers, and physical time units.
 
-The application distribution contains only the current Python modules, browser assets, and the
-explicitly allowlisted game-neutral `.kirin` tutorials under `src/kirin_tor`. Tutorials are
-read-only application resources and do not load as workspace documents until the author explicitly
-copies one into an unsaved draft. Repository examples, test fixtures, and community game data are
-not installed. Wheel builds discard any older `build/lib/kirin_tor` staging tree before copying
+The application distribution contains only the current Python modules and browser assets.
+Repository examples, test fixtures, and community game data are not installed. Wheel builds
+discard any older `build/lib/kirin_tor` staging tree before copying
 current sources, and CI compares every packaged `kirin_tor/` member with that source tree so deleted
 starters or obsolete modules cannot survive through a stale local build directory.
 

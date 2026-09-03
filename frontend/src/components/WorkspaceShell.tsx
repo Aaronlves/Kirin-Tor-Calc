@@ -374,14 +374,18 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                     <Menu.Label>{group.label}</Menu.Label>
                     {group.items.map((item) => {
                       const Icon = destinationIcons[item.icon];
-                      return <Menu.Item key={item.id} leftSection={<Icon size={14} />} onClick={() => onOpenTool(item.id)}>{item.menuLabel ?? item.title}</Menu.Item>;
+                      return <Tooltip key={item.id} label={item.description} position="left" withArrow>
+                        <Menu.Item leftSection={<Icon size={16} />} onClick={() => onOpenTool(item.id)}>{item.menuLabel ?? item.title}</Menu.Item>
+                      </Tooltip>;
                     })}
                   </Box>)}
                   {controller.pluginSummary.contributions.tools.filter((tool) => activeProfile.tools.includes(tool.id)).length > 0 && <>
                     <Menu.Divider />
                     <Menu.Label>插件工具</Menu.Label>
                     {controller.pluginSummary.contributions.tools.filter((tool) => activeProfile.tools.includes(tool.id)).map((tool) => (
-                      <Menu.Item key={tool.id} leftSection={<Puzzle size={14} />} onClick={() => onOpenTool(tool.id)}>{tool.title}</Menu.Item>
+                      <Tooltip key={tool.id} label={tool.description} position="left" withArrow>
+                        <Menu.Item leftSection={<Puzzle size={16} />} onClick={() => onOpenTool(tool.id)}>{tool.title}</Menu.Item>
+                      </Tooltip>
                     ))}
                   </>}
                 </Menu.Dropdown>

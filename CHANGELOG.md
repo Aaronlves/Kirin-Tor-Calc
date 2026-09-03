@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Stabilized all segmented-control selection surfaces without runtime geometry, expanded and
+  highlighted Mantine menus with tool descriptions, widened and reflowed the Syntax Reference,
+  and removed the bundled tutorial catalog, sources, API projection, and tutorial-only UI.
 - Narrowed the supported browser and Playwright acceptance matrix to Chromium and WebKit while
   Firefox remains unable to start under Playwright 1.62.1 on macOS 27; this removes Firefox from
   the current support claim without treating the upstream launch failure as a Kirin Tor defect.

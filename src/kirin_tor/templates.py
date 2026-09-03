@@ -11,7 +11,6 @@ from .diagnostics import extract_author_title
 from .errors import SchemaError, WorkspaceError
 from .package_store import PackageResolution, locked_workspace_resolution
 from .schema import require_identifier
-from .tutorials import list_tutorials
 from .workspace import DocumentDraft, Workspace, build_document_draft
 
 
@@ -118,17 +117,6 @@ def list_templates(
         TemplateInfo(f"builtin:{template_id}", template_id, label, kind, "builtin")
         for template_id, label, kind in _BUILTINS
     ]
-    result.extend(
-        TemplateInfo(
-            tutorial.template_value,
-            tutorial.tutorial_id,
-            tutorial.title,
-            "entry",
-            "tutorial",
-            source_path=tutorial.source_path,
-        )
-        for tutorial in list_tutorials()
-    )
     for kind, path in _template_files(root):
         relative = path.relative_to(root / TEMPLATE_DIRECTORY).as_posix()
         result.append(

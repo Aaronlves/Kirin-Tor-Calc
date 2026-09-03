@@ -34,7 +34,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 kirin_tor = [
-  "tutorial_sources/*.kirin",
   "web_assets/*.html",
   "web_assets/*.css",
   "web_assets/*.js",

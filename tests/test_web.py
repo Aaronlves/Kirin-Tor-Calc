@@ -86,12 +86,7 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         assert result["workspace"] == str(example_workspace.resolve())
         assert any(item["path"] == "entries/组合模型.kirin" for item in result["documents"])
         assert any(item["value"] == "builtin:model" for item in result["templates"])
-        assert [item["id"] for item in result["tutorials"]] == [
-            "basic-model",
-            "preset-comparison",
-            "scan-chart",
-        ]
-        assert all(item["source"].startswith("@kirin 2") for item in result["tutorials"])
+        assert "tutorials" not in result
         assert result["authoring_contract"]["version"] == 1
         assert "**" in result["authoring_contract"]["tokens"]["operators"]
         assert "^" not in result["authoring_contract"]["tokens"]["operators"]
@@ -396,17 +391,6 @@ def test_web_creates_static_template_drafts_without_writing(example_workspace: P
         assert result["path"] == "entries/web_model.kirin"
         assert "@entry web_model" in result["text"]
         assert not (example_workspace / result["path"]).exists()
-
-        _status, _headers, body = running.request(
-            "/api/document/create",
-            {"template": "tutorial:scan-chart", "document_id": "learning_curve"},
-        )
-        tutorial = decoded(body)
-        assert tutorial["path"] == "entries/learning_curve.kirin"
-        assert tutorial["title"] == "教程 3：扫描与图表"
-        assert "@entry learning_curve" in tutorial["text"]
-        assert "x = learning_curve.investment" in tutorial["text"]
-        assert not (example_workspace / tutorial["path"]).exists()
 
 
 def test_web_manages_workspace_templates_and_returns_author_diagnostics(
