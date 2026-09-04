@@ -132,6 +132,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(
       access(resolve(".e2e-workspace", "entries", "fictional_saved_build.kirin")),
     ).resolves.toBeUndefined();
+    const savedNotification = page.locator(".mantine-Notification-root").filter({ hasText: "已保存" });
+    await expect(savedNotification).toBeVisible();
+    await savedNotification.locator(".mantine-Notification-closeButton").click();
+    await expect(savedNotification).toBeHidden();
     await changeReview.getByRole("button", { name: "关闭工作区工具" }).click();
 
     await openCombo(page);
