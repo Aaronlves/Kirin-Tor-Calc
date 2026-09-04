@@ -7,7 +7,10 @@ import re
 import pytest
 
 from kirin_tor.errors import ProcessExecutionError, ProcessFuelError
-from kirin_tor.process_runtime import run_process_scenario
+from kirin_tor.process_runtime import (
+    DeterministicProcessExecutor,
+    run_process_scenario,
+)
 from kirin_tor.workspace import Workspace, initialize
 
 
@@ -38,7 +41,7 @@ def test_deterministic_brewmaster_run_uses_phase_order_and_damage_reducer(
     result = run_process_scenario(
         scenario,
         workspace.units,
-        selector=lambda _index, _time, _schedule, _available, _values: "wait",
+        selector=lambda _index, _time, _schedule, _available, _values, _history: "wait",
     )
 
     assert result.elapsed == 3
@@ -57,7 +60,7 @@ def test_deterministic_brewmaster_run_uses_phase_order_and_damage_reducer(
     replay = run_process_scenario(
         scenario,
         workspace.units,
-        selector=lambda _index, _time, _schedule, _available, _values: "wait",
+        selector=lambda _index, _time, _schedule, _available, _values, _history: "wait",
     )
     assert replay == result
 
@@ -106,6 +109,87 @@ scenario exact:
     assert dict(result.observations)["actor.current"] == 20
     assert any(item.kind == "replace" and item.time == 0 for item in result.trace)
     assert any(item.kind == "state" and item.time == 3 for item in result.trace)
+
+
+def test_continuation_signature_keeps_future_schedule_state(tmp_path: Path) -> None:
+    source = """@kirin 2
+@entry continuation
+
+process timer:
+  state value: count = 0
+  event input start()
+  event internal finish()
+  key pending
+  phase later
+  on start():
+    branch schedule_result independent:
+      probability 1/2:
+        schedule finish() after 1 second phase later key pending
+      probability 1/2:
+        let unchanged: count = value
+  on finish():
+    next value = value + 1
+  observe current: count = value
+
+scenario trial:
+  phases:
+    - start
+    - later
+  use actor = timer:
+    phase later = later
+  at 0 second phase start:
+    send actor.start()
+  bounds:
+    horizon = 2 second
+    maximum_events = 2
+    maximum_decisions = 1
+    maximum_branches = 4
+    maximum_entities = 1
+"""
+    workspace = _workspace(tmp_path, source)
+    scenario = workspace.scenarios["continuation.trial"]
+    scheduled = DeterministicProcessExecutor(
+        scenario,
+        workspace.units,
+        branch_selector=lambda *_arguments: 0,
+        maximum_batches=1,
+    )
+    unscheduled = DeterministicProcessExecutor(
+        scenario,
+        workspace.units,
+        branch_selector=lambda *_arguments: 1,
+        maximum_batches=1,
+    )
+    scheduled_result = scheduled.run()
+    unscheduled_result = unscheduled.run()
+
+    assert scheduled_result.states == unscheduled_result.states
+    assert scheduled_result.elapsed == unscheduled_result.elapsed == 0
+    assert scheduled_result.pending_schedule_count == 1
+    assert unscheduled_result.pending_schedule_count == 0
+    assert scheduled.continuation_signature() != unscheduled.continuation_signature()
+
+    replay = DeterministicProcessExecutor(
+        scenario,
+        workspace.units,
+        branch_selector=lambda *_arguments: 0,
+        maximum_batches=1,
+    )
+    replay.run()
+    assert replay.continuation_signature() == scheduled.continuation_signature()
+    scheduled_policy_signature = scheduled.policy_state_signature()
+    replay_policy_signature = replay.policy_state_signature()
+    assert replay_policy_signature == scheduled_policy_signature
+
+    same_state_clone = scheduled.clone()
+    cloned_policy_signature = same_state_clone.policy_state_signature()
+    assert cloned_policy_signature == scheduled_policy_signature
+    assert cloned_policy_signature[-1] is scheduled_policy_signature[-1]
+
+    resumed = scheduled.clone()
+    resumed_result = resumed.run()
+    assert resumed_result.elapsed == 1
+    assert dict(resumed_result.observations)["actor.current"] == 1
 
 
 def test_dynamic_scheduling_exhausts_event_fuel_without_partial_success(

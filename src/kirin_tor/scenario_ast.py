@@ -173,10 +173,20 @@ class ObjectiveTermAst:
 
 
 @dataclass(frozen=True)
+class ChanceConstraintAst:
+    comparison: str
+    threshold: ExpressionAst
+    condition: ExpressionAst
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ObjectiveAst:
     id: str
     terms: Tuple[ObjectiveTermAst, ...]
     constraints: Tuple[ExpressionAst, ...] = ()
+    path_constraints: Tuple[ExpressionAst, ...] = ()
+    chance_constraints: Tuple[ChanceConstraintAst, ...] = ()
     label: Optional[str] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
@@ -230,6 +240,7 @@ class AnalysisAst:
     variant_ids: Tuple[str, ...] = ()
     search_method: Optional[str] = None
     time_tolerance: Optional[ExpressionAst] = None
+    time_grid: Optional[ExpressionAst] = None
     maximum_evaluations: Optional[ExpressionAst] = None
     charts: Tuple["AnalysisChartAst", ...] = ()
     target: Optional[ExpressionAst] = None

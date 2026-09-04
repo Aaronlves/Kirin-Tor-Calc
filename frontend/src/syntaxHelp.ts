@@ -29,7 +29,7 @@ export function syntaxTopicForLine(line: string): string | null {
   if (/^@(kirin|entry|game-version|status)\b/.test(trimmed)) return "document";
   if (/^type\b/.test(trimmed)) return "structures";
   if (/^(process|scenario|analysis|state|key|phase|event|action|flow|on|observe|let|next|emit|schedule|replace|cancel|when|branch|probability|use|variant|connect|at|every|send|policy|choose|otherwise|decide|measure|objective|maximize|minimize|then|stop|target|operation)\b/.test(trimmed)) return "process";
-  if (/^(horizon|maximum_events|maximum_decisions|maximum_branches|maximum_entities|method|time_tolerance|maximum_evaluations)\b/.test(trimmed)) return "process";
+  if (/^(horizon|maximum_events|maximum_decisions|maximum_branches|maximum_entities|method|time_tolerance|time_grid|maximum_evaluations)\b/.test(trimmed)) return "process";
   for (const [pattern, topic] of [[/^(alias|source)\b/, "aliases"], [/^(input|field|function|output|require)\b/, "members"], [/^preset\b|^group\b|^display\b/, "presets"], [/^table\b/, "tables"], [/^distribution\b/, "distributions"], [/^(dimension|unit|domain)\b/, "semantics"], [/^chart\b/, "charts"]] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return topic;
   }
@@ -52,9 +52,9 @@ export function syntaxSymbolForLine(line: string): string | null {
     [/^(let|next|emit|schedule|replace|cancel|when|branch|probability)\b/, "process-effects"],
     [/^(process|state|key|phase|event|flow|on|observe)\b/, "process-declarations"],
     [/^(policy|choose|otherwise|decide|sequence)\b/, "scenario-policies-decisions"],
-    [/^(measure|objective|maximize|minimize|then)\b/, "scenario-measures-objectives"],
+    [/^(measure|objective|maximize|minimize|then|require|probability)\b/, "scenario-measures-objectives"],
     [/^(scenario|phases|use|variant|connect|at|every|send|stop|bounds)\b/, "scenario"],
-    [/^(analysis|using|operation|policies|objectives|variants|target|search|method|time_tolerance|maximum_evaluations)\b/, "analysis"],
+    [/^(analysis|using|operation|policies|objectives|variants|target|search|method|time_tolerance|time_grid|maximum_evaluations)\b/, "analysis"],
     [/^chart\b/, "static-chart"],
   ] as Array<[RegExp, string]>) {
     if (pattern.test(trimmed)) return symbol;

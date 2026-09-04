@@ -457,8 +457,8 @@
         "context": "Entry 顶层；phases 与 bounds 必填且各只能出现一次",
         "fields": [
           { "name": "phases", "requirement": "必填一次且非空", "value": "- PHASE 有序列表", "default": "—", "description": "定义同一时刻的全局 phase 顺序；最多 256 项。" },
-          { "name": "use", "requirement": "可重复", "value": "use INSTANCE = ENTRY.PROCESS: bindings", "default": "—", "description": "绑定 Process input，并用 phase LOCAL = GLOBAL 完整映射局部 phase。" },
-          { "name": "variant", "requirement": "可重复", "value": "variant ID [LABEL]: INSTANCE.INPUT = VALUE", "default": "无变体", "description": "为分析保存一组经原类型校验的常量覆盖。" },
+          { "name": "use", "requirement": "可重复", "value": "use INSTANCE = ENTRY.PROCESS: bindings", "default": "—", "description": "绑定 Process input，并用 phase LOCAL = GLOBAL 完整映射局部 phase；常量可引用按源码默认值解析的 ENTRY.FIELD/OUTPUT。" },
+          { "name": "variant", "requirement": "可重复", "value": "variant ID [LABEL]: INSTANCE.INPUT = VALUE", "default": "无变体", "description": "为分析保存一组经原类型校验的常量覆盖；静态引用须精确且遵守 Package 依赖。" },
           { "name": "connect", "requirement": "可重复", "value": "connect INSTANCE.EVENT -> INSTANCE.EVENT", "default": "无连接", "description": "连接公开 output event 与兼容 input event。" },
           { "name": "at", "requirement": "可重复", "value": "at TIME phase PHASE: send ...", "default": "无调度", "description": "在一个精确时间发送至少一个事件。" },
           { "name": "every", "requirement": "可重复", "value": "every INTERVAL from START [until END] phase PHASE: send ...", "default": "无调度", "description": "声明有限周期发送；at/every 合计最多 4,096 项。" },
@@ -487,7 +487,7 @@
         "id": "scenario-measures-objectives",
         "name": "Measure 与 Objective",
         "kind": "分析语法",
-        "signature": "measure ID [\"LABEL\"]: TYPE = EXPRESSION\n\nobjective ID [\"LABEL\"]:\n  maximize|minimize MEASURE\n  then maximize|then minimize MEASURE\n  require CONDITION",
+        "signature": "measure ID [\"LABEL\"]: TYPE = EXPRESSION\n\nobjective ID [\"LABEL\"]:\n  maximize|minimize MEASURE\n  then maximize|then minimize MEASURE\n  require CONDITION\n  require all_paths CONDITION\n  require probability at_least|at_most THRESHOLD: CONDITION",
         "summary": "从公开轨迹和事件生成类型化 Measure，并声明有限字典序目标。",
         "context": "Scenario 内；每个 Scenario 最多 1,024 个 Measure",
         "fields": [
@@ -496,7 +496,9 @@
           { "name": "事件/条件时间函数", "requirement": "按签名", "value": "sum_events、count_events、duration_where、first_time、last_before、stop_time", "default": "—", "description": "first_time 与 last_before 要求显式 default。" },
           { "name": "objective 首项", "requirement": "至少一个", "value": "maximize MEASURE | minimize MEASURE", "default": "—", "description": "Measure 必须是数值类型。" },
           { "name": "then", "requirement": "可选/可重复", "value": "then maximize|minimize MEASURE", "default": "无次级目标", "description": "按声明顺序形成字典序目标。" },
-          { "name": "require", "requirement": "可选/可重复", "value": "布尔表达式", "default": "无目标约束", "description": "限制可接受策略。" }
+          { "name": "require", "requirement": "可选/可重复", "value": "布尔表达式", "default": "无目标约束", "description": "确定场景读取单条运行的 Measure；随机开放环 optimize 读取精确 Measure 期望；随机自适应策略当前不接受全局期望约束。" },
+          { "name": "require all_paths", "requirement": "可选/可重复", "value": "布尔表达式", "default": "无逐路径保证", "description": "在每条非零概率随机路径的 Measure 上成立才接受策略；固定、事件后与条件决策可据此生成精确可观测状态策略。" },
+          { "name": "require probability", "requirement": "可选/可重复", "value": "at_least|at_most、0..1 常量、逐路径布尔表达式", "default": "无概率约束", "description": "精确累加满足条件的路径概率，再与阈值比较；不使用抽样。" }
         ]
       },
       {
@@ -508,13 +510,13 @@
         "context": "Entry 顶层；using 与 operation 必填",
         "fields": [
           { "name": "using", "requirement": "必填一次", "value": "SCENARIO 或 ENTRY.SCENARIO", "default": "—", "description": "选择要降低和执行的 Scenario。" },
-          { "name": "operation", "requirement": "必填一次", "value": "run | compare | optimize | reach | steady | cycle", "default": "—", "description": "选择分析语义。" },
+          { "name": "operation", "requirement": "必填一次", "value": "run | compare | optimize | reach | steady | cycle", "default": "—", "description": "选择分析语义；随机固定/事件/条件决策的 optimize 使用精确可观测状态动态规划。" },
           { "name": "policy", "requirement": "可选一次", "value": "Policy ID", "default": "未选择", "description": "单个 Policy；与 policies 互斥。" },
           { "name": "policies", "requirement": "可选一次且非空", "value": "- POLICY 列表", "default": "未选择", "description": "供 compare 等操作选择多个 Policy。" },
           { "name": "objectives", "requirement": "optimize 必填", "value": "- OBJECTIVE 非空列表", "default": "—", "description": "只允许用于 optimize；其他 operation 禁止声明。" },
           { "name": "variants", "requirement": "optimize 可选", "value": "- VARIANT 非空列表", "default": "基线 Scenario", "description": "当前只允许用于 optimize，并按变体分别执行分析。" },
           { "name": "target", "requirement": "reach 条件必填", "value": "布尔表达式", "default": "Scenario stop 条件", "description": "只允许用于 reach；若 Scenario 没有 stop 条件则必须声明。" },
-          { "name": "search", "requirement": "optimize 可选", "value": "method、time_tolerance、maximum_evaluations", "default": "固定决策时点", "description": "三个字段必须一起出现；method 当前仅支持 adaptive_dyadic。" }
+          { "name": "search", "requirement": "连续时点 optimize 必填", "value": "method、time_tolerance 或 time_grid、maximum_evaluations", "default": "—", "description": "adaptive_dyadic 使用 time_tolerance 并返回 best_found；exact_grid 使用零点锚定的 time_grid，完整枚举成功时返回 exact_global。" }
         ]
       },
       {

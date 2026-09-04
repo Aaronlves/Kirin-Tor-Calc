@@ -13,6 +13,8 @@ from kirin_tor.application import (
     parse_override_text,
     scan_variant_comparison,
 )
+from kirin_tor.errors import ParameterError
+from kirin_tor.limits import MAX_COMPARISON_VARIANTS
 from kirin_tor.workspace import Workspace, build_document_draft, create_entry_template, initialize
 
 
@@ -114,6 +116,25 @@ def test_comparison_keeps_one_workspace_revision_and_reports_differences(
     assert result["variants"][1]["delta_percent"] == "20.0000000000"
     assert result["variants"][2]["status"] == "error"
     assert result["variants"][2]["error"]["code"] == "parameter_error"
+
+
+def test_comparison_rejects_more_than_the_shared_plugin_protocol_limit(
+    example_workspace: Path,
+) -> None:
+    variants = [
+        ComparisonVariant(f"方案 {index}")
+        for index in range(MAX_COMPARISON_VARIANTS + 1)
+    ]
+
+    with pytest.raises(
+        ParameterError,
+        match=f"at most {MAX_COMPARISON_VARIANTS} variants",
+    ):
+        compare_variants(
+            Workspace.load(example_workspace),
+            "combo.total",
+            variants,
+        )
 
 
 def test_variant_chart_scans_player_presets_on_one_axis(example_workspace: Path) -> None:

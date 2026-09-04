@@ -201,6 +201,18 @@ def _write_pid_and_sleep(path: str) -> None:
     time.sleep(30)
 
 
+def _return_true() -> bool:
+    return True
+
+
+def test_timeout_accepts_an_explicit_operation_specific_ceiling() -> None:
+    assert run_with_timeout(
+        _return_true,
+        timeout_seconds=301,
+        maximum_timeout_seconds=3600,
+    ) is True
+
+
 def test_timeout_terminates_worker_process(tmp_path: Path) -> None:
     pid_path = tmp_path / "worker.pid"
     timeout_seconds = 5.0 if sys.platform == "win32" else 0.2

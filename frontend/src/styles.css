@@ -397,6 +397,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .change-comparison { display: grid; min-height: var(--kt-sz-360); grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--kt-sp-hairline); border: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-b-default); }
 .change-comparison section { min-width: 0; padding: var(--kt-sp-3); background: var(--kt-c-s-navigation); }
 .change-comparison pre { min-height: 100%; margin: var(--kt-sp-2) 0 0; padding: var(--kt-sp-dense); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-workspace); color: var(--kt-c-t-subtle); font: var(--kt-t-s-meta)/var(--kt-t-lh-relaxed) var(--kt-t-f-mono); white-space: pre; }
+.plugin-proposal-summary { padding: var(--kt-sp-3); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-panel); }
 .git-history-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: var(--kt-sp-dense); padding: calc(var(--kt-sp-compact) + var(--kt-sp-hairline)) calc(var(--kt-sp-2) + var(--kt-sp-hairline)); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-panel); }
 .git-history-row span { overflow: hidden; font-size: var(--kt-t-s-body); text-overflow: ellipsis; white-space: nowrap; }
 .git-history-row small { color: var(--kt-c-t-muted); font-size: var(--kt-t-s-meta); }

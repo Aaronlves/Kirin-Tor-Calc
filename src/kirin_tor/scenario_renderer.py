@@ -148,6 +148,16 @@ def render_scenario_ast(scenario: ScenarioAst) -> List[str]:
             f"    require {_expression(condition)}"
             for condition in objective.constraints
         )
+        lines.extend(
+            f"    require all_paths {_expression(condition)}"
+            for condition in objective.path_constraints
+        )
+        lines.extend(
+            "    require probability "
+            f"{constraint.comparison} {_expression(constraint.threshold)}: "
+            f"{_expression(constraint.condition)}"
+            for constraint in objective.chance_constraints
+        )
     if scenario.stop is not None:
         lines.append(f"  stop when {_expression(scenario.stop)}")
     assert scenario.bounds is not None
@@ -189,11 +199,13 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
     if analysis.search_method is not None:
         lines.append("  search:")
         lines.append(f"    method = {analysis.search_method}")
-        assert analysis.time_tolerance is not None
         assert analysis.maximum_evaluations is not None
-        lines.append(
-            f"    time_tolerance = {_expression(analysis.time_tolerance)}"
-        )
+        if analysis.time_tolerance is not None:
+            lines.append(
+                f"    time_tolerance = {_expression(analysis.time_tolerance)}"
+            )
+        if analysis.time_grid is not None:
+            lines.append(f"    time_grid = {_expression(analysis.time_grid)}")
         lines.append(
             "    maximum_evaluations = "
             + _expression(analysis.maximum_evaluations)

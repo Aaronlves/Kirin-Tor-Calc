@@ -526,6 +526,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     result = self.server.workbench.execute(
                         str(payload.get("operation", "")), payload.get("payload"), overlays
                     )
+                elif parsed.path == "/api/model":
+                    result = self.server.workbench.model_action(
+                        str(payload.get("action", "")), payload.get("payload"), overlays
+                    )
                 elif parsed.path == "/api/operation/job":
                     action = str(payload.get("action", ""))
                     if action == "start":

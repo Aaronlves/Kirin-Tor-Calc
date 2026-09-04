@@ -436,7 +436,7 @@ _enriched_builtins.extend(
         *((value, "Analysis operation", ("analysis_operation",), "analysis") for value in ("run", "compare", "optimize", "reach", "steady", "cycle")),
         *((value, "Analysis chart kind", ("analysis_chart_kind",), "analysis-chart") for value in ("trajectory", "decision_surface", "pareto", "variant_comparison")),
         *((value, "优化方向", ("analysis_chart_direction",), "analysis-chart") for value in ("maximize", "minimize")),
-        ("adaptive_dyadic", "Analysis search method", ("analysis_search_method",), "analysis"),
+        *((value, "Analysis search method", ("analysis_search_method",), "analysis") for value in ("adaptive_dyadic", "exact_grid")),
         *((value, "显示格式", ("display_format",), "display") for value in ("number", "integer", "percent", "coefficient_percent")),
         *((value, "Process event direction", ("process_event_direction",), "process-declarations") for value in ("input", "output", "internal")),
         *((value, "Process reducer", ("process_reducer",), "process-declarations") for value in ("sum", "min", "max", "all", "any")),

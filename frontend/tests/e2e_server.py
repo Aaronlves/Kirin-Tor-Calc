@@ -8,6 +8,7 @@ from pathlib import Path
 import kirin_tor.web as web
 from kirin_tor.web import WorkbenchHTTPServer
 from kirin_tor.workbench import Workbench
+from kirin_tor.package_authoring import add_path_package
 from kirin_tor.plugin_store import PluginManager
 from kirin_tor.workspace import initialize
 
@@ -18,6 +19,7 @@ WORKSPACE_ROOT = FRONTEND_ROOT / ".e2e-workspace"
 OTHER_WORKSPACE_ROOT = FRONTEND_ROOT / ".e2e-workspace-other"
 SOURCE_WORKSPACE = PROJECT_ROOT / "examples" / "虚构技能工作区"
 SOURCE_PLUGIN = PROJECT_ROOT / "examples" / "plugins" / "fictional-talent-tree"
+SOURCE_PACKAGE = PROJECT_ROOT / "examples" / "packages" / "fictional-models"
 
 
 def main() -> None:
@@ -66,6 +68,7 @@ chart broad "宽区间组合曲线":
         encoding="utf-8",
     )
     approval_home = WORKSPACE_ROOT / ".e2e-plugin-user"
+    add_path_package(WORKSPACE_ROOT, "fictional_models", SOURCE_PACKAGE)
     plugin_manager = PluginManager(WORKSPACE_ROOT, approval_home=approval_home)
     plugin_manager.add_path("talents", SOURCE_PLUGIN)
     plugin_manager.set_enabled("talents", False)

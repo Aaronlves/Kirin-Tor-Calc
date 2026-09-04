@@ -23,15 +23,22 @@ def _process_entry(result_queue, function: Callable, args: Tuple[Any, ...]) -> N
         result_queue.put(("error", type(exc).__name__, str(exc), traceback.format_exc()))
 
 
-def run_with_timeout(function: Callable, args: tuple = (), timeout_seconds: float = 10.0):
+def run_with_timeout(
+    function: Callable,
+    args: tuple = (),
+    timeout_seconds: float = 10.0,
+    *,
+    maximum_timeout_seconds: float = MAX_TIMEOUT_SECONDS,
+):
     if (
         not isinstance(timeout_seconds, (int, float))
         or not math.isfinite(timeout_seconds)
         or timeout_seconds <= 0
-        or timeout_seconds > MAX_TIMEOUT_SECONDS
+        or timeout_seconds > maximum_timeout_seconds
     ):
         raise ParameterError(
-            f"timeout must be greater than 0 and at most {MAX_TIMEOUT_SECONDS:g} seconds"
+            "timeout must be greater than 0 and at most "
+            f"{maximum_timeout_seconds:g} seconds"
         )
     # Windows has no fork; POSIX fork keeps the standalone kernel convenient for
     # notebooks and short scripts that cannot satisfy spawn's __main__ contract.

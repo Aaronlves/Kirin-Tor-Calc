@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Expanded sandboxed Workbench Plugins with a bounded validated model index and granular read-only
+  permissions for temporary evaluation, explanation, variant comparison, scans and grids,
+  single-variable solving, and named Process Analysis. The host validates canonical targets,
+  declared inputs, presets, point counts and result size, keeps timeouts and precision under host
+  control, and still grants no artifact, run-record or Package mutation path. Separately granted
+  draft permissions now let a Plugin read the bounded current local buffer and submit a complete
+  candidate to a volatile, provenance-bearing review queue; the host validates on submission and
+  acceptance, rejects stale baselines, and only turns an accepted proposal into an unsaved draft.
+  The backend now publishes the authoritative Plugin v1 capability registry for action permissions,
+  backend operation routing, and bridge limits to bootstrap and frame activation. The Workbench
+  consumes that descriptor directly, the comparison limit is consistently eight variants, and the
+  reference Plugin acceptance path exercises every public action.
+- Added data-only Package model interfaces and strict Plugin feature/interface requirements. The
+  host now prevents incompatible Plugins from activating while retaining inspectable missing,
+  revision-mismatch, ambiguous, invalid-provider, and Kirin-feature diagnostics. Package manifest
+  schema and Plugin manifest/API are now version 2; workspace requirements and lockfiles retain
+  their independent schema-1 contracts.
+- Replaced the Plugin's truncated startup model index with a fixed-size, revision-bearing Catalog
+  summary and bounded `model.query`, `model.get`, `model.dependencies`, `model.document`, and
+  `model.capabilities` actions. Stable opaque cursors bind pagination to normalized filters and one
+  workspace revision; shared descriptors cover static, structured, Process, Scenario, Analysis,
+  chart, and evidence declarations without exposing raw `.kirin` source or local Package paths.
+- Added exact adaptive-policy optimization for finite random Process decisions, including
+  public-information-state rules, lexicographic expected objectives, all-path guarantees,
+  incremental trajectory Measures, resumable branch checkpoints, and exact equivalent-state
+  aggregation with separate result-state and represented source-path counts; the Workbench now
+  exposes policy summaries and infeasible guarantees without presenting either as a sampled result.
+  Exact policy checkpoints intern repeated future schedules with collision-free equality and cached
+  hashes, maintain only each Objective's transitive Measure dependencies during Bellman search, and
+  release the search memo before exact policy replay. The hard bounded-search ceiling now permits
+  two million branches for demanding models.
+- Allowed Scenario constant expressions to bind fully-qualified static scalar fields and outputs
+  from their source-default inputs as immutable exact Process IR values, while retaining dependency
+  provenance and Package scope checks.
+- Allowed bounded Process Analysis jobs to request up to one hour while retaining the general
+  five-minute ceiling for other mathematical operations and workbench cancellation.
 - Unified neutral hover feedback and token-driven component transitions, and made relationship-node
   selection preserve the current layout while exposing role, source, formula, and lineage guidance.
 - Stabilized all segmented-control selection surfaces without runtime geometry, expanded and

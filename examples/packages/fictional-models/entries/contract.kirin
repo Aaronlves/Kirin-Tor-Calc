@@ -1,0 +1,16 @@
+@kirin 2
+@entry fictional_contract "虚构模型接口"
+@game-version "acceptance-1"
+@status "example_only"
+
+----
+这是只用于验收 Package interface 与 Catalog 的虚构数据，不代表任何真实游戏。
+----
+
+type action_contract "动作合同":
+  coefficient "系数": dimensionless
+
+action_contract example_action "示例动作":
+  coefficient = 1
+
+output example_value "示例值": dimensionless = example_action.coefficient

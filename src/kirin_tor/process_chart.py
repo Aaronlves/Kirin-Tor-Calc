@@ -98,33 +98,60 @@ def _dominates(left: Mapping[str, object], right: Mapping[str, object], chart) -
     return all(comparisons) and strict
 
 
-def _trajectory_runs(result) -> list[tuple[str, str, str, object]]:
+def _trajectory_runs(result) -> list[tuple[str, str, str, object, Fraction]]:
     if hasattr(result, "variants"):
-        return [
-            (
-                variant.variant_id,
-                objective.objective_id,
-                f"optimum_{index + 1}",
-                optimum.run,
-            )
-            for variant in result.variants
-            for objective in variant.objectives
-            for index, optimum in enumerate(objective.optima)
-        ]
+        runs = []
+        for variant in result.variants:
+            for objective in variant.objectives:
+                for index, optimum in enumerate(objective.optima):
+                    if optimum.run is not None:
+                        runs.append(
+                            (
+                                variant.variant_id,
+                                objective.objective_id,
+                                f"optimum_{index + 1}",
+                                optimum.run,
+                                Fraction(1),
+                            )
+                        )
+                        continue
+                    runs.extend(
+                        (
+                            variant.variant_id,
+                            objective.objective_id,
+                            f"optimum_{index + 1}_outcome_{outcome_index + 1}",
+                            outcome.result,
+                            outcome.probability,
+                        )
+                        for outcome_index, outcome in enumerate(optimum.outcomes)
+                    )
+        return runs
     if hasattr(result, "policies"):
         return [
-            (comparison.policy_id, "run", f"outcome_{index + 1}", outcome.result)
+            (
+                comparison.policy_id,
+                "run",
+                f"outcome_{index + 1}",
+                outcome.result,
+                outcome.probability,
+            )
             for comparison in result.policies
             for index, outcome in enumerate(comparison.result.outcomes)
         ]
     if hasattr(result, "outcomes"):
         return [
-            ("default", "run", f"outcome_{index + 1}", outcome.result)
+            (
+                "default",
+                "run",
+                f"outcome_{index + 1}",
+                outcome.result,
+                outcome.probability,
+            )
             for index, outcome in enumerate(result.outcomes)
         ]
     if hasattr(result, "runs"):
         return [
-            ("cycle", "cycle", f"iteration_{index + 1}", run)
+            ("cycle", "cycle", f"iteration_{index + 1}", run, Fraction(1))
             for index, run in enumerate(result.runs)
         ]
     return []
@@ -148,7 +175,13 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
             series = [symbol.id for symbol in chart.series]
             rows = []
             markers = []
-            for variant_id, objective_id, strategy_id, run in _trajectory_runs(result):
+            for (
+                variant_id,
+                objective_id,
+                strategy_id,
+                run,
+                probability,
+            ) in _trajectory_runs(result):
                 for sample in run.observation_samples:
                     values = dict(sample.values)
                     rows.append(
@@ -156,6 +189,7 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
                             "variant": variant_id,
                             "objective": objective_id,
                             "strategy": strategy_id,
+                            "probability": _exact(probability),
                             "time": _exact(sample.time),
                             "time_approximate": float(sample.time),
                             "phase": sample.phase,
@@ -170,6 +204,7 @@ def process_charts_data(result, analysis: AnalysisIR, scenario: ScenarioIR) -> l
                         "variant": variant_id,
                         "objective": objective_id,
                         "strategy": strategy_id,
+                        "probability": _exact(probability),
                     }
                     for item in _run_markers(chart, run)
                 )
@@ -308,7 +343,10 @@ def write_process_chart_csv(chart: dict, path: Path, overwrite: bool = False) ->
         value_names = chart["series"]
     else:
         value_names = ()
-    headers = ["variant", "objective", "strategy", "time", "phase", "x", "y", "value", "nondominated", "decisions"]
+    headers = [
+        "variant", "objective", "strategy", "time", "phase", "x", "y",
+        "value", "nondominated", "decisions", "probability",
+    ]
     headers.extend(value_names)
     try:
         with temporary.open("x", encoding="utf-8", newline="") as handle:
@@ -316,7 +354,10 @@ def write_process_chart_csv(chart: dict, path: Path, overwrite: bool = False) ->
             writer.writeheader()
             for source in chart["rows"]:
                 row = {name: "" for name in headers}
-                for name in ("variant", "objective", "strategy", "time", "phase", "x", "y", "nondominated"):
+                for name in (
+                    "variant", "objective", "strategy", "time", "phase", "x", "y",
+                    "nondominated", "probability",
+                ):
                     value = source.get(name)
                     if isinstance(value, dict):
                         value = value.get("exact")

@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Optional, Tuple
 
-from .errors import PluginError, WorkspaceError
-from .package_manifest import atomic_write_text
+from .errors import PackageError, PluginError, WorkspaceError
+from .package_manifest import atomic_write_text, current_feature_line
+from .package_store import PackageResolution, locked_workspace_resolution
 from .plugin_manifest import (
     PLUGIN_ALIAS_RE,
-    PLUGIN_API_VERSION,
     PLUGIN_STORE,
     LockedPlugin,
     PluginLock,
@@ -30,6 +30,7 @@ from .plugin_manifest import (
     render_plugin_lock,
     render_plugin_requirements,
 )
+from .plugin_protocol import PLUGIN_API_VERSION, plugin_protocol_descriptor
 
 
 APPROVAL_SCHEMA = 1
@@ -96,6 +97,7 @@ class ResolvedPlugin:
     approved: bool
     active: bool
     error: Optional[str] = None
+    compatibility: Optional[dict] = None
 
     def as_dict(self) -> dict:
         locked = self.locked
@@ -111,12 +113,101 @@ class ResolvedPlugin:
             "api": manifest.api if manifest else None,
             "description": manifest.description if manifest else None,
             "license": manifest.license if manifest else None,
+            "requires": manifest.requires.as_dict() if manifest else None,
             "content_sha256": locked.content_sha256 if locked else None,
             "approved": self.approved,
             "active": self.active,
             "status": self.status,
             "error": self.error,
+            "compatibility": self.compatibility,
         }
+
+
+def _package_provider(package, interface) -> dict:
+    return {
+        "interface": {"id": interface.id, "revision": interface.revision},
+        "package": package.manifest.name,
+        "version": package.manifest.version,
+        "source": package.source,
+        "resolved": package.resolved,
+        "content_sha256": package.content_sha256,
+    }
+
+
+def plugin_compatibility(
+    manifest: PluginManifest,
+    resolution: Optional[PackageResolution],
+    package_error: Optional[str] = None,
+) -> dict:
+    """Resolve strict Plugin feature/interface requirements without activating code."""
+
+    current_feature = current_feature_line()
+    feature_status = (
+        "satisfied"
+        if manifest.requires.kirin_feature == current_feature
+        else "kirin-incompatible"
+    )
+    interface_results = []
+    for requirement in manifest.requires.interfaces:
+        if package_error is not None:
+            interface_results.append(
+                {
+                    **requirement.as_dict(),
+                    "status": "invalid-provider",
+                    "providers": [],
+                    "error": package_error,
+                }
+            )
+            continue
+        candidates = [
+            (package, interface)
+            for package in (resolution.packages if resolution is not None else ())
+            for interface in package.manifest.interfaces
+            if interface.id == requirement.id
+        ]
+        exact = [
+            (package, interface)
+            for package, interface in candidates
+            if interface.revision == requirement.revision
+        ]
+        if len(exact) > 1:
+            status = "ambiguous"
+        elif len(exact) == 1:
+            status = "satisfied"
+        elif candidates:
+            status = "revision-mismatch"
+        else:
+            status = "missing"
+        interface_results.append(
+            {
+                **requirement.as_dict(),
+                "status": status,
+                "providers": [
+                    _package_provider(package, interface)
+                    for package, interface in sorted(
+                        candidates,
+                        key=lambda item: (
+                            item[1].revision,
+                            item[0].source,
+                        ),
+                    )
+                ],
+                "error": None,
+            }
+        )
+    compatible = feature_status == "satisfied" and all(
+        item["status"] == "satisfied" for item in interface_results
+    )
+    return {
+        "status": "satisfied" if compatible else "incompatible",
+        "compatible": compatible,
+        "kirin_feature": {
+            "required": manifest.requires.kirin_feature,
+            "current": current_feature,
+            "status": feature_status,
+        },
+        "interfaces": interface_results,
+    }
 
 
 class PluginManager:
@@ -344,6 +435,12 @@ class PluginManager:
             )
             else set()
         )
+        try:
+            package_resolution = locked_workspace_resolution(self.root)
+            package_error = None
+        except PackageError as exc:
+            package_resolution = None
+            package_error = str(exc)
         result = []
         for requirement in requirements.plugins:
             locked = locked_by_alias.get(requirement.alias)
@@ -378,6 +475,11 @@ class PluginManager:
                 ):
                     raise PluginError("plugin requirements, lock, and manifest identity disagree")
                 is_approved = locked.content_sha256 in approved
+                compatibility = plugin_compatibility(
+                    manifest,
+                    package_resolution,
+                    package_error,
+                )
                 if not requirement.enabled:
                     status = "disabled"
                     active = False
@@ -386,6 +488,9 @@ class PluginManager:
                     active = False
                 elif not is_approved:
                     status = "unapproved"
+                    active = False
+                elif not compatibility["compatible"]:
+                    status = "incompatible"
                     active = False
                 else:
                     status = "active"
@@ -399,6 +504,7 @@ class PluginManager:
                         status,
                         is_approved,
                         active,
+                        compatibility=compatibility,
                     )
                 )
             except PluginError as exc:
@@ -445,6 +551,7 @@ class PluginManager:
         except PluginError as exc:
             return {
                 "safe_mode": self.safe_mode,
+                "protocol": plugin_protocol_descriptor(),
                 "plugins": [],
                 "contributions": contributions,
                 "error": str(exc),
@@ -462,6 +569,9 @@ class PluginManager:
                 "plugin_version": item.manifest.version,
                 "content_sha256": item.locked.content_sha256,
                 "api": PLUGIN_API_VERSION,
+                "required_interfaces": [
+                    item.as_dict() for item in item.manifest.requires.interfaces
+                ],
             }
             for key in contributions:
                 group = getattr(item.manifest.contributes, key)
@@ -477,6 +587,7 @@ class PluginManager:
             contributions[key].sort(key=lambda item: item["id"])
         return {
             "safe_mode": self.safe_mode,
+            "protocol": plugin_protocol_descriptor(),
             "plugins": [item.as_dict() for item in items],
             "contributions": contributions,
             "error": None,

@@ -4,14 +4,27 @@ export type DocumentFocusMode = "editor" | "split" | "preview";
 
 export type PluginPermission =
   | "workspace.summary"
+  | "model.read"
   | "document.read"
+  | "draft.read"
+  | "draft.propose"
   | "source.navigate"
-  | "operation.evaluate";
+  | "operation.evaluate"
+  | "operation.explain"
+  | "operation.compare"
+  | "operation.scan"
+  | "operation.solve"
+  | "operation.analyze";
 
 export interface PluginRendererMatch {
   document_ids: string[];
   document_id_prefixes: string[];
   package_names: string[];
+}
+
+export interface PluginInterfaceRequirement {
+  id: string;
+  revision: number;
 }
 
 export interface PluginSurfaceContribution {
@@ -28,7 +41,8 @@ export interface PluginSurfaceContribution {
   plugin_name: string;
   plugin_version: string;
   content_sha256: string;
-  api: "1";
+  api: "2";
+  required_interfaces: PluginInterfaceRequirement[];
 }
 
 export interface PluginCommandContribution {
@@ -41,7 +55,8 @@ export interface PluginCommandContribution {
   plugin_name: string;
   plugin_version: string;
   content_sha256: string;
-  api: "1";
+  api: "2";
+  required_interfaces: PluginInterfaceRequirement[];
 }
 
 export interface PluginProfileContribution {
@@ -56,7 +71,8 @@ export interface PluginProfileContribution {
   plugin_name: string;
   plugin_version: string;
   content_sha256: string;
-  api: "1";
+  api: "2";
+  required_interfaces: PluginInterfaceRequirement[];
 }
 
 export interface InstalledPlugin {
@@ -70,6 +86,26 @@ export interface InstalledPlugin {
   api?: string | null;
   description?: string | null;
   license?: string | null;
+  requires?: {
+    kirin_feature: string;
+    interfaces: PluginInterfaceRequirement[];
+  } | null;
+  compatibility?: {
+    status: "satisfied" | "incompatible";
+    compatible: boolean;
+    kirin_feature: {
+      required: string;
+      current: string;
+      status: "satisfied" | "kirin-incompatible";
+    };
+    interfaces: Array<{
+      id: string;
+      revision: number;
+      status: "satisfied" | "missing" | "revision-mismatch" | "ambiguous" | "invalid-provider";
+      providers: Array<Record<string, unknown>>;
+      error?: string | null;
+    }>;
+  } | null;
   content_sha256?: string | null;
   approved: boolean;
   active: boolean;
@@ -77,9 +113,49 @@ export interface InstalledPlugin {
   error?: string | null;
 }
 
+export interface PluginProtocolLimits {
+  max_message_chars: number;
+  max_model_items_per_group: number;
+  max_model_chars_per_group: number;
+  max_target_inputs: number;
+  max_operation_targets: number;
+  max_comparison_variants: number;
+  max_scan_points: number;
+  max_expression_chars: number;
+  max_draft_source_bytes: number;
+  max_draft_proposals: number;
+  max_action_id_chars: number;
+  max_identity_chars: number;
+  max_path_chars: number;
+  max_title_chars: number;
+  max_description_chars: number;
+  max_variant_name_chars: number;
+  standard_operation_timeout_seconds: number;
+  analysis_timeout_seconds: number;
+  default_model_query_limit: number;
+  max_model_query_limit: number;
+  max_model_cursor_chars: number;
+  max_model_dependency_depth: number;
+  max_catalog_summary_interfaces: number;
+}
+
+export interface PluginActionCapability {
+  permission: PluginPermission;
+  handler: "host" | "operation" | "catalog";
+  operation?: string;
+}
+
+export interface PluginProtocolDescriptor {
+  api: "2";
+  permissions: PluginPermission[];
+  actions: Record<string, PluginActionCapability>;
+  limits: PluginProtocolLimits;
+}
+
 export interface PluginSummary {
   safe_mode: boolean;
   error?: string | null;
+  protocol: PluginProtocolDescriptor;
   plugins: InstalledPlugin[];
   contributions: {
     renderers: PluginSurfaceContribution[];
@@ -88,6 +164,28 @@ export interface PluginSummary {
     commands: PluginCommandContribution[];
     profiles: PluginProfileContribution[];
   };
+}
+
+export interface ModelInterfaceProvider {
+  id: string;
+  revision: number;
+  provider: {
+    package: string;
+    version: string;
+    content_sha256: string;
+  };
+}
+
+export interface ModelCatalogSummary {
+  status: "ok" | "unavailable";
+  revision?: string;
+  counts?: Record<string, number>;
+  descriptor_count?: number;
+  descriptor_kinds?: string[];
+  interfaces?: ModelInterfaceProvider[];
+  interface_count?: number;
+  interfaces_truncated?: boolean;
+  reason?: string;
 }
 
 export interface CommunityDiscoveryCandidate {
@@ -285,6 +383,29 @@ export interface AuthoringChange {
   text: string;
 }
 
+export interface PluginDraftProposal {
+  id: string;
+  pluginId: string;
+  pluginName: string;
+  pluginVersion: string;
+  pluginContentSha256: string;
+  contributionId: string;
+  documentKey: string;
+  documentPath: string;
+  title: string;
+  description?: string;
+  baseText: string;
+  proposedText: string;
+  createdAt: string;
+}
+
+export interface PluginDraftProposalResult {
+  status: "queued" | "rejected";
+  proposalId?: string;
+  reason?: "unchanged" | "invalid" | "stale" | "queue_full" | "unavailable";
+  errors?: DiagnosticItem[];
+}
+
 export interface RecoveryDraft {
   text: string;
   base_sha256: string | null;
@@ -366,6 +487,7 @@ export interface ValidationResult {
   message?: string;
   author_message?: string;
   authoring?: AuthoringIndex;
+  catalog?: ModelCatalogSummary;
   [key: string]: unknown;
 }
 
@@ -403,6 +525,12 @@ export interface InstalledPackage {
   resolved: string;
   content_sha256: string;
   dependencies?: Record<string, { source: string; version: string }>;
+  interfaces?: Array<{
+    id: string;
+    revision: number;
+    documents: string[];
+    document_prefixes: string[];
+  }>;
 }
 
 export interface PackageRequirement {
@@ -429,6 +557,7 @@ export interface BootstrapPayload {
   runs: RunItem[];
   validation: ValidationResult;
   index: WorkspaceIndex;
+  catalog: ModelCatalogSummary;
   authoring: AuthoringIndex;
   authoring_contract: AuthoringContract;
   recovery: RecoveryPayload;

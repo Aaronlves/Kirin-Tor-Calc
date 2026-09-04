@@ -304,12 +304,17 @@ decision points, and schedules that already exceed their declared event/decision
 resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests, typed trajectory
 Measures, and named constrained lexicographic Objectives.
 
+Constant Scenario positions may reference a fully-qualified static scalar field or output. The
+workspace resolves its source-default inputs once, requires an exact rational or boolean result,
+binds that value into immutable Process IR, and retains the source reference for dependency checks.
+Package sources cannot use workspace-local or undeclared-package values through this route.
+
 The deterministic runtime API executes a lowered scenario with exact time, simultaneous phase
 snapshots, reducers, flow, guards, stable event IDs, keyed scheduling, state/domain checks, stop
 conditions, runtime fuel enforcement, and a replay-stable trace. A scenario with ambiguous decision
 choices requires an explicit selector; random branches are rejected by this deterministic path.
-`run`, source-Policy `compare`, deterministic bounded `optimize`, exact random `reach`, finite-state
-`steady`, and exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
+`run`, source-Policy `compare`, bounded `optimize`, exact random `reach`, finite-state `steady`, and
+exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
 can be saved/replayed with embedded source snapshots. The finite optimizer returns every Measure for
 every tied optimal strategy of each selected Objective and labels exhaustive finite policy enumeration
 as `exact_global`; stable result ordering is not a hidden tie breaker, and it uses no hidden time grid
@@ -327,10 +332,28 @@ is `best_found`, not global optimality. Effective method, tolerance, search budg
 of a fixed time grid or pruning approximation, Scenario bounds, and proof metadata are retained in
 the request/result/run-record chain so replay does not depend on hidden solver settings.
 
+The same continuous occurrence declaration can instead use `method = exact_grid`, a positive
+`time_grid`, and `maximum_evaluations`. The zero-anchored grid enumerates distinct times inside each
+declared interval, every action combination, and every use count from zero through COUNT. Complete
+enumeration returns `exact_global` and records the grid; an insufficient evaluation budget fails
+instead of returning a partial optimum.
+
 For a finite random Process, Analysis evaluates every complete path Measure before combining exact
-numeric `measure_expectations`, and labels the result `strict_finite_output_expectation`. A source
-that merely supplies average damage as deterministic events remains a `deterministic_scenario`;
-Kirin Tor does not identify the two or silently substitute sampling.
+numeric `measure_expectations`, and labels the result `strict_finite_output_expectation`. `optimize`
+supports precommitted `decide continuously` plans under the same semantics: numeric Objective terms
+and ordinary `require` constraints use exact Measure expectations; `require all_paths CONDITION`
+instead evaluates the condition against every nonzero-probability path's Measures. A chance constraint
+uses `require probability at_least|at_most THRESHOLD: CONDITION`; it exactly sums the weights of paths
+whose Measures satisfy CONDITION and compares that probability with a constant in 0..1. Every optimal
+plan retains its complete weighted outcome set, threshold, attained probability, and constraint scopes.
+This continuous-time form is open-loop plan search. Random fixed, event-triggered, and condition-triggered
+decisions instead use exact observable-state dynamic programming: expected lexicographic objectives and
+`all_paths` constraints are supported, while expectation constraints and chance constraints are rejected
+because they couple otherwise independent information states. The result contains reachable policy rules,
+an exactly replayed weighted outcome set, and an `exact_global` proof; an empty optimum set proves that no
+policy satisfies the all-path guarantee. Without a trajectory chart, equivalent runtime and Measure-history
+states are merged exactly while retaining summed probability and source-path counts. A source that merely supplies average damage as deterministic events remains a
+`deterministic_scenario`; Kirin Tor does not identify the two or silently substitute sampling.
 
 ## Chart projection
 

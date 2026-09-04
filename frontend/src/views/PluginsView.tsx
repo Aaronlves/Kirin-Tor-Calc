@@ -22,6 +22,7 @@ function statusLabel(plugin: InstalledPlugin): string {
     disabled: "已停用",
     "safe-mode": "安全模式停用",
     unapproved: "尚未批准",
+    incompatible: "接口不兼容",
     invalid: "内容无效",
     "missing-lock": "缺少锁定快照",
   }[plugin.status] ?? plugin.status;
@@ -122,6 +123,17 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
                 <Text c="dimmed" fz="xs" mt={4}>{plugin.id || "身份不可用"}@{plugin.version || plugin.requested_version} · 别名 {plugin.alias}</Text>
                 {plugin.description && <Text fz="sm" mt="sm">{plugin.description}</Text>}
                 {plugin.error && <Text c="red.3" fz="xs" mt="sm"><CircleAlert size={12} /> {plugin.error}</Text>}
+                {plugin.compatibility && !plugin.compatibility.compatible && <Box mt="sm" aria-label="插件兼容性详情">
+                  {plugin.compatibility.kirin_feature.status !== "satisfied" && <Text c="red.3" fz="xs">
+                    需要 Kirin feature {plugin.compatibility.kirin_feature.required}，当前为 {plugin.compatibility.kirin_feature.current}。
+                  </Text>}
+                  {plugin.compatibility.interfaces.filter((item) => item.status !== "satisfied").map((item) => (
+                    <Text c="red.3" fz="xs" key={`${item.id}@${item.revision}`}>
+                      {item.id}@{item.revision}：{item.status}
+                      {item.providers.length ? `；已安装 provider ${item.providers.map((provider) => `${String(provider.package)}@${String(provider.version)}`).join("、")}` : ""}
+                    </Text>
+                  ))}
+                </Box>}
                 <Code block mt="sm">{plugin.content_sha256 || "没有锁定内容摘要"}</Code>
               </Box>
               <Group gap={6} justify="flex-end">

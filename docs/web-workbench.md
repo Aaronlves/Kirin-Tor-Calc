@@ -4,7 +4,7 @@
 
 `kt web [WORKSPACE|SOURCE.kirin]` starts a local graphical workbench. An explicit path takes precedence, followed by the workspace containing the current directory and then the last remembered workspace. If none exists, the command asks for a folder and requires confirmation before initializing an ordinary directory; `kt web --choose` forces that selection again. The running workbench can open another existing workspace from Settings without starting a second server. The remembered path is user-local launch preference, not workspace or model authority. The workbench is an adapter over the same workspace, engine, operation, Package, artifact, and run-record services used by the CLI. It does not introduce another document model: local `entries/**/*.kirin` remain the only writable authority.
 
-Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
+Explicitly installed Workbench Extension Plugins may add sandboxed document renderers, views, tools, commands, and layout profiles. They remain projections inside the stable host and cannot replace source validation, saving, Package resolution, recovery, or local-server authorization. Their executable approval is separate from Community Package installation. See [Workbench Extension Plugin protocol v2](workbench-plugin-system-v2.md).
 
 The Package and Workbench Plugin management surfaces include explicit read-only community
 discovery drawers. They query the fixed GitHub topics `kirin-tor-package` and
@@ -19,6 +19,7 @@ The workbench keeps the following authority boundary:
 | State or surface | Author-editable | Persistence | Authority role |
 | --- | --- | --- | --- |
 | Local `.kirin` buffer | In the official editor | Unsaved overlay until Save All | Editable draft over the same source model; not durable authority |
+| Plugin draft proposal | No direct editing contract | Ephemeral until accepted or rejected | Validated candidate projection; cannot affect the current buffer or source by itself |
 | Local `.kirin` file | Through validated Save All or an external local editor/Agent | Durable workspace content | Authoritative local definition; validity is established separately |
 | Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
 | Agent prompt, transcript, or activity state | No Workbench editing contract | Outside Kirin Tor | Not model authority and not displayed or recorded by Kirin Tor |
@@ -95,6 +96,7 @@ authority, and Plugin isolation boundaries above.
 The Web adapter exposes shared compare, scan, grid, transform, differentiation, and solve operations so any task-specific browser flow can reuse the existing mathematical implementation. Transform, differentiation, solve, scan, and grid also have public CLI commands; multi-variant comparison currently remains an application/Web-adapter operation. The current interface does not expose generic forms for these advanced operations or divide them into permanent Calculate, Charts, or Math pages. Authors use the corresponding CLI commands where available until a concrete browser workflow is adopted. A static chart appears only when its Entry declares a named `chart` with `x/range/points/y`; one Entry may declare up to 64 independent static charts.
 
 Browser operations run as isolated local jobs with explicit queued/running/completed/failed/cancelled states. The header reports active jobs and their current stage and can terminate their process trees; server-side mathematical timeouts remain a second independent bound. The UI reports truthful stages rather than estimating an unsupported completion percentage.
+Process Analysis previews and exports may request up to one hour because exact finite-state policy searches can legitimately exceed the general five-minute mathematical-operation ceiling. Scenario event, decision, branch, and entity bounds remain mandatory resource limits, and the job can still be cancelled from the workbench.
 
 The Web adapter accepts valid unsaved document overlays for validation and non-durable exploration. A run record cannot be created until its documents have been saved, so the immutable record always names durable source authority.
 
@@ -126,9 +128,42 @@ The stable host discovers contributions only from enabled, locally approved, API
 
 A matching document renderer is selected by validated canonical entry ID, ID prefix, or Package name. It receives a structured projection only after the complete overlay validates. The author can switch back to the generic result/chart projection without changing source or plugin state. Top-level plugin views and tools receive only the workspace summary unless their manifest declares another supported permission.
 
-Every executable surface is an iframe with `sandbox="allow-scripts"` and no same-origin permission. Static module assets may be fetched from the exact loopback workbench origin, but the frame has no session token and its response sets `connect-src 'none'`. Host actions are limited to validated source navigation and bounded evaluation of an existing workspace target when the matching permission was declared. Save, recovery, Package mutation, plugin mutation, arbitrary operation forwarding, host DOM access, and filesystem access are never delegated.
+Every executable surface is an iframe with `sandbox="allow-scripts"` and no same-origin permission. Static module assets may be fetched from the exact loopback workbench origin, but the frame has no session token and its response sets `connect-src 'none'`. Host actions are limited to the validated navigation and mathematical operations named by the contribution's explicit permissions. Save, recovery, Package mutation, plugin mutation, arbitrary operation forwarding, host DOM access, and filesystem access are never delegated.
 
-Plugin installation, update, enable, disable, removal, verification, activation status, digest, and contribution counts are available from the built-in Plugins drawer and the corresponding CLI. `kt web --safe-mode` returns no active contributions and refuses plugin assets even when workspace control files request them. A malformed plugin control file is reported without preventing the core Safe Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
+With separately declared permissions, a Plugin receives a fixed-size revision-bearing Catalog
+summary and can page through public descriptors or request temporary evaluation overrides,
+explanation, variant comparison, one- or two-dimensional scans, single-variable solving, or a named Process Analysis. The host accepts only
+canonical public outputs, declared inputs, known presets and named Analyses from the current valid
+overlay, selects the precision and timeout, and returns the ordinary core result. Plugin operations
+cannot write artifacts, create run records, mutate source or choose an arbitrary backend operation.
+This bridge lets a domain Plugin supply a graphical theorycraft workflow without becoming a second
+mathematical implementation.
+
+Package manifest interfaces bind stable dotted IDs and exact revisions to namespace-scoped Package
+Entries. Plugin manifest requirements are resolved before activation; missing, mismatched,
+ambiguous, invalid, or Kirin-incompatible providers leave the Plugin installed and inspectable but
+inactive. Catalog pages are stably ordered, capped at 100 descriptors, and tied to the validated
+workspace revision and query filters. Descriptors use one origin/location/contract/dependency
+envelope across static, structured, Process, Scenario, Analysis, chart, and evidence declarations.
+Local Package paths and raw `.kirin` source are not sent to the frame.
+
+The bootstrap payload and each frame activation expose one backend-published Plugin protocol
+descriptor containing supported actions, required permissions, exact backend operation mappings,
+and resource limits. The Workbench bridge consumes that descriptor for authorization, routing, and
+validation; action and limit constants are not independently redefined in the browser adapter.
+
+With separate `draft.read` and `draft.propose` permissions, a Plugin may receive the currently
+loaded local document buffer and submit one complete candidate replacement for that same document.
+The source buffer is capped at 400,000 UTF-8 bytes for the Plugin bridge and is never exposed for a
+locked Package document. Submission does not update the editor: the host validates the complete
+candidate workspace, records immutable Plugin identity and content-digest provenance, and opens the
+candidate in **保存前变更审查**. At most 16 proposals may wait in the in-memory queue. Acceptance
+requires an unchanged proposal baseline and a second complete-workspace validation, after which the
+candidate becomes an ordinary unsaved local draft. Rejection changes nothing, and browser reload or
+host shutdown discards the proposal queue. Save All remains the only browser action that writes the
+accepted draft to local source.
+
+Plugin installation, update, enable, disable, removal, verification, activation status, digest, compatibility details, and contribution counts are available from the built-in Plugins drawer and the corresponding CLI. `kt web --safe-mode` returns no active contributions and refuses plugin assets even when workspace control files request them. A malformed plugin control file is reported without preventing the core Safe Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol v2](workbench-plugin-system-v2.md).
 
 The interface detects the current browser platform when rendering shortcut labels. `Ctrl/⌘` below means `Ctrl` on Windows and Linux, and `Command` on macOS; the handlers accept the corresponding modifier rather than assuming macOS key names.
 
@@ -162,7 +197,17 @@ Entries containing named Process Analysis declarations expose a `过程` project
 results and static charts. The projection runs the same backend Analysis, summarizes non-optimization
 operations by their actual path/policy/state count, shows every tied variant/objective optimum with
 proof level, release times and all Measures, and shows all declared trajectory/search charts in the
-same responsive, deferred-rendering grid. `导出全部图表` is an explicit operation that
+same responsive, deferred-rendering grid. A stochastic open-loop optimum shows its precommitted release
+plan; an adaptive optimum instead shows the number of reachable observable-state rules and how many
+states select an action rather than wait, with an expandable per-time action distribution. Both show exact expected Measures and weighted outcome counts.
+Aggregated results distinguish exact outcome states from source paths; trajectory charts retain the
+individual random paths instead of presenting one path as the expectation. Exact-grid results show `exact_global` only
+after complete enumeration, while the technical projection retains the declared grid and search
+budget. Exact infeasible-prefix pruning is shown as `精确剪枝 N`; the technical proof separately
+retains candidate, executed, and pruned plan counts. Objectives containing `require all_paths` carry
+an `全部路径保证` badge. Chance-constrained objectives carry a `概率约束 N` badge, and each optimal
+strategy shows the exact attained condition probability beside its `至少` or `至多` threshold. Both
+retain explicit constraint scopes in the technical result. `导出全部图表` is an explicit operation that
 uses the source-declared SVG/CSV paths and the same workspace confinement and overwrite checks; live
 preview rows and rendered canvases remain derived, read-only state.
 
@@ -249,6 +294,6 @@ Closing or refreshing the browser with dirty buffers triggers the browser's unsa
 
 ## Verification boundary
 
-The Playwright acceptance suite verifies the empty-workspace creation flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, and both supported projects retain visual layout baselines. Firefox is temporarily outside the supported and tested browser matrix because Playwright 1.62.1's bundled Firefox 153 cannot start on macOS 27 ([upstream issue](https://github.com/microsoft/playwright/issues/42082)); this is a verification boundary, not evidence of a known Kirin Tor functional defect in Firefox. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web and MCP adapters, authoring index, source validation, and strict validation of every syntax-reference example.
+The Playwright acceptance suite verifies the empty-workspace creation flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, every public Plugin action, bounded Plugin proposal review and draft acceptance, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, and both supported projects retain visual layout baselines. Firefox is temporarily outside the supported and tested browser matrix because Playwright 1.62.1's bundled Firefox 153 cannot start on macOS 27 ([upstream issue](https://github.com/microsoft/playwright/issues/42082)); this is a verification boundary, not evidence of a known Kirin Tor functional defect in Firefox. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web and MCP adapters, authoring index, source validation, and strict validation of every syntax-reference example.
 
 CI runs the Python matrix plus TypeScript checking, the Chromium and WebKit browser projects, accessibility checks, visual baselines, packaged-asset synchronization, explicit JavaScript/CSS bundle budgets, and a 100-document validation benchmark. These establish regression and bounded performance evidence for the tested fixtures. They do not by themselves establish human usability acceptance, Firefox support, every operating-system/browser combination, or a mobile product contract below the documented minimum width.

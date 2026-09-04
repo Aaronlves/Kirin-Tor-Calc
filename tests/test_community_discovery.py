@@ -19,13 +19,14 @@ from kirin_tor.workspace import initialize
 def _plugin_manifest() -> bytes:
     return json.dumps(
         {
-            "schema": 1,
+            "schema": 2,
             "id": "community.example-browser",
             "name": "Example Browser",
             "version": "1.0.0",
-            "api": "1",
+            "api": "2",
             "description": "A discovered fixture plugin.",
             "license": "MIT",
+            "requires": {"kirin_feature": "0.4", "interfaces": []},
             "contributes": {
                 "views": [
                     {
@@ -41,7 +42,7 @@ def _plugin_manifest() -> bytes:
 
 
 def _package_manifest() -> bytes:
-    return f'''schema = 1
+    return f'''schema = 2
 name = "community.example"
 version = "1.2.3"
 namespace = "community_example"
@@ -122,9 +123,10 @@ def test_plugin_topic_discovery_returns_only_compatible_manifests() -> None:
             "id": "community.example-browser",
             "name": "Example Browser",
             "version": "1.0.0",
-            "api": "1",
+            "api": "2",
             "description": "A discovered fixture plugin.",
             "license": "MIT",
+            "requires": {"kirin_feature": "0.4", "interfaces": []},
         }
     ]
     assert all(path == "kirin.plugin.json" for _, path, _, _ in client.reads)
@@ -148,6 +150,22 @@ def test_package_topic_discovery_uses_the_package_protocol() -> None:
     assert result["items"][0]["game"] == "fictional-game"
     assert result["skipped_repositories"] == 1
     assert all(path == "kirin.package.toml" for _, path, _, _ in client.reads)
+
+
+def test_plugin_discovery_skips_an_incompatible_kirin_feature() -> None:
+    raw = json.loads(_plugin_manifest())
+    raw["requires"]["kirin_feature"] = "99.0"
+    client = FakeDiscoveryClient(
+        {
+            "Community/Valid": json.dumps(raw).encode("utf-8"),
+            "Community/Invalid": b"{}",
+        }
+    )
+
+    result = discover_community("plugin", client=client)
+
+    assert result["items"] == []
+    assert result["skipped_repositories"] == 2
 
 
 def test_workbench_discovery_actions_are_read_only_and_kind_specific(

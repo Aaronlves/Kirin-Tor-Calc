@@ -261,6 +261,10 @@ def _inspect_plugin(content: bytes) -> dict:
         root = Path(directory)
         (root / PLUGIN_MANIFEST).write_bytes(content)
         manifest = load_plugin_manifest(root, check_entries=False)
+    if manifest.requires.kirin_feature != current_feature_line():
+        raise PluginError(
+            f"plugin requires Kirin feature {manifest.requires.kirin_feature}"
+        )
     return {
         "id": manifest.id,
         "name": manifest.name,
@@ -268,6 +272,7 @@ def _inspect_plugin(content: bytes) -> dict:
         "api": manifest.api,
         "description": manifest.description,
         "license": manifest.license,
+        "requires": manifest.requires.as_dict(),
     }
 
 

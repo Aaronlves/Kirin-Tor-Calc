@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -7,8 +8,17 @@ import pytest
 
 from kirin_tor.errors import SchemaError, UnsupportedError
 from kirin_tor.kirin_syntax import parse_kirin_source, render_kirin_document
-from kirin_tor.process_measure import evaluate_process_measures
-from kirin_tor.process_runtime import run_process_scenario
+from kirin_tor.process_measure import (
+    advance_process_measure_state,
+    evaluate_process_measures,
+    evaluate_process_measures_from_state,
+    initialize_process_measure_state,
+    process_measure_state_signature,
+)
+from kirin_tor.process_runtime import (
+    DeterministicProcessExecutor,
+    run_process_scenario,
+)
 from kirin_tor.workspace import Workspace, initialize
 
 
@@ -112,6 +122,83 @@ scenario trial:
     ]
     assert result.observation_samples[0].phase == "initial"
     assert result.observation_samples[-1].time == 4
+
+    signature = dict(
+        process_measure_state_signature(scenario, result, workspace.units)
+    )
+    assert signature["final_health"] == ("final", Fraction(3))
+    assert signature["minimum_health"] == (
+        "minimum_over_time",
+        Fraction(3),
+    )
+    assert signature["health_drawdown"] == (
+        "maximum_drawdown",
+        Fraction(10),
+        Fraction(7),
+    )
+    assert signature["health_variation"] == (
+        "total_variation",
+        Fraction(3),
+        Fraction(7),
+    )
+    assert signature["total_purified"] == ("sum_events", Fraction(2))
+    assert signature["critical_time"] == ("first_time", Fraction(3))
+    assert signature["never_zero"] == ("first_time", None)
+    assert signature["health_before_critical"] == (
+        "last_before",
+        "fixed",
+        Fraction(7),
+    )
+    assert signature["health_before_missing"] == (
+        "last_before",
+        "pending",
+        Fraction(3),
+    )
+
+    # Equal terminal state is not enough for safe random-state aggregation:
+    # a different earlier low point changes the sufficient Measure history.
+    samples = list(result.observation_samples)
+    sample = samples[1]
+    samples[1] = replace(
+        sample,
+        values=tuple(
+            (
+                name,
+                Fraction(1) if name.endswith(".remaining_health") else value,
+            )
+            for name, value in sample.values
+        ),
+    )
+    different_history = replace(
+        result, observation_samples=tuple(samples)
+    )
+    assert different_history.states == result.states
+    assert process_measure_state_signature(
+        scenario, different_history, workspace.units
+    ) != process_measure_state_signature(scenario, result, workspace.units)
+
+    executor = DeterministicProcessExecutor(scenario, workspace.units)
+    executor.start()
+    incremental = initialize_process_measure_state(
+        scenario,
+        executor.result(),
+        workspace.units,
+        tuple(measure.id for measure in scenario.measures),
+    )
+    while not executor.is_complete:
+        executor.run_next_batch()
+        checkpoint = executor.result()
+        incremental = advance_process_measure_state(
+            incremental, scenario, checkpoint, workspace.units
+        )
+        assert incremental.signatures == process_measure_state_signature(
+            scenario, checkpoint, workspace.units
+        )
+    assert evaluate_process_measures_from_state(
+        scenario, executor.result(), incremental, workspace.units
+    ) == evaluate_process_measures(
+        scenario, executor.result(), workspace.units
+    )
 
 
 def test_first_time_requires_explicit_missing_value(tmp_path: Path) -> None:

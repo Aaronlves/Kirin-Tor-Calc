@@ -93,6 +93,10 @@ class ParameterError(KTError):
     code = "parameter_error"
 
 
+class StaleRevisionError(KTError):
+    code = "stale_revision"
+
+
 class DomainError(KTError):
     code = "domain_error"
 
@@ -107,6 +111,25 @@ class UnsupportedError(KTError):
 
 class ProcessExecutionError(KTError):
     code = "process_execution_error"
+
+
+class InfeasibleDecisionError(ProcessExecutionError):
+    """A searched decision occurrence cannot execute on the current path."""
+
+    code = "infeasible_decision"
+
+    def __init__(
+        self,
+        message: str,
+        location: Optional[SourceLocation] = None,
+        *,
+        plan_choice_index: Optional[int] = None,
+    ):
+        super().__init__(message, location)
+        # Internal solver evidence only.  This is deliberately not included in
+        # the public error projection: it identifies the exact precommitted
+        # occurrence whose prefix has already proved infeasible.
+        self.plan_choice_index = plan_choice_index
 
 
 class ProcessFuelError(ProcessExecutionError):

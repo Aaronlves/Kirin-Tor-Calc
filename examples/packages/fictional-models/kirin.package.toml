@@ -1,0 +1,14 @@
+schema = 2
+name = "community.fictional-models"
+version = "1.0.0"
+namespace = "fictional"
+description = "Data-only fictional model interface used by Kirin Tor acceptance examples."
+license = "MIT"
+requires_kirin = "0.4"
+game = "fictional-game"
+game_version = "acceptance-1"
+
+[interfaces."fictional.theorycraft-model"]
+revision = 1
+documents = ["fictional_contract"]
+document_prefixes = []

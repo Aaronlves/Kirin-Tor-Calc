@@ -125,6 +125,15 @@ export function App() {
     return () => window.removeEventListener("kirin:open-syntax-reference", openSyntaxReference);
   }, []);
 
+  useEffect(() => {
+    const reviewPluginProposals = () => {
+      setWorkspaceToolParent(null);
+      setWorkspaceTool("changes");
+    };
+    window.addEventListener("kirin:review-plugin-proposals", reviewPluginProposals);
+    return () => window.removeEventListener("kirin:review-plugin-proposals", reviewPluginProposals);
+  }, []);
+
   const navigateToSource = async (path: string, line?: number | null, column?: number | null) => {
     const document = controller.documents.find((item) => item.key === path || path === item.path || path.endsWith(item.path));
     if (!document) return;

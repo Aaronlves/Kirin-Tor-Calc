@@ -15,14 +15,23 @@ interface ChangeReviewProps {
 export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   const dirtyKeys = useMemo(() => Object.keys(controller.dirtyOverlays), [controller.dirtyOverlays]);
   const [selectedKey, setSelectedKey] = useState<string | null>(dirtyKeys[0] ?? null);
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(controller.pluginDraftProposals[0]?.id ?? null);
+  const [tab, setTab] = useState<string>(dirtyKeys.length ? "drafts" : controller.pluginDraftProposals.length ? "proposals" : "drafts");
   const [git, setGit] = useState<GitSummary | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
   const [discardTarget, setDiscardTarget] = useState<string | "all" | null>(null);
   const [discarding, setDiscarding] = useState(false);
+  const [proposalAction, setProposalAction] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedKey || !dirtyKeys.includes(selectedKey)) setSelectedKey(dirtyKeys[0] ?? null);
   }, [dirtyKeys, selectedKey]);
+
+  useEffect(() => {
+    if (!selectedProposalId || !controller.pluginDraftProposals.some((item) => item.id === selectedProposalId)) {
+      setSelectedProposalId(controller.pluginDraftProposals[0]?.id ?? null);
+    }
+  }, [controller.pluginDraftProposals, selectedProposalId]);
 
   useEffect(() => {
     let active = true;
@@ -33,6 +42,11 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   }, [controller.gitHistory]);
 
   const selectedDocument = controller.documents.find((item) => item.key === selectedKey);
+  const selectedProposal = controller.pluginDraftProposals.find((item) => item.id === selectedProposalId);
+  const proposalIsStale = Boolean(
+    selectedProposal
+    && controller.buffers[selectedProposal.documentKey] !== selectedProposal.baseText,
+  );
   const targetDocument = discardTarget && discardTarget !== "all"
     ? controller.documents.find((item) => item.key === discardTarget)
     : null;
@@ -47,6 +61,16 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
       setDiscardTarget(null);
     } finally {
       setDiscarding(false);
+    }
+  };
+
+  const acceptProposal = async () => {
+    if (!selectedProposal || proposalAction) return;
+    setProposalAction(selectedProposal.id);
+    try {
+      if (await controller.acceptPluginDraftProposal(selectedProposal.id)) setTab("drafts");
+    } finally {
+      setProposalAction(null);
     }
   };
 
@@ -93,9 +117,10 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
           >保存全部草稿</Button>
         </Group>
       </Group>
-      <Tabs defaultValue="drafts" keepMounted={false} mt="md">
+      <Tabs value={tab} onChange={(value) => setTab(value ?? "drafts")} keepMounted={false} mt="md">
         <Tabs.List>
           <Tabs.Tab value="drafts">草稿 {dirtyKeys.length}</Tabs.Tab>
+          <Tabs.Tab value="proposals">插件提案 {controller.pluginDraftProposals.length}</Tabs.Tab>
           <Tabs.Tab value="git">Git 历史</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="drafts" pt="md">
@@ -129,6 +154,71 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
               </section>
             </div>}
           </Stack> : <Text c="dimmed" ta="center" py="xl">当前没有未保存草稿。</Text>}
+        </Tabs.Panel>
+        <Tabs.Panel value="proposals" pt="md">
+          {controller.pluginDraftProposals.length ? <Stack gap="sm">
+            <Group align="flex-end">
+              <Select
+                label="选择插件提案"
+                value={selectedProposalId}
+                onChange={setSelectedProposalId}
+                data={controller.pluginDraftProposals.map((item) => ({
+                  value: item.id,
+                  label: `${item.title} · ${item.documentPath}`,
+                }))}
+                style={{ flex: 1 }}
+              />
+              {selectedProposal && <Button
+                variant="default"
+                onClick={() => onNavigate(selectedProposal.documentKey, 1, 1)}
+              >查看当前源码</Button>}
+            </Group>
+            {selectedProposal && <>
+              <Box className="plugin-proposal-summary">
+                <Group justify="space-between" align="flex-start">
+                  <Box>
+                    <Text fw={650}>{selectedProposal.title}</Text>
+                    <Text c="dimmed" fz="xs">
+                      {selectedProposal.pluginName} {selectedProposal.pluginVersion} · {selectedProposal.documentPath}
+                    </Text>
+                  </Box>
+                  <Badge color={proposalIsStale ? "orange" : "blue"} variant="light">
+                    {proposalIsStale ? "基线已过期" : "已通过提交时校验"}
+                  </Badge>
+                </Group>
+                {selectedProposal.description && <Text fz="sm" mt="sm">{selectedProposal.description}</Text>}
+                <Text c="dimmed" fz="xs" mt="xs">
+                  提交于 {new Date(selectedProposal.createdAt).toLocaleString()} · 内容摘要 {selectedProposal.pluginContentSha256.slice(0, 12)}
+                </Text>
+              </Box>
+              <div className="change-comparison" aria-label="插件提案比较">
+                <section>
+                  <Text fw={650} fz="sm">插件读取时的草稿</Text>
+                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposal.baseText}</pre></ScrollArea>
+                </section>
+                <section>
+                  <Text fw={650} fz="sm">插件候选内容</Text>
+                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposal.proposedText}</pre></ScrollArea>
+                </section>
+              </div>
+              <Group justify="flex-end">
+                <Button
+                  className="danger-outline-button"
+                  variant="default"
+                  disabled={Boolean(proposalAction)}
+                  onClick={() => controller.rejectPluginDraftProposal(selectedProposal.id)}
+                >拒绝提案</Button>
+                <Button
+                  loading={proposalAction === selectedProposal.id}
+                  disabled={proposalIsStale || Boolean(proposalAction)}
+                  onClick={() => { void acceptProposal(); }}
+                >接受为未保存草稿</Button>
+              </Group>
+              <Text c="dimmed" fz="xs" ta="right">
+                接受只会更新浏览器草稿；仍需使用“保存全部草稿”才能写入本地 `.kirin` 文件。
+              </Text>
+            </>}
+          </Stack> : <Text c="dimmed" ta="center" py="xl">当前没有等待审查的插件提案。</Text>}
         </Tabs.Panel>
         <Tabs.Panel value="git" pt="md">
           {gitError && <Text c="red">{gitError}</Text>}

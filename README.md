@@ -128,8 +128,9 @@ Kirin Tor 支持精确数值、用户声明的量纲和单位、参数方案、�
 - [有界 Process 模型](docs/bounded-process-model.md)：动态机制、运行语义和分析边界。
 - [浏览器工作台规范](docs/web-workbench.md)：界面、保存、冲突、Agent 协作和安全边界。
 - [MCP server](docs/mcp-server.md)：Agent 资源、工具、stdio 配置、哈希写入和权威边界。
-- [Community Package protocol v1](docs/package-system-v1.md)：只含数据的依赖、锁定与缓存协议。
-- [Workbench Extension Plugin protocol v1](docs/workbench-plugin-system-v1.md)：沙箱扩展、权限和安全模式。
+- [Community Package protocol v2](docs/package-system-v2.md)：只含数据的依赖、接口、锁定与缓存协议。
+- [Workbench Extension Plugin protocol v2](docs/workbench-plugin-system-v2.md)：沙箱扩展、模型目录、权限和安全模式。
+- [可规模化游戏插件平台提案](docs/scalable-game-plugin-platform-proposal.md)：Package、Catalog、Plugin API、SDK、可信呈现和验收路线；Phase 0–1 已实现，其余阶段仍是提案。
 - [游戏机制计算能力边界](docs/game-mechanics-capability-audit.md)：适用问题与明确非目标。
 - [Changelog](CHANGELOG.md)：版本历史和破坏性变更。
 

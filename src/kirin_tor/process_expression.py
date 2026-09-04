@@ -9,7 +9,7 @@ interprets those nodes.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from fractions import Fraction
 from math import isqrt
@@ -93,6 +93,48 @@ class FrozenMapValue:
 
 
 ProcessValue = object
+
+
+def bind_process_expression_values(
+    expression: TypedExpressionIR,
+    values: Mapping[SymbolRefIR, ProcessValue],
+) -> TypedExpressionIR:
+    """Replace selected immutable references with exact literal IR values.
+
+    Scenario lowering uses this to bind validated static Entry values once,
+    while leaving observations, runtime values, and event parameters dynamic.
+    The original reference catalog is retained for provenance and dependency
+    inspection; runtime evaluation walks only the bound node tree.
+    """
+
+    def bind(node: ExpressionNodeIR) -> ExpressionNodeIR:
+        if isinstance(node, ReferenceExpressionIR):
+            if node.reference in values:
+                return LiteralExpressionIR(
+                    values[node.reference], node.value_type
+                )
+            return node
+        if isinstance(node, UnaryExpressionIR):
+            return replace(node, operand=bind(node.operand))
+        if isinstance(node, BinaryExpressionIR):
+            return replace(node, left=bind(node.left), right=bind(node.right))
+        if isinstance(node, ComparisonExpressionIR):
+            return replace(
+                node, operands=tuple(bind(item) for item in node.operands)
+            )
+        if isinstance(node, BooleanExpressionIR):
+            return replace(
+                node, operands=tuple(bind(item) for item in node.operands)
+            )
+        if isinstance(node, CallExpressionIR):
+            return replace(
+                node, arguments=tuple(bind(item) for item in node.arguments)
+            )
+        return node
+
+    if expression.node is None or not values:
+        return expression
+    return replace(expression, node=bind(expression.node))
 FunctionResolver = Callable[[SymbolRefIR, Tuple[ProcessValue, ...]], ProcessValue]
 
 

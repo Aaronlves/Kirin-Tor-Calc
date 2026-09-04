@@ -11,7 +11,11 @@ import sympy as sp
 from .engine import Engine, TARGET_RE, precision_value, render_conditions
 from .errors import DomainError, ParameterError, UnitError, UnsupportedError
 from .expression import MathValue, parse_exact_number
-from .limits import DEFAULT_TIMEOUT_SECONDS, MAX_SCAN_POINTS
+from .limits import (
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS,
+    MAX_SCAN_POINTS,
+)
 from .timeout import run_with_timeout
 from .workspace import Workspace
 
@@ -198,15 +202,24 @@ def process_analysis_request(
         },
     }
     if analysis.operation == "optimize":
+        from .process_analysis import scenario_has_random_branches
+
         continuous = bool(scenario.continuous_decisions)
+        adaptive_random = scenario_has_random_branches(scenario) and bool(
+            scenario.decisions
+            or scenario.event_decisions
+            or scenario.condition_decisions
+        )
         request["search"] = {
             "method": (
                 analysis.search_method
                 if continuous
+                else "exact_observable_state_policy_dynamic_programming"
+                if adaptive_random
                 else "exhaustive_finite_policy_enumeration"
             ),
             "time_tolerance": _request_exact(analysis.time_tolerance),
-            "time_grid": None,
+            "time_grid": _request_exact(analysis.time_grid),
             "search_budget": (
                 analysis.maximum_evaluations
                 if continuous
@@ -245,6 +258,7 @@ def analyze_process(
         _process_analysis_core,
         (workspace, target, include_trace),
         timeout_seconds,
+        maximum_timeout_seconds=MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS,
     )
 
 

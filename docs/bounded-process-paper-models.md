@@ -142,6 +142,8 @@ scenario ID ["LABEL"]:
     maximize|minimize MEASURE
     [then maximize|minimize MEASURE, ...]
     [require MEASURE_CONDITION, ...]
+    [require all_paths MEASURE_CONDITION, ...]
+    [require probability at_least|at_most PROBABILITY: MEASURE_CONDITION, ...]
 
   stop when OBSERVATION_CONDITION
   bounds:
@@ -177,8 +179,9 @@ analysis ID ["LABEL"]:
   [variants:]
     [- VARIANT, ...]
   [search:]
-    [method = adaptive_dyadic]
+    [method = adaptive_dyadic|exact_grid]
     [time_tolerance = DURATION]
+    [time_grid = DURATION]
     [maximum_evaluations = INTEGER]
   [chart ID ["LABEL"]: ...]
   [target = OBSERVATION_CONDITION]
@@ -190,6 +193,12 @@ analysis ID ["LABEL"]:
 约束；`optimize` 的 `objectives:` 可列出多个 Objective，分别求解而不共享隐式偏好。`target` 只用于
 `reach`。分析声明不改变 Scenario 或 Process。
 
+普通 `require CONDITION` 在确定场景读取该次运行的 Measure，在随机 `optimize` 读取精确 Measure
+期望。`require all_paths CONDITION` 则逐一读取每条非零概率路径的 Measure，只有全部成立才接受该
+候选；它表达的是保证而不是平均表现。`require probability at_least|at_most THRESHOLD: CONDITION`
+精确累加满足 CONDITION 的路径概率再与 0..1 常量阈值比较，因此可以直接声明存活率下限或死亡率
+上限。确定场景中的条件概率严格为 0 或 1；两种场景都不使用抽样。
+
 Measure 只能读取公开 observation 快照、公开 output event 和 `elapsed`/`horizon` 等引擎观察值，不能
 读取实例私有 state。`first_time` 必须声明未发生时的默认时间。当前事件驱动轨迹聚合是精确的；若任意
 Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回撤、总变化量和方差会明确拒绝，而不会把
@@ -200,6 +209,17 @@ Process 含未受限 `flow`，区间极值、持续时间、首次穿越、回�
 `flow` 条件明确拒绝。`decide continuously` 把使用次数、动作和有序时点作为搜索变量；它不含 `wait`，
 少用一次就是省略一次 occurrence。当前一般连续搜索要求作者显式给出容差和评估预算，返回
 `best_found`；这些参数进入 Analysis 结果和可重放记录，且不会被描述成固定时间网格或全局证明。
+若作者选择 `exact_grid`，则改为声明 `time_grid` 和评估预算；网格以场景时间零点为锚，在每个连续
+区间内枚举互不重复的网格时点及不超过 COUNT 次的全部动作组合。只有完整枚举成功才返回
+`exact_global`；预算不足会以 fuel 错误失败，不返回残缺的“最佳结果”。若某个精确释放前缀已经因
+动作 guard（例如充能或冷却）在某条非零概率路径上失败，则所有具有同一前缀的更长方案也已被证明
+不可行，可以精确剪枝。求解器仍计入这些候选并报告候选数、实际执行数和剪枝数；它不会把仅仅终值
+相同但轨迹、待处理事件或路径不同的状态合并。
+
+有限随机 branch 配合固定、事件后或条件决策时，`optimize` 使用精确可观测状态动态规划。策略规则以
+公开 observation、可用动作和玩家自己的既往动作区分信息状态；数值 Objective 按精确条件期望反向
+求值，`all_paths` 约束在每个非零概率后继都成立时才可行。普通期望约束与 chance constraint 会跨信息
+状态耦合，当前明确拒绝。若没有可行保证策略，Objective 保留 `exact_global` 证明但返回空 optimum 集。
 
 Scenario variant 只覆盖 Process 实例的公开 input，不复制 Scenario、Measure 或 Objective。Analysis 对
 每个选中 variant 独立搜索，因此两个方案可以得到不同的使用次数和动作时点；结构化结果以
@@ -212,8 +232,15 @@ Scenario action。Pareto 图必须分别声明 x/y 的 maximize/minimize 方向�
 下写入，且仍服从工作区路径与覆盖保护。
 
 随机 Process 的 `run`、`compare` 与 `reach` 结果明确标记 `strict_finite_output_expectation`：先对每个
-有限随机分支执行完整轨迹并计算全部 Measure，再对数值 Measure 按精确路径概率取期望。把平均输入
-写成确定事件的模型只标记 `deterministic_scenario`。二者不会合并，且内核不会自动抽样。
+有限随机分支执行完整轨迹并计算全部 Measure，再对数值 Measure 按精确路径概率取期望。随机
+`decide continuously` optimize 对预先承诺的开放环候选使用同一语义，并以精确 Measure 期望评价数值
+Objective 项与普通约束；`all_paths` 约束逐路径检查，`probability` 约束精确求和满足条件的路径权重。
+结果保留完整加权结果集、原始路径计数、约束阈值与每个最优策略实际达到的条件概率。固定、事件后和条件决策则可依据
+已观察状态生成自适应策略。执行器按时间/phase 批次保存精确检查点，只从当前检查点展开下一批随机
+分支，不再让每个叶子从零点重复运行共同前缀。继续状态签名保留待处理事件、调度槽和决策点；轨迹
+Measure 另有操作专属的充分历史签名。没有 trajectory chart 时，两种签名均相同的路径会合并概率并
+累加原始路径计数；trajectory chart 自动保留每条路径。
+把平均输入写成确定事件的模型只标记 `deterministic_scenario`。二者不会合并，且内核不会自动抽样。
 
 ## 2. 多资源、冷却与顺序充能
 

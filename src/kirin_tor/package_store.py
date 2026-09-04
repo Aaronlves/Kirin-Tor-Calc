@@ -42,6 +42,7 @@ from .package_manifest import (
     package_source_paths,
     package_template_paths,
     source_kind,
+    validate_package_interface_scopes,
 )
 
 
@@ -81,6 +82,16 @@ class PackageResolution:
 
     def by_source(self) -> Dict[str, ResolvedPackage]:
         return {item.source: item for item in self.packages}
+
+    def interface_providers(self) -> dict[tuple[str, int], Tuple[ResolvedPackage, ...]]:
+        providers: dict[tuple[str, int], list[ResolvedPackage]] = {}
+        for package in self.packages:
+            for interface in package.manifest.interfaces:
+                providers.setdefault((interface.id, interface.revision), []).append(package)
+        return {
+            key: tuple(sorted(items, key=lambda item: item.source))
+            for key, items in sorted(providers.items())
+        }
 
 
 class GitHubClient:
@@ -345,6 +356,7 @@ class PackageStoreManager:
         if kind == "path":
             source_root = Path(source[5:]).resolve()
             manifest = load_package_manifest(source_root)
+            validate_package_interface_scopes(manifest)
             if manifest.version != version:
                 raise PackageError(
                     f"requested {source} version {version}, manifest declares {manifest.version}"
@@ -364,6 +376,7 @@ class PackageStoreManager:
                 game=cached_manifest.game,
                 game_version=cached_manifest.game_version,
                 dependencies=manifest.dependencies,
+                interfaces=cached_manifest.interfaces,
             )
             return ResolvedPackage(source, cached_manifest, cached, str(source_root), digest)
         commit = self.github.resolve_release_commit(source, version)
@@ -374,6 +387,7 @@ class PackageStoreManager:
             self.github.download_archive(source, commit, archive)
             repository_root = extract_github_archive(archive, extracted)
             manifest = load_package_manifest(repository_root)
+            validate_package_interface_scopes(manifest)
             if manifest.version != version:
                 raise PackageError(
                     f"requested {source} version {version}, manifest declares {manifest.version}"
@@ -397,6 +411,7 @@ class PackageStoreManager:
                 f"cached package {package.name} {package.version} failed its content digest"
             )
         manifest = load_package_manifest(root)
+        validate_package_interface_scopes(manifest)
         if (
             manifest.name != package.name
             or manifest.version != package.version
@@ -428,6 +443,7 @@ class PackageStoreManager:
             game=manifest.game,
             game_version=manifest.game_version,
             dependencies=package.dependencies,
+            interfaces=manifest.interfaces,
         )
         return ResolvedPackage(
             package.source,
@@ -449,6 +465,7 @@ class PackageStoreManager:
                     f"locked local package source is unavailable: {source_root}"
                 )
             manifest = load_package_manifest(source_root)
+            validate_package_interface_scopes(manifest)
             digest = canonical_content_sha256(source_root)
             if digest != package.content_sha256:
                 raise PackageError(
@@ -473,6 +490,7 @@ class PackageStoreManager:
             self.github.download_archive(package.source, package.resolved, archive)
             repository_root = extract_github_archive(archive, extracted)
             manifest = load_package_manifest(repository_root)
+            validate_package_interface_scopes(manifest)
             digest = canonical_content_sha256(repository_root)
             if digest != package.content_sha256:
                 raise PackageError(
@@ -538,11 +556,13 @@ class PackageResolver:
 
         for requirement in requirements.packages:
             visit(requirement.source, requirement.version, ())
-        return PackageResolution(
+        resolution = PackageResolution(
             requirements.root,
             requirements,
             tuple(instances[source] for source in sorted(instances)),
         )
+        self._validate_graph(resolution)
+        return resolution
 
     def resolve_workspace(self) -> PackageResolution:
         requirements = load_workspace_requirements(self.store.workspace_root)
@@ -635,6 +655,17 @@ class PackageResolver:
 
         for source in sorted(by_source):
             visit(source, ())
+        duplicates = {
+            key: providers
+            for key, providers in resolution.interface_providers().items()
+            if len(providers) > 1
+        }
+        if duplicates:
+            (interface_id, revision), providers = next(iter(duplicates.items()))
+            raise PackageError(
+                f"package interface {interface_id!r} revision {revision} is provided by "
+                + ", ".join(item.manifest.name for item in providers)
+            )
 
 
 def locked_workspace_resolution(root: Path) -> PackageResolution:

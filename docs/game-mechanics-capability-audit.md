@@ -23,10 +23,11 @@ Scenario 中组合状态、精确时间、事件、动作、flow、约束、Meas
 | 资源、冷却、顺序充能 | 普通 state、guard、schedule、key、flow | 没有游戏专用合同 |
 | 延迟池、清除、自疗 | 普通数值状态、事件与 output event | 已由酒仙理想场景端到端验证 |
 | 固定或条件策略 | Scenario Policy、事件后/条件穿越决策 | 固定策略选到不可用动作会失败 |
-| 连续释放时点 | 有界连续 decision occurrence | 当前一般搜索只给 `best_found` |
-| 有限随机路径 | Process branch | 完整枚举后计算逐路径 Measure 与严格输出期望 |
+| 连续释放时点 | 有界 continuous occurrence＋Analysis search | 自由时点只给 `best_found`；作者声明的精确网格可穷举为 `exact_global` |
+| 有限随机路径 | Process branch | 按批次检查点展开并计算逐路径 Measure 与严格输出期望；Measure 感知的等价状态可精确合并 |
 | 可达、稳态、周期 | Process `reach` / `steady` / `cycle` Analysis | 只接受满足相应证明前提的有界模型 |
 | 多方案与多目标 | Scenario variant、Measure、Objective | 每个 variant × objective 独立优化并返回全部并列最优 |
+| 静态公式接入过程 | Scenario 常量引用 `ENTRY.FIELD/OUTPUT` | 只读源码默认值；须为精确有理数/布尔值并遵守 Package 依赖 |
 | 轨迹与策略权衡图 | Analysis 多 chart | run/compare/optimize/reach/cycle 轨迹和搜索图都是只读投影 |
 | 多层静态属性 | 封闭 `type` 对象 | 未知或缺失属性失败 |
 | 查表、扫描与符号计算 | table、scan、grid、solve 等 | 继续使用静态数学引擎 |
@@ -40,10 +41,21 @@ Scenario 中组合状态、精确时间、事件、动作、flow、约束、Meas
 - 血线波动可以是极差、最大回撤、总变化量、方差或低血线持续时间；必须由作者定义 Measure，内核
   不替作者选择。
 - `decide every` 是作者主动声明的时间网格。自由时点搜索不会静默取整或套用隐藏步长。
+- 稀疏释放问题可用 `decide continuously up to COUNT` 配合 `exact_grid`：只组合实际释放时点，不展开
+  每个网格点的 action/wait 决策；预算必须覆盖完整候选空间，否则明确失败。已因充能、冷却或其他
+  guard 失败的精确释放前缀会支配其全部更长后缀并被记忆化剪枝，但候选仍计入完整枚举证明。
 - `exact_global` 只用于已完整证明的模型范围；当前一般连续搜索记录容差与预算并标记
   `best_found`。方法、容差、预算和未使用的近似项贯穿请求、结果与运行记录。当前没有会产出
   `global_with_error_bound` 的一般求解器。
 - `steady` 需要有限可枚举状态；`cycle` 需要确定场景并实际发现精确重复状态；否则明确拒绝。
+- 随机 `decide continuously` optimize 搜索预先承诺的使用次数、动作和时点；目标与约束读取
+  数值 Measure 的精确期望；`require all_paths` 可另行声明每条非零概率路径都必须满足的保证。它不
+  根据已经观察到的随机结果改变后续动作。固定、事件后和条件决策另有精确可观测状态策略求解器，
+  支持期望目标和 `all_paths`，但当前拒绝会跨信息状态耦合的普通期望约束和 chance constraint。
+  开放环存活率下限或死亡率上限可用 `require probability
+  at_least|at_most` 对满足 Measure 条件的精确路径概率施加约束。
+- 随机执行共享已经完成的批次前缀。没有 trajectory chart 时，继续状态与轨迹 Measure 的充分历史
+  签名相同的路径会精确合并，同时保留总概率与原始路径数；trajectory chart 仍保留全部路径。
 
 ## 作者与 Agent 协作边界
 

@@ -81,10 +81,28 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const talentFrame = page.frameLocator('iframe[title^="天赋树"]');
     await expect(talentFrame.getByRole("heading", { name: /天赋页/ })).toBeVisible();
     await expect(talentFrame.getByRole("region", { name: "虚构天赋节点" })).toBeVisible();
-    await talentFrame.getByRole("button", { name: /暴击率/ }).click();
+    await talentFrame.getByRole("button", { name: "暴击率 combo.crit input" }).click();
     await expect(page.locator(".cm-activeLine")).toContainText('crit "暴击率"');
     await talentFrame.getByRole("button", { name: "计算 combo.total" }).click();
     await expect(talentFrame.getByText(/验证后结果：2,420/)).toBeVisible();
+    await talentFrame.getByLabel("临时暴击率").fill("0.5");
+    await talentFrame.getByRole("button", { name: "使用临时暴击率计算" }).click();
+    await expect(talentFrame.getByText(/临时结果：3,300/)).toBeVisible();
+    await talentFrame.getByRole("button", { name: "扫描暴击率" }).click();
+    await expect(talentFrame.getByText("扫描结果：3 个点", { exact: true })).toBeVisible();
+    await talentFrame.getByRole("button", { name: "检查全部数学动作" }).click();
+    await expect(talentFrame.getByText(/Catalog 与数学动作检查通过.*compare 上限 8/)).toBeVisible();
+
+    await talentFrame.getByRole("button", { name: "提交默认暴击率草稿提案" }).click();
+    const changeReview = page.getByRole("dialog", { name: "保存前变更审查" });
+    await expect(changeReview).toBeVisible();
+    await expect(changeReview.getByRole("tab", { name: "插件提案 1" })).toHaveAttribute("aria-selected", "true");
+    await expect(changeReview.getByText("更新默认暴击率", { exact: true })).toBeVisible();
+    await expect(changeReview.getByLabel("插件提案比较")).toContainText("probability = 0.5 in 0..1");
+    await changeReview.getByRole("button", { name: "接受为未保存草稿" }).click();
+    await expect(changeReview.getByRole("tab", { name: "草稿 1" })).toHaveAttribute("aria-selected", "true");
+    await expect(changeReview.getByLabel("保存前草稿比较")).toContainText("probability = 0.5 in 0..1");
+    await changeReview.getByRole("button", { name: "关闭工作区工具" }).click();
 
     await page.locator(".plugin-document-switch .mantine-SegmentedControl-label").filter({ hasText: "通用" }).click();
     await expect(page.getByText("文档投影", { exact: true })).toBeVisible();
@@ -93,6 +111,9 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const buildsFrame = page.frameLocator('iframe[title^="Build 大厅"]');
     await expect(buildsFrame.getByRole("heading", { name: "虚构 Build 大厅" })).toBeVisible();
     await expect(buildsFrame.getByText("双技能组合（虚构）", { exact: true })).toBeVisible();
+    await expect(buildsFrame.getByText(/模型目录：.*个输出，.*个过程分析/)).toBeVisible();
+    await buildsFrame.getByRole("button", { name: "查询并运行第一个分析" }).click();
+    await expect(buildsFrame.getByText(/分析完成：/)).toBeVisible();
 
     await page.getByRole("button", { name: /命令/ }).click();
     await page.getByPlaceholder("搜索页面或命令…").fill("切换到天赋创作");
@@ -149,7 +170,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
         description: "A read-only discovery fixture.",
         license: "MIT",
         ...(kind === "plugin"
-          ? { id: "community.example-browser", api: "1" }
+          ? { id: "community.example-browser", api: "2" }
           : { namespace: "community_example", requires_kirin: "0.3" }),
       }],
     });
@@ -1103,7 +1124,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await page.getByRole("combobox", { name: "过程分析" }).click();
     await page.getByRole("option", { name: "重放固定策略" }).click();
     await expect(preview).toContainText("重放固定策略");
-    await expect(preview).toContainText("1 条路径");
+    await expect(preview).toContainText("1 条精确路径");
     await expect(preview).toContainText("run");
   });
 
@@ -1229,7 +1250,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
   test("空工作区直接提供文档创建与写作参考", async ({ page, browserName }) => {
     const entries = resolve(".e2e-workspace", "entries");
     const backup = resolve(".e2e-workspace", "entries-empty-backup");
+    const packageRequirements = resolve(".e2e-workspace", "kirin.packages.toml");
+    const packageRequirementsBackup = resolve(".e2e-workspace", "kirin.packages.toml-empty-backup");
+    const packageLock = resolve(".e2e-workspace", "kirin.lock");
+    const packageLockBackup = resolve(".e2e-workspace", "kirin.lock-empty-backup");
     await rename(entries, backup);
+    await rename(packageRequirements, packageRequirementsBackup);
+    await rename(packageLock, packageLockBackup);
     await mkdir(entries);
     try {
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1265,6 +1292,8 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     } finally {
       await rm(entries, { recursive: true, force: true });
       await rename(backup, entries);
+      await rename(packageRequirementsBackup, packageRequirements);
+      await rename(packageLockBackup, packageLock);
     }
   });
 

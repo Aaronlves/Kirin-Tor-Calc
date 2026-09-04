@@ -19,6 +19,7 @@ from kirin_tor.workspace import initialize
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_PLUGIN = PROJECT_ROOT / "examples" / "plugins" / "fictional-talent-tree"
+EXAMPLE_PACKAGE = PROJECT_ROOT / "examples" / "packages" / "fictional-models"
 
 
 class RunningServer:
@@ -90,6 +91,33 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         assert result["authoring_contract"]["version"] == 1
         assert "**" in result["authoring_contract"]["tokens"]["operators"]
         assert "^" not in result["authoring_contract"]["tokens"]["operators"]
+        protocol = result["plugins"]["protocol"]
+        assert protocol["api"] == "2"
+        assert protocol["actions"]["compare"] == {
+            "permission": "operation.compare",
+            "handler": "operation",
+            "operation": "compare",
+        }
+        assert protocol["actions"]["grid"]["operation"] == "grid"
+        assert protocol["actions"]["model.query"]["handler"] == "catalog"
+        assert protocol["limits"]["max_comparison_variants"] == 8
+        revision = result["catalog"]["revision"]
+        catalog_page = decoded(
+            running.request(
+                "/api/model",
+                {
+                    "action": "model.query",
+                    "payload": {
+                        "revision": revision,
+                        "kind": ["output"],
+                        "limit": 1,
+                    },
+                    "overlays": {},
+                },
+            )[2]
+        )
+        assert catalog_page["operation"] == "model.query"
+        assert catalog_page["items"][0]["kind"] == "output"
 
         completion = decoded(running.request(
             "/api/completions",
@@ -247,6 +275,7 @@ def test_web_serves_only_active_sandboxed_plugin_assets_and_projections(
     example_workspace: Path,
 ) -> None:
     approval_home = example_workspace.parent / "plugin-approval"
+    add_path_package(example_workspace, "fictional_models", EXAMPLE_PACKAGE)
     installed = PluginManager(example_workspace, approval_home=approval_home).add_path(
         "talents", EXAMPLE_PLUGIN
     )

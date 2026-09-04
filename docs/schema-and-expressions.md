@@ -145,10 +145,18 @@ Measure 组成普通安全表达式。具名 Objective 仅引用数值 Measure�
 连续条件只对已证明的仿射非严格比较求精确有理根；其他事件间变化会报 `unsupported`。一般自由时点
 搜索必须在 Analysis 中声明 `adaptive_dyadic`、`time_tolerance` 和 `maximum_evaluations`，结果记录为
 `best_found` 并回写全部三项设置及预算是否耗尽；它不会暗中转换成一秒或十分之一秒网格。
+精确离散时点搜索改用 `exact_grid`、正 `time_grid` 和 `maximum_evaluations`；网格以零点为锚，完整
+枚举连续 decision 的0..COUNT次互异网格时点和动作组合。完整时标记 `exact_global`，预算不足则失败。
+已证明不可执行的精确 decision 前缀会被记忆，其全部后缀计划可在不运行 runtime 的情况下排除；证明
+元数据区分 `candidate_plans`、`executed_plans` 与 `pruned_plans`。该剪枝不使用近似状态相等关系。
 
 具名 Scenario variant 是一组经过原 Process input 类型与值域检查的常量覆盖。`optimize` 可列出多个
 variant；执行器分别初始化实例、分别搜索并输出 variant × objective 结果，包含生效的覆盖值和每个
 最优策略的完整 trace。Variant 不提供私有 state 写入口。
+
+Scenario 常量表达式还可使用 `ENTRY.FIELD` 或 `ENTRY.OUTPUT` 形式的静态 scalar 引用。引用值只按
+源码默认 input 解析，必须能化为精确有理数或布尔值，并在 Scenario IR 中绑定；原引用仍用于
+Package 依赖边界与来源追踪。Process 运行时不会回调静态引擎，也不会读取工作台临时试算值。
 
 Process Analysis 可以携带最多 64 张图，且不受普通静态 entry “一张 chart”历史结构的限制。
 `trajectory` 读取最优 trace 的 observation samples 和公开 marker；`decision_surface` 读取至少两次决策
@@ -159,6 +167,17 @@ Measure。结构化 chart rows 随 Analysis 结果生成，SVG/CSV 仅在显式�
 `measure_expectations` 在所有路径 Measure 求值完成后才以精确分数聚合。结果字段
 `random_semantics` 区分 `strict_finite_output_expectation` 与 `deterministic_scenario`，因此平均输入场景
 不会被误标成严格输出期望，也不会自动降级为 Monte Carlo。
+
+随机 `decide continuously` optimize 搜索预先承诺的开放环候选。每个候选的数值 Objective 项与
+普通 `require` 读取精确 `measure_expectations`；`require all_paths CONDITION` 改为在每条非零概率
+路径的 Measure 上检查 CONDITION。`require probability at_least|at_most THRESHOLD: CONDITION` 要求
+THRESHOLD 是 probability 域内的常量，并精确求和满足 CONDITION 的路径权重。最优结果同时保留候选
+决策表、完整加权结果集与原始路径计数、阈值、实际条件概率和约束作用域。求解器不会根据已经观察到的随机结果隐式
+改变后续动作，也不把期望约束误标成逐路径或概率保证。随机固定/事件/条件决策 optimize 则生成精确
+可观测状态策略，支持期望字典序目标和 `all_paths`；会耦合信息状态的普通期望约束与概率约束明确拒绝。
+随机执行按批次复制精确检查点来共享已完成前缀；`final`、极值、回撤、总变化、方差、持续时间、首次/
+前置值和事件聚合各自具有不会遗失未来 Measure 所需信息的历史签名。没有 trajectory chart 时，继续
+状态与 Measure 历史签名完全相同的路径会精确合并，并分别保留概率总和与原始路径计数。
 
 ## 9. 运行记录与重放
 

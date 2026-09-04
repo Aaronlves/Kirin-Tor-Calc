@@ -12,6 +12,8 @@ import { ProcessChartCanvas } from "./ProcessChartCanvas";
 import { PluginSurface } from "./PluginSurface";
 import { EmptyState, LoadingState, TechnicalResult } from "./ui";
 
+const PROCESS_ANALYSIS_TIMEOUT_SECONDS = 3600;
+
 function documentId(source: string): string | null {
   return source.match(/^@entry\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+"(?:[^"\\]|\\.)*")?$/m)?.[1] ?? null;
 }
@@ -258,7 +260,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
           const nextResult = mode === "chart"
             ? await controller.operation("preview_plots", { entry: entryId, precision: 30, display_digits: 12, timeout: 10 })
             : mode === "process"
-                ? await controller.operation("process_analysis", { target: analysisTarget, timeout: 30 })
+                ? await controller.operation("process_analysis", { target: analysisTarget, timeout: PROCESS_ANALYSIS_TIMEOUT_SECONDS })
               : hasTrial
                 ? await controller.operation("compare", {
                     target,
@@ -372,7 +374,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
         target: analysisTarget,
         force: false,
         allow_outside_workspace: false,
-        timeout: 30,
+        timeout: PROCESS_ANALYSIS_TIMEOUT_SECONDS,
       });
       setExportResult(exported);
     } catch (caught) {
@@ -399,7 +401,12 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
     if (!result) return "0 个结果";
     if (processOperation === "optimize") return `${processVariants.length} 个方案`;
     if (processOperation === "compare" && Array.isArray(result.policies)) return `${result.policies.length} 个策略`;
-    if ((processOperation === "run" || processOperation === "reach") && Array.isArray(result.outcomes)) return `${result.outcomes.length} 条路径`;
+    if ((processOperation === "run" || processOperation === "reach") && Array.isArray(result.outcomes)) {
+      const sourcePaths = Number(result.source_path_count ?? result.outcomes.length);
+      return sourcePaths > result.outcomes.length
+        ? `${result.outcomes.length} 个结果状态 · ${sourcePaths} 条原始路径`
+        : `${result.outcomes.length} 条精确路径`;
+    }
     if (processOperation === "cycle" && Array.isArray(result.runs)) return `${result.runs.length} 次迭代`;
     if (processOperation === "steady" && Array.isArray(result.states)) return `${result.states.length} 个状态`;
     return "1 个结果";
@@ -487,18 +494,44 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
           </Stack>}
           {result && mode === "process" && <Stack gap="md" className={`document-result-preview${activeSymbolId === analysisTarget ? " is-source-linked" : ""}`}>
             <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">PROCESS ANALYSIS</Text><Text fw={650}>{selectedAnalysis?.label || analysisTarget}</Text></Box><Group gap={4}>{selectedAnalysis?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column)}>定位分析源码</Button>}<Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportProcessCharts(); }}>导出全部图表</Button></Group></Group>
-            <Group gap={6}><Badge variant="light" color="green">{processCountLabel}</Badge><Badge variant="outline" color="gray">{processOperation}</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge>{result.explored_branches !== undefined && <Badge variant="outline" color="gray">搜索 {String(result.explored_branches)}</Badge>}</Group>
+            <Group gap={6}><Badge variant="light" color="green">{processCountLabel}</Badge><Badge variant="outline" color="gray">{processOperation}</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge>{Number(result.equivalent_states_merged ?? 0) > 0 && <Badge variant="outline" color="teal">精确合并 {String(result.equivalent_states_merged)}</Badge>}{result.explored_branches !== undefined && <Badge variant="outline" color="gray">搜索 {String(result.explored_branches)}</Badge>}</Group>
             {processOperation === "optimize" && <SimpleGrid cols={{ base: 1, lg: Math.min(2, Math.max(1, processVariants.length)) }}>
               {processVariants.map((variant) => {
                 const objectives = Array.isArray(variant.objectives) ? variant.objectives as Array<Record<string, unknown>> : [];
                 return <Box key={String(variant.variant)} className="preview-inputs"><Text className="result-label">{String(variant.variant)}</Text>{objectives.map((objective) => {
                   const proof = objective.proof && typeof objective.proof === "object" ? objective.proof as Record<string, unknown> : {};
                   const strategies = Array.isArray(objective.optimal_strategies) ? objective.optimal_strategies as Array<Record<string, unknown>> : [];
-                  return <Box key={String(objective.objective)} mt="sm"><Group justify="space-between"><Text fw={650} fz="sm">{String(objective.objective)}</Text><Group gap={4}><Badge variant="outline" color="gray">{strategies.length} 个并列最优</Badge><Badge color={proof.level === "exact_global" ? "green" : proof.level === "global_with_error_bound" ? "blue" : "yellow"}>{String(proof.level ?? "—")}</Badge></Group></Group>{strategies.map((strategy, index) => {
+                  const constraintScopes = Array.isArray(objective.constraint_scopes) ? objective.constraint_scopes : [];
+                  const chanceConstraints = Array.isArray(objective.chance_constraints) ? objective.chance_constraints as Array<Record<string, unknown>> : [];
+                  return <Box key={String(objective.objective)} mt="sm"><Group justify="space-between"><Text fw={650} fz="sm">{String(objective.objective)}</Text><Group gap={4}><Badge variant="outline" color={strategies.length ? "gray" : "red"}>{strategies.length ? `${strategies.length} 个并列最优` : "无可行策略"}</Badge>{constraintScopes.includes("all_paths") && <Badge variant="outline" color="green">全部路径保证</Badge>}{chanceConstraints.length > 0 && <Badge variant="outline" color="blue">概率约束 {chanceConstraints.length}</Badge>}{proof.time_grid !== null && proof.time_grid !== undefined && <Badge variant="outline" color="gray">网格 {String(proof.time_grid)} 秒</Badge>}{Number(proof.pruned_plans ?? 0) > 0 && <Badge variant="outline" color="teal">精确剪枝 {String(proof.pruned_plans)}</Badge>}<Badge color={proof.level === "exact_global" ? "green" : proof.level === "global_with_error_bound" ? "blue" : "yellow"}>{String(proof.level ?? "—")}</Badge></Group></Group>{strategies.map((strategy, index) => {
                     const run = strategy.run && typeof strategy.run === "object" ? strategy.run as Record<string, unknown> : {};
-                    const decisions = Array.isArray(run.decisions) ? run.decisions as Array<Record<string, unknown>> : [];
+                    const decisions = Array.isArray(strategy.decisions)
+                      ? strategy.decisions as Array<Record<string, unknown>>
+                      : Array.isArray(run.decisions)
+                        ? run.decisions as Array<Record<string, unknown>>
+                        : [];
+                    const outcomes = Array.isArray(strategy.outcomes) ? strategy.outcomes : [];
+                    const policyRules = Array.isArray(strategy.policy_rules) ? strategy.policy_rules as Array<Record<string, unknown>> : [];
+                    const policySummary = Array.isArray(strategy.policy_summary) ? strategy.policy_summary as Array<Record<string, unknown>> : [];
                     const measures = strategy.measures && typeof strategy.measures === "object" ? strategy.measures as Record<string, unknown> : {};
-                    return <Box key={`${String(objective.objective)}-${index}`} mt="xs"><Text c="dimmed" fz="xs">策略 {index + 1} · 释放：{decisions.length ? decisions.map((item) => `${String(item.time)} ${String(item.choice)}`).join("；") : "不释放"}</Text><Group gap={4} mt={6}>{Object.entries(measures).map(([name, value]) => <Code key={name}>{name}={String(value)}</Code>)}</Group></Box>;
+                    const chanceProbabilities = Array.isArray(strategy.chance_probabilities) ? strategy.chance_probabilities : [];
+                    const sourcePaths = Number(strategy.source_path_count ?? outcomes.length);
+                    const outcomeLabel = outcomes.length
+                      ? sourcePaths > outcomes.length
+                        ? ` · ${outcomes.length} 个结果状态（${sourcePaths} 条原始路径）`
+                        : ` · ${outcomes.length} 条精确随机路径`
+                      : "";
+                    const policyLabel = policyRules.length
+                      ? `自适应策略 · ${policyRules.length} 个可达状态规则 · ${policyRules.filter((rule) => rule.selected_action !== "wait").length} 个状态选择释放`
+                      : `释放：${decisions.length ? decisions.map((item) => `${String(item.time)} ${String(item.choice)}`).join("；") : "不释放"}`;
+                    return <Box key={`${String(objective.objective)}-${index}`} mt="xs">
+                      <Text c="dimmed" fz="xs">策略 {index + 1} · {policyLabel}{outcomeLabel}</Text>
+                      <Group gap={4} mt={6}>{Object.entries(measures).map(([name, value]) => <Code key={name}>{strategy.measure_semantics === "exact_expectations" ? `E[${name}]` : name}={String(value)}</Code>)}{chanceProbabilities.map((value, chanceIndex) => { const spec = chanceConstraints[chanceIndex] ?? {}; return <Code key={`chance-${chanceIndex}`}>条件概率{chanceConstraints.length > 1 ? ` ${chanceIndex + 1}` : ""}={String(value)} · {spec.comparison === "at_most" ? "至多" : "至少"} {String(spec.threshold ?? "—")}</Code>; })}</Group>
+                      {policySummary.length > 0 && <details className="canvas-data-fallback"><summary>查看 {policySummary.length} 个决策时点的动作分布</summary><ol>{policySummary.map((row) => {
+                        const actions = Array.isArray(row.actions) ? row.actions as Array<Record<string, unknown>> : [];
+                        return <li key={String(row.time)} tabIndex={0}>{String(row.time)} 秒：{actions.map((action) => `${String(action.action)} ${String(action.reachable_states)} 个状态`).join("；")}</li>;
+                      })}</ol></details>}
+                    </Box>;
                   })}</Box>;
                 })}</Box>;
               })}

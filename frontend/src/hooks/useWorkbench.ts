@@ -15,12 +15,50 @@ import type {
   GitSummary,
   OperationResult,
   OperationJobStatus,
+  PluginDraftProposal,
+  PluginDraftProposalResult,
+  PluginProtocolDescriptor,
   RecoveryDraft,
   ValidationResult,
   WorkspaceStatePayload,
   WorkspaceSearchMatch,
 } from "../types";
 import { emptyAuthoringIndex } from "../authoring";
+
+const EMPTY_PLUGIN_PROTOCOL: PluginProtocolDescriptor = {
+  api: "2",
+  permissions: [],
+  actions: {},
+  limits: {
+    max_message_chars: 0,
+    max_model_items_per_group: 0,
+    max_model_chars_per_group: 0,
+    max_target_inputs: 0,
+    max_operation_targets: 0,
+    max_comparison_variants: 0,
+    max_scan_points: 0,
+    max_expression_chars: 0,
+    max_draft_source_bytes: 0,
+    max_draft_proposals: 0,
+    max_action_id_chars: 0,
+    max_identity_chars: 0,
+    max_path_chars: 0,
+    max_title_chars: 0,
+    max_description_chars: 0,
+    max_variant_name_chars: 0,
+    standard_operation_timeout_seconds: 0,
+    analysis_timeout_seconds: 0,
+    default_model_query_limit: 0,
+    max_model_query_limit: 0,
+    max_model_cursor_chars: 0,
+    max_model_dependency_depth: 0,
+    max_catalog_summary_interfaces: 0,
+  },
+};
+
+function sourceByteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
 
 function recordsEqual(left: Record<string, string>, right: Record<string, string>): boolean {
   const keys = Object.keys(left);
@@ -74,12 +112,15 @@ export function useWorkbench() {
   const [externalConflict, setExternalConflict] = useState<ExternalChangeConflict | null>(null);
   const [recoveryReady, setRecoveryReady] = useState(false);
   const [operationJobs, setOperationJobs] = useState<OperationJobStatus[]>([]);
+  const [pluginDraftProposals, setPluginDraftProposals] = useState<PluginDraftProposal[]>([]);
   const started = useRef(false);
   const recoveryHydrated = useRef(false);
   const recoveryDrafts = useRef<Record<string, RecoveryDraft>>({});
   const validationSequence = useRef(0);
   const validationPending = useRef(false);
   const operationJobsRef = useRef(new Map<string, OperationJobStatus>());
+  const pluginDraftProposalsRef = useRef<PluginDraftProposal[]>([]);
+  const pluginDraftProposalSequence = useRef(0);
   const recoveryWriteChain = useRef<Promise<void>>(Promise.resolve());
   const switchingWorkspaceRef = useRef(false);
   const workspaceReloadRef = useRef(false);
@@ -117,6 +158,7 @@ export function useWorkbench() {
   }, [buffers, originals]);
 
   const dirtyCount = Object.keys(dirtyOverlays).length;
+  const pluginProtocol = bootstrapData?.plugins.protocol ?? EMPTY_PLUGIN_PROTOCOL;
   const bootstrapReady = bootstrapData !== null;
   const validationItems = validation?.status === "error"
     ? validation.errors ?? [{
@@ -409,6 +451,155 @@ export function useWorkbench() {
     setBuffers((current) => current[key] === text ? current : { ...current, [key]: text });
     setExternalConflict((current) => current?.key === key ? { ...current, draft: text } : current);
   }, []);
+
+  const replacePluginDraftProposals = useCallback((proposals: PluginDraftProposal[]) => {
+    pluginDraftProposalsRef.current = proposals;
+    setPluginDraftProposals(proposals);
+  }, []);
+
+  const proposePluginDraft = useCallback(async (proposal: {
+    pluginId: string;
+    pluginName: string;
+    pluginVersion: string;
+    pluginContentSha256: string;
+    contributionId: string;
+    documentKey: string;
+    title: string;
+    description?: string;
+    proposedText: string;
+  }): Promise<PluginDraftProposalResult> => {
+    const snapshot = workspaceDataRef.current;
+    const document = snapshot.documents.find((item) => item.key === proposal.documentKey);
+    const baseText = snapshot.buffers[proposal.documentKey];
+    if (!document || document.read_only || typeof baseText !== "string") {
+      return { status: "rejected", reason: "unavailable" };
+    }
+    if (
+      !proposal.proposedText
+      || sourceByteLength(proposal.proposedText) > pluginProtocol.limits.max_draft_source_bytes
+    ) {
+      return { status: "rejected", reason: "invalid" };
+    }
+    if (proposal.proposedText === baseText) {
+      return { status: "rejected", reason: "unchanged" };
+    }
+    const existing = pluginDraftProposalsRef.current.find((item) => (
+      item.pluginContentSha256 === proposal.pluginContentSha256
+      && item.contributionId === proposal.contributionId
+      && item.documentKey === proposal.documentKey
+      && item.baseText === baseText
+      && item.proposedText === proposal.proposedText
+    ));
+    if (existing) return { status: "queued", proposalId: existing.id };
+    if (pluginDraftProposalsRef.current.length >= pluginProtocol.limits.max_draft_proposals) {
+      return { status: "rejected", reason: "queue_full" };
+    }
+    const candidateBuffers = { ...snapshot.buffers, [proposal.documentKey]: proposal.proposedText };
+    const candidateOverlays = Object.fromEntries(Object.entries(candidateBuffers).filter(
+      ([key, text]) => text !== (snapshot.originals[key] ?? ""),
+    ));
+    const validationResult = await request<ValidationResult>(
+      "/api/validate",
+      { overlays: candidateOverlays },
+      { allowErrorResult: true },
+    );
+    const current = workspaceDataRef.current;
+    if (current.buffers[proposal.documentKey] !== baseText) {
+      return { status: "rejected", reason: "stale" };
+    }
+    if (validationResult.status !== "ok") {
+      return {
+        status: "rejected",
+        reason: "invalid",
+        errors: (validationResult.errors ?? []).slice(0, 20),
+      };
+    }
+    if (pluginDraftProposalsRef.current.length >= pluginProtocol.limits.max_draft_proposals) {
+      return { status: "rejected", reason: "queue_full" };
+    }
+    const id = `plugin-proposal-${Date.now().toString(36)}-${++pluginDraftProposalSequence.current}`;
+    const queued: PluginDraftProposal = {
+      id,
+      pluginId: proposal.pluginId,
+      pluginName: proposal.pluginName,
+      pluginVersion: proposal.pluginVersion,
+      pluginContentSha256: proposal.pluginContentSha256,
+      contributionId: proposal.contributionId,
+      documentKey: proposal.documentKey,
+      documentPath: document.path,
+      title: proposal.title,
+      description: proposal.description,
+      baseText,
+      proposedText: proposal.proposedText,
+      createdAt: new Date().toISOString(),
+    };
+    replacePluginDraftProposals([...pluginDraftProposalsRef.current, queued]);
+    notifications.show({
+      color: "blue",
+      title: "插件提案等待审查",
+      message: `${proposal.pluginName} 提交了 ${document.path} 的候选修改；尚未应用或保存。`,
+    });
+    window.dispatchEvent(new CustomEvent("kirin:review-plugin-proposals"));
+    return { status: "queued", proposalId: id };
+  }, [pluginProtocol.limits, replacePluginDraftProposals]);
+
+  const rejectPluginDraftProposal = useCallback((proposalId: string) => {
+    const proposal = pluginDraftProposalsRef.current.find((item) => item.id === proposalId);
+    if (!proposal) return false;
+    replacePluginDraftProposals(pluginDraftProposalsRef.current.filter((item) => item.id !== proposalId));
+    notifications.show({ color: "gray", message: `已拒绝 ${proposal.pluginName} 的插件提案；源码没有变化。` });
+    return true;
+  }, [replacePluginDraftProposals]);
+
+  const acceptPluginDraftProposal = useCallback(async (proposalId: string) => {
+    const proposal = pluginDraftProposalsRef.current.find((item) => item.id === proposalId);
+    if (!proposal) return false;
+    const snapshot = workspaceDataRef.current;
+    const document = snapshot.documents.find((item) => item.key === proposal.documentKey);
+    if (!document || document.read_only || snapshot.buffers[proposal.documentKey] !== proposal.baseText) {
+      notifications.show({
+        color: "orange",
+        title: "插件提案已经过期",
+        message: "当前草稿或文档状态已变化；请拒绝旧提案，并让插件基于最新草稿重新生成。",
+        autoClose: false,
+      });
+      return false;
+    }
+    const candidateBuffers = { ...snapshot.buffers, [proposal.documentKey]: proposal.proposedText };
+    const candidateOverlays = Object.fromEntries(Object.entries(candidateBuffers).filter(
+      ([key, text]) => text !== (snapshot.originals[key] ?? ""),
+    ));
+    const validationResult = await request<ValidationResult>(
+      "/api/validate",
+      { overlays: candidateOverlays },
+      { allowErrorResult: true },
+    );
+    if (
+      validationResult.status !== "ok"
+      || workspaceDataRef.current.buffers[proposal.documentKey] !== proposal.baseText
+    ) {
+      notifications.show({
+        color: "orange",
+        title: "无法接受插件提案",
+        message: validationResult.status === "ok"
+          ? "校验期间当前草稿发生了变化；提案没有应用。"
+          : "候选内容不再能通过完整工作区校验；提案没有应用。",
+        autoClose: false,
+      });
+      return false;
+    }
+    setBuffers((currentBuffers) => ({ ...currentBuffers, [proposal.documentKey]: proposal.proposedText }));
+    setExternalConflict((conflict) => conflict?.key === proposal.documentKey
+      ? { ...conflict, draft: proposal.proposedText }
+      : conflict);
+    replacePluginDraftProposals(pluginDraftProposalsRef.current.filter((item) => item.id !== proposalId));
+    notifications.show({
+      color: "green",
+      title: "插件提案已转为草稿",
+      message: `${proposal.documentPath} 仍未保存；请继续使用保存前变更审查。`,
+    });
+    return true;
+  }, [replacePluginDraftProposals]);
 
   const inspectExternalConflict = useCallback(async (key: string) => {
     const disk = await request<DocumentPayload>(`/api/document?key=${encodeURIComponent(key)}`);
@@ -879,6 +1070,15 @@ export function useWorkbench() {
     }
   }, [dirtyOverlays, refresh]);
 
+  const modelCatalog = useCallback(async (
+    action: string,
+    payload: Record<string, unknown>,
+  ): Promise<OperationResult> => request<OperationResult>("/api/model", {
+    action,
+    payload,
+    overlays: dirtyOverlays,
+  }), [dirtyOverlays]);
+
   const cancelOperations = useCallback(async () => {
     const jobs = operationJobs.filter((job) => job.cancellable);
     await Promise.all(jobs.map((job) => cancelOperationJob(job.job_id).catch(() => null)));
@@ -999,12 +1199,18 @@ export function useWorkbench() {
     lastCheckedAt,
     openDocument,
     operation,
+    modelCatalog,
     operationJobs,
     packageAction,
     pluginAction,
+    pluginDraftProposals,
+    proposePluginDraft,
+    acceptPluginDraftProposal,
+    rejectPluginDraftProposal,
     pluginSummary: bootstrapData?.plugins ?? {
       safe_mode: false,
       error: null,
+      protocol: EMPTY_PLUGIN_PROTOCOL,
       plugins: [],
       contributions: { renderers: [], views: [], tools: [], commands: [], profiles: [] },
     },

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from kirin_tor.errors import PluginError
+from kirin_tor.limits import (
+    MAX_COMPARISON_VARIANTS,
+    MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS,
+    MAX_SCAN_POINTS,
+    PLUGIN_STANDARD_OPERATION_TIMEOUT_SECONDS,
+)
 from kirin_tor.plugin_manifest import (
     WORKSPACE_PLUGIN_LOCK,
     WORKSPACE_PLUGIN_REQUIREMENTS,
@@ -13,10 +20,23 @@ from kirin_tor.plugin_manifest import (
     load_plugin_manifest,
 )
 from kirin_tor.plugin_store import PluginManager
+from kirin_tor.plugin_protocol import (
+    PLUGIN_ACTIONS,
+    PLUGIN_PERMISSIONS,
+    plugin_protocol_descriptor,
+)
 from kirin_tor.workspace import initialize
+from kirin_tor.package_authoring import add_path_package
+from kirin_tor.package_manifest import current_feature_line
 
 
-def _plugin(root: Path, *, plugin_id: str = "community.example-talents") -> Path:
+def _plugin(
+    root: Path,
+    *,
+    plugin_id: str = "community.example-talents",
+    required_interfaces: tuple[tuple[str, int], ...] = (),
+    kirin_feature: str | None = None,
+) -> Path:
     web = root / "web"
     web.mkdir(parents=True)
     (web / "index.html").write_text(
@@ -24,17 +44,24 @@ def _plugin(root: Path, *, plugin_id: str = "community.example-talents") -> Path
         encoding="utf-8",
     )
     (web / "plugin.js").write_text(
-        'parent.postMessage({protocol:"kirin-workbench-plugin",api:1,type:"ready"}, "*");\n',
+        'parent.postMessage({protocol:"kirin-workbench-plugin",api:2,type:"ready"}, "*");\n',
         encoding="utf-8",
     )
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "id": plugin_id,
         "name": "Example Talent Workbench",
         "version": "1.0.0",
-        "api": "1",
+        "api": "2",
         "description": "A fixture plugin.",
         "license": "MIT",
+        "requires": {
+            "kirin_feature": kirin_feature or current_feature_line(),
+            "interfaces": [
+                {"id": interface_id, "revision": revision}
+                for interface_id, revision in required_interfaces
+            ],
+        },
         "contributes": {
             "renderers": [
                 {
@@ -94,6 +121,34 @@ def _plugin(root: Path, *, plugin_id: str = "community.example-talents") -> Path
     return root
 
 
+def _interface_package(root: Path, *, revision: int) -> Path:
+    root.mkdir(parents=True)
+    (root / "kirin.package.toml").write_text(
+        f'''schema = 2
+name = "community.interface-provider"
+version = "1.0.0"
+namespace = "interface_provider"
+description = "Interface fixture"
+license = "MIT"
+requires_kirin = "{current_feature_line()}"
+
+[interfaces."fictional.theorycraft-model"]
+revision = {revision}
+documents = ["interface_provider_contract"]
+document_prefixes = []
+''',
+        encoding="utf-8",
+    )
+    entries = root / "entries"
+    entries.mkdir()
+    (entries / "contract.kirin").write_text(
+        "@kirin 2\n@entry interface_provider_contract\n\n"
+        "output value: dimensionless = 1\n",
+        encoding="utf-8",
+    )
+    return root
+
+
 def test_plugin_manifest_is_strict_and_digest_covers_static_assets(tmp_path: Path) -> None:
     root = _plugin(tmp_path / "plugin")
     manifest = load_plugin_manifest(root)
@@ -107,6 +162,110 @@ def test_plugin_manifest_is_strict_and_digest_covers_static_assets(tmp_path: Pat
     raw["hook"] = "run-me"
     (root / "kirin.plugin.json").write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(PluginError, match="unknown plugin manifest field"):
+        load_plugin_manifest(root)
+
+
+def test_plugin_manifest_accepts_granular_workbench_bridge_permissions(
+    tmp_path: Path,
+) -> None:
+    root = _plugin(tmp_path / "plugin")
+    raw = json.loads((root / "kirin.plugin.json").read_text(encoding="utf-8"))
+    raw["contributes"]["renderers"][0]["permissions"] = [
+        "workspace.summary",
+        "model.read",
+        "document.read",
+        "draft.read",
+        "draft.propose",
+        "source.navigate",
+        "operation.evaluate",
+        "operation.explain",
+        "operation.compare",
+        "operation.scan",
+        "operation.solve",
+        "operation.analyze",
+    ]
+    (root / "kirin.plugin.json").write_text(
+        json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    manifest = load_plugin_manifest(root)
+
+    assert manifest.contributes.renderers[0].permissions == tuple(
+        raw["contributes"]["renderers"][0]["permissions"]
+    )
+
+
+def test_plugin_protocol_descriptor_is_the_self_consistent_public_contract() -> None:
+    descriptor = plugin_protocol_descriptor()
+
+    assert descriptor["api"] == "2"
+    assert set(descriptor["permissions"]) == set(PLUGIN_PERMISSIONS)
+    assert descriptor["actions"] == {
+        name: dict(capability) for name, capability in sorted(PLUGIN_ACTIONS.items())
+    }
+    assert all(
+        capability["permission"] in descriptor["permissions"]
+        for capability in descriptor["actions"].values()
+    )
+    assert all(
+        (capability["handler"] in {"host", "catalog"} and "operation" not in capability)
+        or (capability["handler"] == "operation" and capability.get("operation"))
+        for capability in descriptor["actions"].values()
+    )
+    assert descriptor["limits"]["max_comparison_variants"] == MAX_COMPARISON_VARIANTS == 8
+    assert descriptor["limits"]["max_scan_points"] == MAX_SCAN_POINTS
+    assert (
+        descriptor["limits"]["standard_operation_timeout_seconds"]
+        == PLUGIN_STANDARD_OPERATION_TIMEOUT_SECONDS
+    )
+    assert (
+        descriptor["limits"]["analysis_timeout_seconds"]
+        == MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS
+    )
+
+    descriptor["actions"].clear()
+    assert plugin_protocol_descriptor()["actions"]
+
+
+def test_workbench_plugin_adapter_covers_every_declared_action_once() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "frontend"
+        / "src"
+        / "components"
+        / "PluginSurface.tsx"
+    ).read_text(encoding="utf-8")
+    handled = re.findall(r'if \(action === "([a-z-]+)"\)', source)
+
+    assert set(handled) == {
+        name
+        for name, capability in PLUGIN_ACTIONS.items()
+        if capability["handler"] in {"host", "operation"}
+    }
+    assert len(handled) == len(set(handled))
+    assert source.count("controller.operation(operationName(),") == sum(
+        capability["handler"] == "operation" for capability in PLUGIN_ACTIONS.values()
+    )
+    assert "controller.modelCatalog(action, payload)" in source
+    assert any(
+        capability["handler"] == "catalog"
+        for capability in PLUGIN_ACTIONS.values()
+    )
+    assert "MAX_COMPARISON_VARIANTS" not in source
+
+
+def test_plugin_manifest_rejects_direct_write_and_unbounded_operation_permissions(tmp_path: Path) -> None:
+    root = _plugin(tmp_path / "plugin")
+    raw = json.loads((root / "kirin.plugin.json").read_text(encoding="utf-8"))
+    raw["contributes"]["renderers"][0]["permissions"] = ["operation.execute"]
+    (root / "kirin.plugin.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(PluginError, match="unknown plugin permission"):
+        load_plugin_manifest(root)
+
+    raw["contributes"]["renderers"][0]["permissions"] = ["source.write"]
+    (root / "kirin.plugin.json").write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(PluginError, match="unknown plugin permission"):
         load_plugin_manifest(root)
 
 
@@ -135,6 +294,7 @@ def test_local_plugin_install_enable_disable_and_safe_mode(tmp_path: Path) -> No
     assert (workspace / WORKSPACE_PLUGIN_REQUIREMENTS).is_file()
     assert (workspace / WORKSPACE_PLUGIN_LOCK).is_file()
     assert added["plugins"][0]["status"] == "active"
+    assert added["protocol"] == plugin_protocol_descriptor()
     assert added["plugins"][0]["approved"] is True
     assert len(added["contributions"]["renderers"]) == 1
     digest = added["plugins"][0]["content_sha256"]
@@ -158,6 +318,67 @@ def test_local_plugin_install_enable_disable_and_safe_mode(tmp_path: Path) -> No
         workspace, safe_mode=True, approval_home=approval_home
     ).summary()
     assert safe_with_broken_user_state["plugins"][0]["status"] == "safe-mode"
+
+
+def test_plugin_interfaces_gate_activation_with_explicit_diagnostics(tmp_path: Path) -> None:
+    interface = (("fictional.theorycraft-model", 1),)
+
+    missing_workspace = initialize(tmp_path / "missing-workspace")
+    missing = PluginManager(
+        missing_workspace, approval_home=tmp_path / "missing-approvals"
+    ).add_path(
+        "plugin",
+        _plugin(tmp_path / "missing-plugin", required_interfaces=interface),
+    )
+    assert missing["plugins"][0]["status"] == "incompatible"
+    assert missing["plugins"][0]["compatibility"]["interfaces"][0]["status"] == "missing"
+    assert missing["contributions"]["renderers"] == []
+
+    mismatch_workspace = initialize(tmp_path / "mismatch-workspace")
+    add_path_package(
+        mismatch_workspace,
+        "provider",
+        _interface_package(tmp_path / "mismatch-package", revision=2),
+    )
+    mismatch = PluginManager(
+        mismatch_workspace, approval_home=tmp_path / "mismatch-approvals"
+    ).add_path(
+        "plugin",
+        _plugin(tmp_path / "mismatch-plugin", required_interfaces=interface),
+    )
+    compatibility = mismatch["plugins"][0]["compatibility"]
+    assert mismatch["plugins"][0]["status"] == "incompatible"
+    assert compatibility["interfaces"][0]["status"] == "revision-mismatch"
+    assert compatibility["interfaces"][0]["providers"][0]["interface"]["revision"] == 2
+
+    satisfied_workspace = initialize(tmp_path / "satisfied-workspace")
+    add_path_package(
+        satisfied_workspace,
+        "provider",
+        _interface_package(tmp_path / "satisfied-package", revision=1),
+    )
+    satisfied = PluginManager(
+        satisfied_workspace, approval_home=tmp_path / "satisfied-approvals"
+    ).add_path(
+        "plugin",
+        _plugin(tmp_path / "satisfied-plugin", required_interfaces=interface),
+    )
+    assert satisfied["plugins"][0]["status"] == "active"
+    assert satisfied["plugins"][0]["compatibility"]["status"] == "satisfied"
+    assert satisfied["contributions"]["renderers"]
+
+    feature_workspace = initialize(tmp_path / "feature-workspace")
+    feature = PluginManager(
+        feature_workspace, approval_home=tmp_path / "feature-approvals"
+    ).add_path(
+        "plugin",
+        _plugin(tmp_path / "feature-plugin", kirin_feature="99.0"),
+    )
+    assert feature["plugins"][0]["status"] == "incompatible"
+    assert (
+        feature["plugins"][0]["compatibility"]["kirin_feature"]["status"]
+        == "kirin-incompatible"
+    )
 
 
 def test_workspace_files_cannot_approve_unseen_executable_content(tmp_path: Path) -> None:

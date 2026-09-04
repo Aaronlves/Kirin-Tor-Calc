@@ -18,30 +18,26 @@ from .limits import (
     MAX_PLUGIN_CONTRIBUTIONS,
     MAX_PLUGIN_EXTRACTED_BYTES,
     MAX_PLUGIN_FILES,
+    MAX_PLUGIN_INTERFACE_REQUIREMENTS,
     MAX_PLUGIN_MANIFEST_BYTES,
     MAX_WORKSPACE_PLUGINS,
 )
-from .package_manifest import VERSION_RE
+from .package_manifest import FEATURE_RE, PACKAGE_INTERFACE_RE, VERSION_RE
+from .plugin_protocol import PLUGIN_API_VERSION, PLUGIN_PERMISSIONS
 
 
 PLUGIN_MANIFEST = "kirin.plugin.json"
 WORKSPACE_PLUGIN_REQUIREMENTS = "kirin.plugins.toml"
 WORKSPACE_PLUGIN_LOCK = "kirin.plugins.lock"
 PLUGIN_STORE = Path(".kirin") / "plugins"
-PLUGIN_SCHEMA_VERSION = 1
-PLUGIN_API_VERSION = "1"
+PLUGIN_SCHEMA_VERSION = 2
+PLUGIN_REQUIREMENTS_SCHEMA_VERSION = 1
 PLUGIN_LOCK_VERSION = 1
 
 PLUGIN_ID_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$")
 PLUGIN_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
-PLUGIN_PERMISSIONS = {
-    "workspace.summary",
-    "document.read",
-    "source.navigate",
-    "operation.evaluate",
-}
 COMMAND_ACTIONS = {"open-view", "open-tool", "activate-profile"}
 FOCUS_MODES = {"editor", "split", "preview"}
 BUILTIN_VIEW_IDS = {"documents", "graph"}
@@ -252,6 +248,27 @@ class PluginContributions:
 
 
 @dataclass(frozen=True)
+class PluginInterfaceRequirement:
+    id: str
+    revision: int
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "revision": self.revision}
+
+
+@dataclass(frozen=True)
+class PluginHostRequirements:
+    kirin_feature: str
+    interfaces: Tuple[PluginInterfaceRequirement, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {
+            "kirin_feature": self.kirin_feature,
+            "interfaces": [item.as_dict() for item in self.interfaces],
+        }
+
+
+@dataclass(frozen=True)
 class PluginManifest:
     root: Path = field(compare=False)
     id: str
@@ -260,6 +277,7 @@ class PluginManifest:
     api: str
     description: str
     license: str
+    requires: PluginHostRequirements
     contributes: PluginContributions
 
     @property
@@ -275,8 +293,51 @@ class PluginManifest:
             "api": self.api,
             "description": self.description,
             "license": self.license,
+            "requires": self.requires.as_dict(),
             "contributes": self.contributes.as_dict(),
         }
+
+
+def _host_requirements(raw: Any, path: Path) -> PluginHostRequirements:
+    data = _mapping(raw, "requires", path)
+    _reject_unknown(data, {"kirin_feature", "interfaces"}, "requires", path)
+    feature = _text(data.get("kirin_feature"), "requires.kirin_feature", path)
+    if not FEATURE_RE.fullmatch(feature):
+        raise PluginError(
+            "requires.kirin_feature must use exact MAJOR.MINOR",
+            _location(path, "requires.kirin_feature"),
+        )
+    raw_interfaces = _list(data.get("interfaces", []), "requires.interfaces", path)
+    if len(raw_interfaces) > MAX_PLUGIN_INTERFACE_REQUIREMENTS:
+        raise PluginError(
+            f"plugin exceeds {MAX_PLUGIN_INTERFACE_REQUIREMENTS} interface requirements",
+            _location(path, "requires.interfaces"),
+        )
+    interfaces = []
+    for index, untyped in enumerate(raw_interfaces):
+        label = f"requires.interfaces.{index}"
+        item = _mapping(untyped, label, path)
+        _reject_unknown(item, {"id", "revision"}, label, path)
+        interface_id = _text(item.get("id"), f"{label}.id", path)
+        if not PACKAGE_INTERFACE_RE.fullmatch(interface_id):
+            raise PluginError(
+                f"{label}.id must be a dotted lower-case id",
+                _location(path, f"{label}.id"),
+            )
+        revision = item.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise PluginError(
+                f"{label}.revision must be a positive integer",
+                _location(path, f"{label}.revision"),
+            )
+        interfaces.append(PluginInterfaceRequirement(interface_id, revision))
+    interface_ids = [item.id for item in interfaces]
+    if len(interface_ids) != len(set(interface_ids)):
+        raise PluginError(
+            "requires.interfaces contains duplicate requirements",
+            _location(path, "requires.interfaces"),
+        )
+    return PluginHostRequirements(feature, tuple(interfaces))
 
 
 def _surface(
@@ -403,7 +464,17 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
     data = _mapping(raw, "plugin manifest", path)
     _reject_unknown(
         data,
-        {"schema", "id", "name", "version", "api", "description", "license", "contributes"},
+        {
+            "schema",
+            "id",
+            "name",
+            "version",
+            "api",
+            "description",
+            "license",
+            "requires",
+            "contributes",
+        },
         "plugin manifest",
         path,
     )
@@ -418,6 +489,7 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
     api = _text(data.get("api"), "api", path)
     if api != PLUGIN_API_VERSION:
         raise PluginError(f"plugin api must be {PLUGIN_API_VERSION!r}", _location(path, "api"))
+    requirements = _host_requirements(data.get("requires"), path)
     contribution_data = _mapping(data.get("contributes"), "contributes", path)
     _reject_unknown(
         contribution_data,
@@ -511,6 +583,7 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
         api,
         _text(data.get("description"), "description", path),
         _text(data.get("license"), "license", path),
+        requirements,
         contributions,
     )
 
@@ -569,7 +642,7 @@ def canonical_plugin_sha256(root: Path) -> str:
 def normalize_plugin_source(source: str, *, relative_to: Path) -> str:
     source = source.strip()
     if not source.startswith("path:"):
-        raise PluginError("plugin source must use path:PATH in protocol v1")
+        raise PluginError("plugin source must use path:PATH in protocol v2")
     raw_path = source[5:]
     if not raw_path:
         raise PluginError("plugin path source may not be empty")
@@ -660,8 +733,11 @@ def load_plugin_requirements(root: Path) -> PluginRequirements:
         return PluginRequirements(root)
     raw = _read_toml(path)
     _reject_unknown(raw, {"schema", "plugins"}, "plugin requirements", path)
-    if raw.get("schema") != PLUGIN_SCHEMA_VERSION:
-        raise PluginError(f"plugin requirements schema must be {PLUGIN_SCHEMA_VERSION}", _location(path))
+    if raw.get("schema") != PLUGIN_REQUIREMENTS_SCHEMA_VERSION:
+        raise PluginError(
+            f"plugin requirements schema must be {PLUGIN_REQUIREMENTS_SCHEMA_VERSION}",
+            _location(path),
+        )
     table = _mapping(raw.get("plugins", {}), "plugins", path)
     if len(table) > MAX_WORKSPACE_PLUGINS:
         raise PluginError(f"workspace exceeds {MAX_WORKSPACE_PLUGINS} plugins", _location(path))
@@ -742,7 +818,7 @@ def load_plugin_lock(root: Path, *, required: bool = False) -> PluginLock:
 
 
 def render_plugin_requirements(requirements: PluginRequirements) -> str:
-    lines = [f"schema = {PLUGIN_SCHEMA_VERSION}"]
+    lines = [f"schema = {PLUGIN_REQUIREMENTS_SCHEMA_VERSION}"]
     for item in sorted(requirements.plugins, key=lambda plugin: plugin.alias):
         lines.extend(
             [

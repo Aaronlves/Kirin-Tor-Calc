@@ -14,12 +14,18 @@ from .limits import (
     MAX_SCENARIO_INSTANCES,
 )
 from .process_ast import ExpressionAst
-from .process_expression import compile_process_expression, evaluate_process_expression
+from .process_expression import (
+    ProcessValue,
+    bind_process_expression_values,
+    compile_process_expression,
+    evaluate_process_expression,
+)
 from .process_ir import (
     ActionIR,
     BooleanTypeIR,
     EventArgumentIR,
     EventIR,
+    LiteralExpressionIR,
     NumberTypeIR,
     ProcessIR,
     ProcessMemberRefIR,
@@ -34,6 +40,7 @@ from .scenario_ir import (
     AnalysisChartIR,
     AnalysisIR,
     AtScheduleIR,
+    ChanceConstraintIR,
     CompositeActionIR,
     ConditionDecisionIR,
     ConnectionIR,
@@ -168,8 +175,12 @@ def _compile_constant(
     expected,
     symbols: Mapping[str, SymbolRefIR],
     registry: UnitRegistry,
+    static_values: Optional[Mapping[SymbolRefIR, ProcessValue]] = None,
 ) -> Tuple[TypedExpressionIR, object]:
-    expression = compile_process_expression(source, expected, symbols, registry)
+    expression = bind_process_expression_values(
+        compile_process_expression(source, expected, symbols, registry),
+        static_values or {},
+    )
     if any(
         reference.kind not in {ExpressionSymbolKind.UNIT, ExpressionSymbolKind.STATIC_MEMBER}
         for reference in expression.references
@@ -177,7 +188,19 @@ def _compile_constant(
         raise SchemaError(
             "scenario schedule and bound expressions must be constant", source.location
         )
-    return expression, evaluate_process_expression(expression, {}, registry)
+    value = evaluate_process_expression(
+        expression, static_values or {}, registry
+    )
+    return (
+        TypedExpressionIR(
+            expression.source,
+            expression.result_type,
+            expression.references,
+            expression.location,
+            LiteralExpressionIR(value, expression.result_type),
+        ),
+        value,
+    )
 
 
 def _positive_integer(
@@ -186,11 +209,14 @@ def _positive_integer(
     symbols: Mapping[str, SymbolRefIR],
     registry: UnitRegistry,
     maximum: int,
+    static_values: Optional[Mapping[SymbolRefIR, ProcessValue]] = None,
 ) -> int:
     value_type = NumberTypeIR(
         "dimensionless", DIMENSIONLESS, "positive_integer", True
     )
-    _expression, value = _compile_constant(source, value_type, symbols, registry)
+    _expression, value = _compile_constant(
+        source, value_type, symbols, registry, static_values
+    )
     assert isinstance(value, Fraction)
     integer = int(value)
     if integer > maximum:
@@ -205,12 +231,33 @@ class ScenarioLowerer:
         processes: Mapping[str, ProcessIR],
         *,
         static_symbols: Optional[Mapping[str, SymbolRefIR]] = None,
+        static_values: Optional[Mapping[SymbolRefIR, ProcessValue]] = None,
     ) -> None:
         self.registry = registry
         self.processes = dict(processes)
-        self.static_symbols = dict(static_symbols or scenario_static_symbols(registry))
+        self.static_symbols = scenario_static_symbols(registry)
+        self.static_symbols.update(static_symbols or {})
+        self.static_values = dict(static_values or {})
         self.boolean = BooleanTypeIR()
         self.time = NumberTypeIR("second", registry.parse_unit("second"))
+        self.probability = NumberTypeIR(
+            "dimensionless",
+            registry.parse_unit("dimensionless"),
+            "probability",
+        )
+
+    def _compile(
+        self,
+        source: ExpressionAst,
+        expected,
+        symbols: Mapping[str, SymbolRefIR],
+    ) -> TypedExpressionIR:
+        return bind_process_expression_values(
+            compile_process_expression(
+                source, expected, symbols, self.registry
+            ),
+            self.static_values,
+        )
 
     def _process(self, source: ScenarioAst, path: str) -> ProcessIR:
         return _resolve_path(source.owner_id, path, self.processes, "process")
@@ -269,11 +316,10 @@ class ScenarioLowerer:
         arguments = tuple(
             EventArgumentIR(
                 parameter.id,
-                compile_process_expression(
+                self._compile(
                     provided[parameter.id].value,
                     parameter.value_type,
                     symbols,
-                    self.registry,
                 ),
             )
             for parameter in parameters
@@ -379,11 +425,10 @@ class ScenarioLowerer:
             call = _measure_call(item.value)
             if call is None:
                 expression = DerivedMeasureExpressionIR(
-                    compile_process_expression(
+                    self._compile(
                         item.value,
                         declared_type,
                         {**self.static_symbols, **measure_symbols},
-                        self.registry,
                     )
                 )
             else:
@@ -401,11 +446,10 @@ class ScenarioLowerer:
                     expected_type = (
                         None if operation == "variance_over_time" else declared_type
                     )
-                    value = compile_process_expression(
+                    value = self._compile(
                         ExpressionAst(argument, item.value.location),
                         expected_type,
                         dynamic_symbols,
-                        self.registry,
                     )
                     if operation != "final" and not isinstance(
                         value.result_type, NumberTypeIR
@@ -432,11 +476,10 @@ class ScenarioLowerer:
                             argument, operation, item.location
                         )
                     )
-                    value = compile_process_expression(
+                    value = self._compile(
                         ExpressionAst(value_text, item.value.location),
                         declared_type,
                         dynamic_symbols,
-                        self.registry,
                     )
                     if operation == "minimum_where" and not isinstance(
                         value.result_type, NumberTypeIR
@@ -444,17 +487,15 @@ class ScenarioLowerer:
                         raise SchemaError(
                             "minimum_where requires a numeric value", item.location
                         )
-                    condition = compile_process_expression(
+                    condition = self._compile(
                         ExpressionAst(condition_text, item.value.location),
                         self.boolean,
                         dynamic_symbols,
-                        self.registry,
                     )
-                    default = compile_process_expression(
+                    default = self._compile(
                         ExpressionAst(default_text, item.value.location),
                         declared_type,
                         dynamic_symbols,
-                        self.registry,
                     )
                     expression = TrajectoryMeasureExpressionIR(
                         operation,
@@ -463,11 +504,10 @@ class ScenarioLowerer:
                         default=default,
                     )
                 elif operation == "duration_where":
-                    condition = compile_process_expression(
+                    condition = self._compile(
                         ExpressionAst(argument, item.value.location),
                         self.boolean,
                         dynamic_symbols,
-                        self.registry,
                     )
                     self._require_compatible_type(
                         self.time,
@@ -487,17 +527,15 @@ class ScenarioLowerer:
                             "first_time requires an explicit default = TIME",
                             item.location,
                         )
-                    condition = compile_process_expression(
+                    condition = self._compile(
                         ExpressionAst(match.group(1).strip(), item.value.location),
                         self.boolean,
                         dynamic_symbols,
-                        self.registry,
                     )
-                    default = compile_process_expression(
+                    default = self._compile(
                         ExpressionAst(match.group(2).strip(), item.value.location),
                         self.time,
                         dynamic_symbols,
-                        self.registry,
                     )
                     self._require_compatible_type(
                         self.time,
@@ -634,20 +672,51 @@ class ScenarioLowerer:
                     )
                 terms.append(ObjectiveTermIR(term.direction, term.measure_id))
             constraints = tuple(
-                compile_process_expression(
+                self._compile(
                     condition,
                     self.boolean,
                     {**self.static_symbols, **symbols},
-                    self.registry,
                 )
                 for condition in item.constraints
             )
+            path_constraints = tuple(
+                self._compile(
+                    condition,
+                    self.boolean,
+                    {**self.static_symbols, **symbols},
+                )
+                for condition in item.path_constraints
+            )
+            chance_constraints = []
+            for constraint in item.chance_constraints:
+                _threshold_expression, threshold = _compile_constant(
+                    constraint.threshold,
+                    self.probability,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
+                )
+                assert isinstance(threshold, Fraction)
+                chance_constraints.append(
+                    ChanceConstraintIR(
+                        constraint.comparison,
+                        threshold,
+                        self._compile(
+                            constraint.condition,
+                            self.boolean,
+                            {**self.static_symbols, **symbols},
+                        ),
+                        constraint.location,
+                    )
+                )
             result.append(
                 ObjectiveIR(
                     source.qualified_id,
                     item.id,
                     tuple(terms),
                     constraints,
+                    path_constraints,
+                    tuple(chance_constraints),
                     item.label,
                     item.location,
                 )
@@ -700,19 +769,22 @@ class ScenarioLowerer:
                     item.location,
                 )
             placeholder = ProcessInstanceIR(scenario_id, item.id, process, (), (), item.location)
-            input_values = tuple(
-                InstanceInputIR(
-                    _member(placeholder, input_map[name].ref),
-                    compile_process_expression(
-                        provided[name].value,
-                        input_map[name].value_type,
-                        self.static_symbols,
-                        self.registry,
-                    ),
+            input_values = []
+            for name in input_map:
+                if name not in provided:
+                    continue
+                expression, _value = _compile_constant(
+                    provided[name].value,
+                    input_map[name].value_type,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
                 )
-                for name in input_map
-                if name in provided
-            )
+                input_values.append(
+                    InstanceInputIR(
+                        _member(placeholder, input_map[name].ref), expression
+                    )
+                )
             phase_values = []
             for name, process_phase in phase_map.items():
                 scenario_phase_id = provided_phases[name].scenario_phase_id
@@ -729,7 +801,7 @@ class ScenarioLowerer:
                 scenario_id,
                 item.id,
                 process,
-                input_values,
+                tuple(input_values),
                 tuple(phase_values),
                 item.location,
             )
@@ -781,6 +853,7 @@ class ScenarioLowerer:
                     declaration.value_type,
                     self.static_symbols,
                     self.registry,
+                    self.static_values,
                 )
                 bindings.append(
                     VariantInputIR(_member(instance, declaration.ref), expression)
@@ -866,7 +939,7 @@ class ScenarioLowerer:
             actions[item.id] = CompositeActionIR(
                 scenario_id,
                 item.id,
-                compile_process_expression(item.guard, self.boolean, dynamic_symbols, self.registry)
+                self._compile(item.guard, self.boolean, dynamic_symbols)
                 if item.guard is not None
                 else None,
                 tuple(
@@ -895,11 +968,10 @@ class ScenarioLowerer:
                 tuple(
                     PolicyRuleIR(
                         rule.action_id,
-                        compile_process_expression(
+                        self._compile(
                             rule.condition,
                             self.boolean,
                             dynamic_symbols,
-                            self.registry,
                         )
                         if rule.condition is not None
                         else None,
@@ -913,7 +985,13 @@ class ScenarioLowerer:
         schedules = []
         for item in source.schedules:
             if isinstance(item, AtScheduleAst):
-                _time_expr, time = _compile_constant(item.time, self.time, self.static_symbols, self.registry)
+                _time_expr, time = _compile_constant(
+                    item.time,
+                    self.time,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
+                )
                 assert isinstance(time, Fraction)
                 if time < 0:
                     raise DomainError("scenario event time cannot be negative", item.location)
@@ -930,11 +1008,29 @@ class ScenarioLowerer:
                 )
             else:
                 assert isinstance(item, EveryScheduleAst)
-                _interval_expr, interval = _compile_constant(item.interval, self.time, self.static_symbols, self.registry)
-                _start_expr, start = _compile_constant(item.start, self.time, self.static_symbols, self.registry)
+                _interval_expr, interval = _compile_constant(
+                    item.interval,
+                    self.time,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
+                )
+                _start_expr, start = _compile_constant(
+                    item.start,
+                    self.time,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
+                )
                 end = None
                 if item.end is not None:
-                    _end_expr, end = _compile_constant(item.end, self.time, self.static_symbols, self.registry)
+                    _end_expr, end = _compile_constant(
+                        item.end,
+                        self.time,
+                        self.static_symbols,
+                        self.registry,
+                        self.static_values,
+                    )
                 assert isinstance(interval, Fraction) and isinstance(start, Fraction)
                 if interval <= 0 or start < 0 or (end is not None and end < start):
                     raise DomainError("periodic schedule requires interval > 0 and 0 <= start <= end", item.location)
@@ -954,11 +1050,29 @@ class ScenarioLowerer:
 
         decisions = []
         for item in source.decisions:
-            _interval_expr, interval = _compile_constant(item.interval, self.time, self.static_symbols, self.registry)
-            _start_expr, start = _compile_constant(item.start, self.time, self.static_symbols, self.registry)
+            _interval_expr, interval = _compile_constant(
+                item.interval,
+                self.time,
+                self.static_symbols,
+                self.registry,
+                self.static_values,
+            )
+            _start_expr, start = _compile_constant(
+                item.start,
+                self.time,
+                self.static_symbols,
+                self.registry,
+                self.static_values,
+            )
             end = None
             if item.end is not None:
-                _end_expr, end = _compile_constant(item.end, self.time, self.static_symbols, self.registry)
+                _end_expr, end = _compile_constant(
+                    item.end,
+                    self.time,
+                    self.static_symbols,
+                    self.registry,
+                    self.static_values,
+                )
             assert isinstance(interval, Fraction) and isinstance(start, Fraction)
             if interval <= 0 or start < 0 or (end is not None and end < start):
                 raise DomainError("decision schedule requires interval > 0 and 0 <= start <= end", item.location)
@@ -1030,11 +1144,10 @@ class ScenarioLowerer:
             action_ids, allow_wait = self._decision_actions(
                 item.options, actions, item.location
             )
-            condition = compile_process_expression(
+            condition = self._compile(
                 item.condition,
                 self.boolean,
                 dynamic_symbols,
-                self.registry,
             )
             has_flow = any(
                 instance.process.flows for instance in instances.values()
@@ -1061,10 +1174,18 @@ class ScenarioLowerer:
                     item.location,
                 )
             _start_expression, start = _compile_constant(
-                item.start, self.time, self.static_symbols, self.registry
+                item.start,
+                self.time,
+                self.static_symbols,
+                self.registry,
+                self.static_values,
             )
             _end_expression, end = _compile_constant(
-                item.end, self.time, self.static_symbols, self.registry
+                item.end,
+                self.time,
+                self.static_symbols,
+                self.registry,
+                self.static_values,
             )
             assert isinstance(start, Fraction) and isinstance(end, Fraction)
             if start < 0 or end < start:
@@ -1092,16 +1213,50 @@ class ScenarioLowerer:
             )
 
         assert source.bounds is not None
-        _horizon_expr, horizon = _compile_constant(source.bounds.horizon, self.time, self.static_symbols, self.registry)
+        _horizon_expr, horizon = _compile_constant(
+            source.bounds.horizon,
+            self.time,
+            self.static_symbols,
+            self.registry,
+            self.static_values,
+        )
         assert isinstance(horizon, Fraction)
         if horizon <= 0:
             raise DomainError("scenario horizon must be positive", source.bounds.horizon.location)
         bounds = ScenarioBoundsIR(
             horizon,
-            _positive_integer(source.bounds.maximum_events, "maximum_events", self.static_symbols, self.registry, MAX_SCENARIO_EVENTS),
-            _positive_integer(source.bounds.maximum_decisions, "maximum_decisions", self.static_symbols, self.registry, MAX_SCENARIO_DECISIONS),
-            _positive_integer(source.bounds.maximum_branches, "maximum_branches", self.static_symbols, self.registry, MAX_SCENARIO_BRANCHES),
-            _positive_integer(source.bounds.maximum_entities, "maximum_entities", self.static_symbols, self.registry, MAX_SCENARIO_INSTANCES),
+            _positive_integer(
+                source.bounds.maximum_events,
+                "maximum_events",
+                self.static_symbols,
+                self.registry,
+                MAX_SCENARIO_EVENTS,
+                self.static_values,
+            ),
+            _positive_integer(
+                source.bounds.maximum_decisions,
+                "maximum_decisions",
+                self.static_symbols,
+                self.registry,
+                MAX_SCENARIO_DECISIONS,
+                self.static_values,
+            ),
+            _positive_integer(
+                source.bounds.maximum_branches,
+                "maximum_branches",
+                self.static_symbols,
+                self.registry,
+                MAX_SCENARIO_BRANCHES,
+                self.static_values,
+            ),
+            _positive_integer(
+                source.bounds.maximum_entities,
+                "maximum_entities",
+                self.static_symbols,
+                self.registry,
+                MAX_SCENARIO_INSTANCES,
+                self.static_values,
+            ),
         )
         if len(instances) > bounds.maximum_entities:
             raise SchemaError("scenario instances exceed maximum_entities", source.bounds.maximum_entities.location)
@@ -1110,7 +1265,7 @@ class ScenarioLowerer:
                 "continuous decision interval exceeds scenario horizon", source.location
             )
         stop = (
-            compile_process_expression(source.stop, self.boolean, dynamic_symbols, self.registry)
+            self._compile(source.stop, self.boolean, dynamic_symbols)
             if source.stop is not None
             else None
         )
@@ -1146,8 +1301,16 @@ def lower_scenario_asts(
     sources: Sequence[ScenarioAst],
     registry: UnitRegistry,
     processes: Mapping[str, ProcessIR],
+    *,
+    static_symbols: Optional[Mapping[str, SymbolRefIR]] = None,
+    static_values: Optional[Mapping[SymbolRefIR, ProcessValue]] = None,
 ) -> Tuple[ScenarioIR, ...]:
-    lowerer = ScenarioLowerer(registry, processes)
+    lowerer = ScenarioLowerer(
+        registry,
+        processes,
+        static_symbols=static_symbols,
+        static_values=static_values,
+    )
     result = []
     seen = set()
     for source in sources:
@@ -1240,38 +1403,61 @@ def lower_analysis_asts(
             )
         search_method = source.search_method
         time_tolerance = None
+        time_grid = None
         maximum_evaluations = None
         search_fields = (
             search_method,
             source.time_tolerance,
+            source.time_grid,
             source.maximum_evaluations,
         )
-        if any(item is not None for item in search_fields) and not all(
-            item is not None for item in search_fields
+        if any(item is not None for item in search_fields) and (
+            search_method is None or source.maximum_evaluations is None
         ):
             raise SchemaError(
-                "analysis search requires method, time_tolerance, and maximum_evaluations",
+                "analysis search requires method and maximum_evaluations",
                 source.location,
             )
         if search_method is not None:
             if source.operation != "optimize":
                 raise SchemaError("search is only valid for optimize analysis", source.location)
-            if search_method != "adaptive_dyadic":
+            if search_method not in {"adaptive_dyadic", "exact_grid"}:
                 raise SchemaError(
                     f"unknown Process search method {search_method!r}", source.location
                 )
-            assert source.time_tolerance is not None
             assert source.maximum_evaluations is not None
             static_symbols = scenario_static_symbols(registry)
-            _tolerance_expression, time_tolerance = _compile_constant(
-                source.time_tolerance,
-                NumberTypeIR("second", registry.parse_unit("second")),
-                static_symbols,
-                registry,
-            )
-            assert isinstance(time_tolerance, Fraction)
-            if time_tolerance <= 0:
-                raise DomainError("time_tolerance must be positive", source.location)
+            search_time_type = NumberTypeIR("second", registry.parse_unit("second"))
+            if search_method == "adaptive_dyadic":
+                if source.time_tolerance is None or source.time_grid is not None:
+                    raise SchemaError(
+                        "adaptive_dyadic search requires time_tolerance and forbids time_grid",
+                        source.location,
+                    )
+                _tolerance_expression, time_tolerance = _compile_constant(
+                    source.time_tolerance,
+                    search_time_type,
+                    static_symbols,
+                    registry,
+                )
+                assert isinstance(time_tolerance, Fraction)
+                if time_tolerance <= 0:
+                    raise DomainError("time_tolerance must be positive", source.location)
+            else:
+                if source.time_grid is None or source.time_tolerance is not None:
+                    raise SchemaError(
+                        "exact_grid search requires time_grid and forbids time_tolerance",
+                        source.location,
+                    )
+                _grid_expression, time_grid = _compile_constant(
+                    source.time_grid,
+                    search_time_type,
+                    static_symbols,
+                    registry,
+                )
+                assert isinstance(time_grid, Fraction)
+                if time_grid <= 0:
+                    raise DomainError("time_grid must be positive", source.location)
             maximum_evaluations = _positive_integer(
                 source.maximum_evaluations,
                 "maximum_evaluations",
@@ -1475,6 +1661,7 @@ def lower_analysis_asts(
                 variant_ids,
                 search_method,
                 time_tolerance,
+                time_grid,
                 maximum_evaluations,
                 tuple(charts),
                 target,

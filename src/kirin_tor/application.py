@@ -13,6 +13,7 @@ import sympy as sp
 from .engine import Engine
 from .errors import KTError, ParameterError, WorkspaceError
 from .expression import parse_exact_number
+from .limits import MAX_COMPARISON_VARIANTS
 from .operations import evaluate, exact_text, scan_values
 from .records import run_record_path, save_run
 from .schema import require_parameter_name
@@ -267,8 +268,10 @@ def compare_variants(
     """Evaluate named variants against one workspace revision and one target."""
     if not variants:
         raise ParameterError("comparison requires at least one variant")
-    if len(variants) > 8:
-        raise ParameterError("comparison supports at most 8 variants")
+    if len(variants) > MAX_COMPARISON_VARIANTS:
+        raise ParameterError(
+            f"comparison supports at most {MAX_COMPARISON_VARIANTS} variants"
+        )
     normalized_names = [variant.name.strip() for variant in variants]
     if any(not name for name in normalized_names):
         raise ParameterError("every comparison variant requires a name")
@@ -427,8 +430,10 @@ def scan_variant_comparison(
     """Scan one output for several player variants on one shared axis."""
     if not variants:
         raise ParameterError("chart comparison requires at least one variant")
-    if len(variants) > 8:
-        raise ParameterError("chart comparison supports at most 8 variants")
+    if len(variants) > MAX_COMPARISON_VARIANTS:
+        raise ParameterError(
+            f"chart comparison supports at most {MAX_COMPARISON_VARIANTS} variants"
+        )
     names = [variant.name.strip() for variant in variants]
     if any(not name for name in names) or len(set(names)) != len(names):
         raise ParameterError("chart comparison variants require unique non-empty names")

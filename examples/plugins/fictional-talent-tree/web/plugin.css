@@ -20,6 +20,10 @@ h1 { margin: 7px 0 4px; font: 700 24px/1.2 Georgia, "Songti SC", serif; }
 .node-kind { display: inline-block; margin-top: 10px; padding: 2px 6px; border-radius: 999px; background: #523922; color: #edc58f; font-size: 10px; }
 .result { margin-top: 18px; padding: 12px; border-left: 3px solid #d88c3f; background: rgba(44, 31, 20, .75); }
 .action { margin-top: 16px; padding: 8px 12px; border: 1px solid #be7d3f; border-radius: 4px; background: #75461f; color: white; cursor: pointer; }
+.controls { display: grid; gap: 8px; margin-top: 18px; padding: 14px; border: 1px solid #51473c; background: rgba(25, 23, 20, .86); }
+.controls label { display: grid; gap: 6px; color: #d8c9b6; font-size: 12px; }
+.controls input { min-height: 34px; padding: 6px 8px; border: 1px solid #6a5238; border-radius: 4px; background: #11110f; color: #eeeae1; }
+.controls .action { margin-top: 0; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 20px; }
 .card { padding: 14px; border: 1px solid #51473c; background: rgba(25, 23, 20, .86); }
 .card strong { display: block; }

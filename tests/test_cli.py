@@ -196,8 +196,15 @@ def test_local_workbench_plugin_cli_workflow(
     monkeypatch,
 ) -> None:
     plugin = Path(__file__).resolve().parents[1] / "examples" / "plugins" / "fictional-talent-tree"
+    package = Path(__file__).resolve().parents[1] / "examples" / "packages" / "fictional-models"
     monkeypatch.chdir(example_workspace)
     monkeypatch.setenv("KIRIN_PLUGIN_HOME", str(tmp_path / "plugin-user"))
+
+    package_added = runner.invoke(
+        app,
+        ["package", "add-path", "fictional_models", str(package), "--json"],
+    )
+    assert package_added.exit_code == 0, package_added.output
 
     added = runner.invoke(app, ["plugin", "add-path", "talents", str(plugin), "--json"])
     assert added.exit_code == 0, added.output

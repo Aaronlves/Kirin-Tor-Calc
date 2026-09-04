@@ -1,6 +1,6 @@
 {
-  "_Checkbox-B_sh4TJY.js": {
-    "file": "Checkbox-B_sh4TJY.js",
+  "_Checkbox-BnxTA4rl.js": {
+    "file": "Checkbox-BnxTA4rl.js",
     "name": "Checkbox",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -15,12 +15,12 @@
       "_createLucideIcon-DaQyNmly.js"
     ]
   },
-  "_CommunityDiscoveryPanel-Bo-u907e.js": {
-    "file": "CommunityDiscoveryPanel-Bo-u907e.js",
+  "_CommunityDiscoveryPanel-BCYJwJjy.js": {
+    "file": "CommunityDiscoveryPanel-BCYJwJjy.js",
     "name": "CommunityDiscoveryPanel",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-tnJZcYbx.js",
+      "_SimpleGrid-o8MnP4Zk.js",
       "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_external-link-QPe0SYdV.js",
@@ -35,16 +35,16 @@
       "_createLucideIcon-DaQyNmly.js"
     ]
   },
-  "_RelationshipGraphCanvas-MgT_z7cu.js": {
-    "file": "RelationshipGraphCanvas-MgT_z7cu.js",
+  "_RelationshipGraphCanvas-C8dEnuSs.js": {
+    "file": "RelationshipGraphCanvas-C8dEnuSs.js",
     "name": "RelationshipGraphCanvas",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
       "index.html"
     ]
   },
-  "_Select-BvlSEPp_.js": {
-    "file": "Select-BvlSEPp_.js",
+  "_Select-Bc0PYD6U.js": {
+    "file": "Select-Bc0PYD6U.js",
     "name": "Select",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -52,16 +52,16 @@
       "index.html"
     ]
   },
-  "_SimpleGrid-tnJZcYbx.js": {
-    "file": "SimpleGrid-tnJZcYbx.js",
+  "_SimpleGrid-o8MnP4Zk.js": {
+    "file": "SimpleGrid-o8MnP4Zk.js",
     "name": "SimpleGrid",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
       "index.html"
     ]
   },
-  "_Tabs-DY2aFhLG.js": {
-    "file": "Tabs-DY2aFhLG.js",
+  "_Tabs-BST2lkyw.js": {
+    "file": "Tabs-BST2lkyw.js",
     "name": "Tabs",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -128,7 +128,7 @@
     ]
   },
   "index.html": {
-    "file": "index-CgvLMaHM.js",
+    "file": "index-GJWK7d1G.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -147,18 +147,18 @@
       "src/components/WorkspaceSettings.tsx"
     ],
     "css": [
-      "index-BAn3hRf0.css"
+      "index-CUejrQ9m.css"
     ]
   },
   "src/components/ChangeReview.tsx": {
-    "file": "ChangeReview-CwlHsstb.js",
+    "file": "ChangeReview-DsSgFB8M.js",
     "name": "ChangeReview",
     "src": "src/components/ChangeReview.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-DY2aFhLG.js",
-      "_Select-BvlSEPp_.js",
+      "_Tabs-BST2lkyw.js",
+      "_Select-Bc0PYD6U.js",
       "_Code-CZwi4ekT.js",
       "_rotate-ccw-DuCUnsve.js",
       "_trash-2-DwdJPv2e.js",
@@ -166,7 +166,7 @@
     ]
   },
   "src/components/SyntaxReference.tsx": {
-    "file": "SyntaxReference-CVMx20T5.js",
+    "file": "SyntaxReference-e3ezgxbJ.js",
     "name": "SyntaxReference",
     "src": "src/components/SyntaxReference.tsx",
     "isDynamicEntry": true,
@@ -179,26 +179,26 @@
     ]
   },
   "src/components/WorkspaceSearch.tsx": {
-    "file": "WorkspaceSearch-CDkBkkBq.js",
+    "file": "WorkspaceSearch-CQib95Tc.js",
     "name": "WorkspaceSearch",
     "src": "src/components/WorkspaceSearch.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Checkbox-B_sh4TJY.js",
+      "_Checkbox-BnxTA4rl.js",
       "_TextInput-e06uXaa8.js",
       "index.html"
     ]
   },
   "src/components/WorkspaceSettings.tsx": {
-    "file": "WorkspaceSettings-CWbm3C4w.js",
+    "file": "WorkspaceSettings-DQFQh6Es.js",
     "name": "WorkspaceSettings",
     "src": "src/components/WorkspaceSettings.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-tnJZcYbx.js",
-      "_Select-BvlSEPp_.js",
+      "_SimpleGrid-o8MnP4Zk.js",
+      "_Select-Bc0PYD6U.js",
       "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_copy-DzEbZYJo.js",
@@ -206,16 +206,16 @@
     ]
   },
   "src/views/DocumentsView.tsx": {
-    "file": "DocumentsView-CRVE3Pk7.js",
+    "file": "DocumentsView-QWmrKuQf.js",
     "name": "DocumentsView",
     "src": "src/views/DocumentsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-DY2aFhLG.js",
-      "_SimpleGrid-tnJZcYbx.js",
-      "_Select-BvlSEPp_.js",
-      "_Checkbox-B_sh4TJY.js",
+      "_Tabs-BST2lkyw.js",
+      "_SimpleGrid-o8MnP4Zk.js",
+      "_Select-Bc0PYD6U.js",
+      "_Checkbox-BnxTA4rl.js",
       "_Code-CZwi4ekT.js",
       "_folder-input-Dz7BCKAP.js",
       "_TextInput-e06uXaa8.js",
@@ -224,11 +224,11 @@
       "_rotate-ccw-DuCUnsve.js",
       "_trash-2-DwdJPv2e.js",
       "index.html",
-      "_RelationshipGraphCanvas-MgT_z7cu.js"
+      "_RelationshipGraphCanvas-C8dEnuSs.js"
     ]
   },
   "src/views/GraphView.tsx": {
-    "file": "GraphView-yn7hELFG.js",
+    "file": "GraphView-kagaRCWn.js",
     "name": "GraphView",
     "src": "src/views/GraphView.tsx",
     "isDynamicEntry": true,
@@ -239,18 +239,18 @@
       "_external-link-QPe0SYdV.js",
       "_refresh-cw-CD7olmvR.js",
       "index.html",
-      "_RelationshipGraphCanvas-MgT_z7cu.js"
+      "_RelationshipGraphCanvas-C8dEnuSs.js"
     ]
   },
   "src/views/PackagesView.tsx": {
-    "file": "PackagesView-CQrecM7M.js",
+    "file": "PackagesView-CXGXz79l.js",
     "name": "PackagesView",
     "src": "src/views/PackagesView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-DY2aFhLG.js",
-      "_CommunityDiscoveryPanel-Bo-u907e.js",
+      "_Tabs-BST2lkyw.js",
+      "_CommunityDiscoveryPanel-BCYJwJjy.js",
       "_Code-CZwi4ekT.js",
       "_folder-input-Dz7BCKAP.js",
       "_TextInput-e06uXaa8.js",
@@ -260,14 +260,14 @@
     ]
   },
   "src/views/PluginsView.tsx": {
-    "file": "PluginsView-ogg13ujy.js",
+    "file": "PluginsView-BIMPMNaL.js",
     "name": "PluginsView",
     "src": "src/views/PluginsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-tnJZcYbx.js",
-      "_CommunityDiscoveryPanel-Bo-u907e.js",
+      "_SimpleGrid-o8MnP4Zk.js",
+      "_CommunityDiscoveryPanel-BCYJwJjy.js",
       "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_refresh-cw-CD7olmvR.js",
@@ -276,13 +276,13 @@
     ]
   },
   "src/views/RunsView.tsx": {
-    "file": "RunsView-BwqgS6SD.js",
+    "file": "RunsView-Dt5hBW4c.js",
     "name": "RunsView",
     "src": "src/views/RunsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Checkbox-B_sh4TJY.js",
+      "_Checkbox-BnxTA4rl.js",
       "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_refresh-cw-CD7olmvR.js",

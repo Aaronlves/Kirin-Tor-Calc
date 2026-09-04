@@ -217,11 +217,21 @@ class ObjectiveTermIR:
 
 
 @dataclass(frozen=True)
+class ChanceConstraintIR:
+    comparison: str
+    threshold: Fraction
+    condition: TypedExpressionIR
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
 class ObjectiveIR:
     scenario_id: str
     id: str
     terms: Tuple[ObjectiveTermIR, ...]
     constraints: Tuple[TypedExpressionIR, ...] = ()
+    path_constraints: Tuple[TypedExpressionIR, ...] = ()
+    chance_constraints: Tuple[ChanceConstraintIR, ...] = ()
     label: Optional[str] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
 
@@ -267,6 +277,7 @@ class AnalysisIR:
     variant_ids: Tuple[str, ...] = ()
     search_method: Optional[str] = None
     time_tolerance: Optional[Fraction] = None
+    time_grid: Optional[Fraction] = None
     maximum_evaluations: Optional[int] = None
     charts: Tuple["AnalysisChartIR", ...] = ()
     target: Optional[TypedExpressionIR] = None

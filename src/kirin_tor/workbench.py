@@ -38,6 +38,7 @@ from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
 from .errors import KTError, PackageError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
 from .limits import DEFAULT_TIMEOUT_SECONDS
+from .model_catalog import ModelCatalog, model_revision
 from .operations import (
     analyze_process,
     process_analysis_request,
@@ -184,6 +185,13 @@ def package_summary(resolution) -> dict:
                     }
                     for dependency in item.manifest.dependencies
                 },
+                "interfaces": [
+                    interface.as_dict()
+                    for interface in sorted(
+                        item.manifest.interfaces,
+                        key=lambda candidate: candidate.id,
+                    )
+                ],
             }
             for item in sorted(resolution.packages, key=lambda package: package.source)
         ],
@@ -238,6 +246,16 @@ class Workbench:
             safe_mode=safe_mode,
             approval_home=plugin_approval_home,
         )
+        self._model_catalog_cache: dict[str, ModelCatalog] = {}
+
+    def _model_catalog(self, workspace: Workspace) -> ModelCatalog:
+        revision = model_revision(workspace)
+        cached = self._model_catalog_cache.get(revision)
+        if cached is not None:
+            return cached
+        catalog = ModelCatalog(workspace)
+        self._model_catalog_cache = {revision: catalog}
+        return catalog
 
     def _local_path(self, relative: str, *, new: bool = False) -> Path:
         path = (self.root / relative).resolve()
@@ -523,6 +541,10 @@ class Workbench:
                 "runs": self.list_runs(),
                 "validation": validation,
                 "index": index,
+                "catalog": validation.get(
+                    "catalog",
+                    {"status": "unavailable", "reason": "workspace_invalid"},
+                ),
                 "authoring": validation.get("authoring", {"symbols": [], "references": [], "builtins": []}),
                 "authoring_contract": public_authoring_contract(),
                 "recovery": self._read_recovery(),
@@ -702,7 +724,13 @@ class Workbench:
                     (workspace,),
                     DEFAULT_TIMEOUT_SECONDS,
                 )
-                return {**result, "status": "ok", "index": self._index_dict(workspace), "authoring": authoring}
+                return {
+                    **result,
+                    "status": "ok",
+                    "index": self._index_dict(workspace),
+                    "catalog": self._model_catalog(workspace).summary(),
+                    "authoring": authoring,
+                }
             except ValidationErrors as exc:
                 return {**author_error_payload(exc, self.root, sources), "authoring": authoring}
             except KTError as exc:
@@ -761,6 +789,19 @@ class Workbench:
                     for path, text in sorted(parsed.items())
                 ],
             }
+
+    def model_action(
+        self,
+        action: str,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        """Query one validated model revision without exposing source files."""
+
+        with self._lock:
+            workspace = self.workspace(overlays)
+            run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
+            return self._model_catalog(workspace).dispatch(action, payload)
 
     def create_document(self, template: str, document_id: str) -> dict:
         with self._lock:

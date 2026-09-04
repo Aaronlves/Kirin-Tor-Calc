@@ -19,6 +19,8 @@ from .limits import (
     MAX_PACKAGE_EXTRACTED_BYTES,
     MAX_PACKAGE_DEPENDENCIES,
     MAX_PACKAGE_GRAPH_PACKAGES,
+    MAX_PACKAGE_INTERFACES,
+    MAX_PACKAGE_INTERFACE_SELECTORS,
     MAX_PACKAGE_MANIFEST_BYTES,
     MAX_WORKSPACE_DOCUMENTS,
 )
@@ -28,7 +30,8 @@ PACKAGE_MANIFEST = "kirin.package.toml"
 WORKSPACE_REQUIREMENTS = "kirin.packages.toml"
 WORKSPACE_LOCK = "kirin.lock"
 PACKAGE_STORE = Path(".kirin") / "packages"
-PACKAGE_SCHEMA_VERSION = 1
+PACKAGE_SCHEMA_VERSION = 2
+WORKSPACE_REQUIREMENTS_SCHEMA_VERSION = 1
 LOCK_VERSION = 1
 # Package feature-line support is an explicit compatibility promise. A release may
 # retain an older line only while its manifests and source documents continue to pass
@@ -36,7 +39,9 @@ LOCK_VERSION = 1
 SUPPORTED_PACKAGE_FEATURE_LINES = ("0.3", "0.4")
 
 PACKAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
+PACKAGE_INTERFACE_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$")
 NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+DOCUMENT_SELECTOR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VERSION_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 FEATURE_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 GITHUB_RE = re.compile(
@@ -149,6 +154,22 @@ class PackageDependency:
 
 
 @dataclass(frozen=True)
+class PackageInterface:
+    id: str
+    revision: int
+    documents: Tuple[str, ...] = ()
+    document_prefixes: Tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "revision": self.revision,
+            "documents": list(self.documents),
+            "document_prefixes": list(self.document_prefixes),
+        }
+
+
+@dataclass(frozen=True)
 class PackageManifest:
     root: Path = field(compare=False)
     name: str
@@ -160,6 +181,7 @@ class PackageManifest:
     game: Optional[str] = None
     game_version: Optional[str] = None
     dependencies: Tuple[PackageDependency, ...] = ()
+    interfaces: Tuple[PackageInterface, ...] = ()
 
     @property
     def path(self) -> Path:
@@ -276,6 +298,76 @@ def _parse_dependency_table(
     return tuple(result)
 
 
+def _parse_interface_table(
+    raw: Any,
+    path: Path,
+    *,
+    namespace: str,
+) -> Tuple[PackageInterface, ...]:
+    table = _require_mapping(raw, "interfaces", path)
+    if len(table) > MAX_PACKAGE_INTERFACES:
+        raise PackageError(
+            f"package exceeds {MAX_PACKAGE_INTERFACES} interfaces",
+            _location(path, "interfaces"),
+        )
+    result = []
+    for interface_id, untyped in sorted(table.items()):
+        label = f"interfaces.{interface_id}"
+        if not PACKAGE_INTERFACE_RE.fullmatch(interface_id):
+            raise PackageError(
+                "interface id must be a dotted lower-case id",
+                _location(path, label),
+            )
+        data = _require_mapping(untyped, label, path)
+        _reject_unknown(data, {"revision", "documents", "document_prefixes"}, label, path)
+        revision = data.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise PackageError(
+                "interface revision must be a positive integer",
+                _location(path, f"{label}.revision"),
+            )
+
+        def selectors(key: str) -> Tuple[str, ...]:
+            values = data.get(key, [])
+            if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
+                raise PackageError(
+                    f"{label}.{key} must be an array of document selectors",
+                    _location(path, f"{label}.{key}"),
+                )
+            if len(values) > MAX_PACKAGE_INTERFACE_SELECTORS:
+                raise PackageError(
+                    f"{label}.{key} exceeds {MAX_PACKAGE_INTERFACE_SELECTORS} selectors",
+                    _location(path, f"{label}.{key}"),
+                )
+            normalized = tuple(item.strip() for item in values)
+            if any(
+                not item
+                or not DOCUMENT_SELECTOR_RE.fullmatch(item)
+                or not item.startswith(namespace + "_")
+                for item in normalized
+            ):
+                raise PackageError(
+                    f"{label}.{key} must contain {namespace}_-scoped canonical Entry selectors",
+                    _location(path, f"{label}.{key}"),
+                )
+            if len(normalized) != len(set(normalized)):
+                raise PackageError(
+                    f"{label}.{key} contains duplicate selectors",
+                    _location(path, f"{label}.{key}"),
+                )
+            return normalized
+
+        documents = selectors("documents")
+        prefixes = selectors("document_prefixes")
+        if not documents and not prefixes:
+            raise PackageError(
+                f"{label} must declare documents or document_prefixes",
+                _location(path, label),
+            )
+        result.append(PackageInterface(interface_id, revision, documents, prefixes))
+    return tuple(result)
+
+
 def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> PackageManifest:
     root = root.expanduser().resolve()
     path = root / PACKAGE_MANIFEST
@@ -293,6 +385,7 @@ def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> Pa
         "game",
         "game_version",
         "dependencies",
+        "interfaces",
     }
     _reject_unknown(raw, allowed, "package manifest", path)
     if raw.get("schema") != PACKAGE_SCHEMA_VERSION:
@@ -337,6 +430,9 @@ def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> Pa
     dependencies = _parse_dependency_table(
         raw.get("dependencies", {}), path, relative_to=root
     )
+    interfaces = _parse_interface_table(
+        raw.get("interfaces", {}), path, namespace=namespace
+    )
     return PackageManifest(
         root=root,
         name=name,
@@ -348,6 +444,7 @@ def load_package_manifest(root: Path, *, check_compatibility: bool = True) -> Pa
         game=game,
         game_version=game_version,
         dependencies=dependencies,
+        interfaces=interfaces,
     )
 
 
@@ -358,9 +455,9 @@ def load_workspace_requirements(root: Path) -> WorkspaceRequirements:
         return WorkspaceRequirements(root)
     raw = _read_toml(path)
     _reject_unknown(raw, {"schema", "packages"}, "workspace package requirements", path)
-    if raw.get("schema") != PACKAGE_SCHEMA_VERSION:
+    if raw.get("schema") != WORKSPACE_REQUIREMENTS_SCHEMA_VERSION:
         raise PackageError(
-            f"workspace package schema must be {PACKAGE_SCHEMA_VERSION}",
+            f"workspace package schema must be {WORKSPACE_REQUIREMENTS_SCHEMA_VERSION}",
             _location(path, "schema"),
         )
     table = _require_mapping(raw.get("packages", {}), "packages", path)
@@ -595,6 +692,39 @@ def package_template_paths(root: Path) -> Tuple[Path, ...]:
     return tuple(sorted(result, key=lambda path: path.relative_to(root).as_posix()))
 
 
+def validate_package_interface_scopes(manifest: PackageManifest) -> None:
+    """Require every interface selector to resolve to Package-owned Entry IDs."""
+
+    from .kirin_syntax import load_kirin_document
+
+    document_ids = {
+        str(load_kirin_document(path).raw.get("id", ""))
+        for path in package_source_paths(manifest.root)
+    }
+    for interface in manifest.interfaces:
+        missing = sorted(set(interface.documents) - document_ids)
+        if missing:
+            raise PackageError(
+                f"interface {interface.id!r} names missing document(s): "
+                + ", ".join(missing),
+                _location(manifest.path, f"interfaces.{interface.id}.documents"),
+            )
+        unmatched = sorted(
+            prefix
+            for prefix in interface.document_prefixes
+            if not any(document_id.startswith(prefix) for document_id in document_ids)
+        )
+        if unmatched:
+            raise PackageError(
+                f"interface {interface.id!r} has unmatched document prefix(es): "
+                + ", ".join(unmatched),
+                _location(
+                    manifest.path,
+                    f"interfaces.{interface.id}.document_prefixes",
+                ),
+            )
+
+
 def canonical_content_sha256(root: Path) -> str:
     root = root.expanduser().resolve()
     manifest = root / PACKAGE_MANIFEST
@@ -617,7 +747,7 @@ def _toml_string(value: str) -> str:
 
 
 def render_workspace_requirements(requirements: WorkspaceRequirements) -> str:
-    lines = [f"schema = {PACKAGE_SCHEMA_VERSION}"]
+    lines = [f"schema = {WORKSPACE_REQUIREMENTS_SCHEMA_VERSION}"]
     for item in sorted(requirements.packages, key=lambda req: req.alias):
         lines.extend(
             [
@@ -669,6 +799,20 @@ def render_package_manifest(manifest: PackageManifest) -> str:
         lines.append(f"game = {_toml_string(manifest.game)}")
     if manifest.game_version is not None:
         lines.append(f"game_version = {_toml_string(manifest.game_version)}")
+    for interface in sorted(manifest.interfaces, key=lambda item: item.id):
+        lines.extend(
+            [
+                "",
+                f"[interfaces.{_toml_string(interface.id)}]",
+                f"revision = {interface.revision}",
+                "documents = ["
+                + ", ".join(_toml_string(item) for item in interface.documents)
+                + "]",
+                "document_prefixes = ["
+                + ", ".join(_toml_string(item) for item in interface.document_prefixes)
+                + "]",
+            ]
+        )
     for dependency in sorted(manifest.dependencies, key=lambda item: item.alias):
         lines.extend(
             [

@@ -22,6 +22,7 @@ from .scenario_ast import (
     AnalysisChartAst,
     AnalysisAst,
     AtScheduleAst,
+    ChanceConstraintAst,
     CompositeActionAst,
     ConditionDecisionAst,
     ConnectionAst,
@@ -560,9 +561,18 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
         if objective:
             terms = []
             constraints = []
+            path_constraints = []
+            chance_constraints = []
             for objective_item in child.children:
                 term = re.fullmatch(
                     rf"(maximize|minimize|then\s+maximize|then\s+minimize)\s+({IDENTIFIER})",
+                    objective_item.line.text,
+                )
+                path_requirement = re.fullmatch(
+                    r"require\s+all_paths\s+(.+)", objective_item.line.text
+                )
+                chance_requirement = re.fullmatch(
+                    r"require\s+probability\s+(at_least|at_most)\s+(.+?):\s+(.+)",
                     objective_item.line.text,
                 )
                 requirement = re.fullmatch(
@@ -586,6 +596,37 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                             _location(path, owner_id, objective_item, field),
                         )
                     )
+                elif chance_requirement and not objective_item.children:
+                    chance_constraints.append(
+                        ChanceConstraintAst(
+                            chance_requirement.group(1),
+                            ExpressionAst(
+                                chance_requirement.group(2),
+                                _location(path, owner_id, objective_item, field),
+                            ),
+                            ExpressionAst(
+                                chance_requirement.group(3),
+                                _location(path, owner_id, objective_item, field),
+                            ),
+                            _location(path, owner_id, objective_item, field),
+                        )
+                    )
+                elif objective_item.line.text.startswith("require probability "):
+                    _fail(
+                        path,
+                        owner_id,
+                        objective_item,
+                        "probability constraint must use 'require probability "
+                        "at_least|at_most THRESHOLD: CONDITION'",
+                        field,
+                    )
+                elif path_requirement and not objective_item.children:
+                    path_constraints.append(
+                        ExpressionAst(
+                            path_requirement.group(1),
+                            _location(path, owner_id, objective_item, field),
+                        )
+                    )
                 elif requirement and not objective_item.children:
                     constraints.append(
                         ExpressionAst(
@@ -598,7 +639,8 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                         path,
                         owner_id,
                         objective_item,
-                        "objective item must maximize/minimize a Measure or require a condition",
+                        "objective item must maximize/minimize a Measure or use a "
+                        "supported require constraint",
                         field,
                     )
             if not terms:
@@ -608,6 +650,8 @@ def _parse_scenario(node: _Node, path: Path, owner_id: str) -> ScenarioAst:
                     objective.group(1),
                     tuple(terms),
                     tuple(constraints),
+                    tuple(path_constraints),
+                    tuple(chance_constraints),
                     _decode(objective.group(2), path, child.line)
                     if objective.group(2)
                     else None,
@@ -813,7 +857,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
             search = {}
             for setting in child.children:
                 match = re.fullmatch(
-                    rf"(method|time_tolerance|maximum_evaluations)\s*=\s*(.+)",
+                    rf"(method|time_tolerance|time_grid|maximum_evaluations)\s*=\s*(.+)",
                     setting.line.text,
                 )
                 if not match or setting.children or match.group(1) in search:
@@ -821,7 +865,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
                         path,
                         owner_id,
                         setting,
-                        "search setting must uniquely assign method, time_tolerance, or maximum_evaluations",
+                        "search setting must uniquely assign method, time_tolerance, time_grid, or maximum_evaluations",
                         base,
                     )
                 search[match.group(1)] = (
@@ -874,6 +918,9 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
         str(search["method"]) if "method" in search else None,
         search.get("time_tolerance")
         if isinstance(search.get("time_tolerance"), ExpressionAst)
+        else None,
+        search.get("time_grid")
+        if isinstance(search.get("time_grid"), ExpressionAst)
         else None,
         search.get("maximum_evaluations")
         if isinstance(search.get("maximum_evaluations"), ExpressionAst)

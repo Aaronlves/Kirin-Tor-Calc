@@ -1,4 +1,7 @@
-# Kirin Tor community package protocol v1
+# Kirin Tor community package protocol v2
+
+> 本文描述当前已实现的 v2 合同。后续 Operation Service、SDK、可信结果呈现与发布能力
+> 仍以[可规模化游戏插件平台提案](scalable-game-plugin-platform-proposal.md)为设计依据。
 
 ## Purpose and authority
 
@@ -18,7 +21,7 @@ hooks, or GitHub Actions. A package may contain ordinary project files, but only
 
 Workbench Extension Plugins are a separate explicitly approved executable system. A Community
 Package may document a recommended renderer, but Package installation never installs, approves,
-enables, or executes one. See [Workbench Extension Plugin protocol v1](workbench-plugin-system-v1.md).
+enables, or executes one. See [Workbench Extension Plugin protocol v2](workbench-plugin-system-v2.md).
 
 An Agent is not a third package kind and does not add executable Package semantics. With ordinary
 host-filesystem permission it may author a Package development directory or local workspace source,
@@ -66,7 +69,7 @@ file counts, and excessive byte sizes.
 `kirin.package.toml` uses UTF-8 TOML:
 
 ```toml
-schema = 1
+schema = 2
 name = "community.example"
 version = "1.0.0"
 namespace = "community_example"
@@ -78,6 +81,11 @@ requires_kirin = "0.3"
 game = "fictional-game"
 game_version = "patch-1"
 
+[interfaces."fictional.theorycraft-model"]
+revision = 2
+documents = ["community_example_semantics"]
+document_prefixes = ["community_example_action_"]
+
 [dependencies.math]
 source = "github:community/game-math"
 version = "1.0.0"
@@ -86,9 +94,9 @@ version = "1.0.0"
 Required fields are `schema`, `name`, `version`, `namespace`, `description`, `license`, and
 `requires_kirin`.
 
-- `schema` is exactly `1`.
+- `schema` is exactly `2`.
 - `name` is a dotted, lower-case public name. It is descriptive and is not a source identity.
-- `version` is an exact `MAJOR.MINOR.PATCH` semantic version. V1 deliberately has no version
+- `version` is an exact `MAJOR.MINOR.PATCH` semantic version. V2 deliberately has no version
   range solver.
 - `namespace` matches `[a-z][a-z0-9_]*` and scopes exported Kirin Tor identifiers.
 - `description` and `license` are non-empty text. `license` should normally be an SPDX identifier.
@@ -99,12 +107,17 @@ Required fields are `schema`, `name`, `version`, `namespace`, `description`, `li
   graph checks, and engine validation still apply before compatible Package content becomes active.
 - `game` and `game_version` are optional descriptive compatibility values. Entry-level
   `@game-version` remains the calculation-time authority.
+- `interfaces` is an optional table of stable dotted lower-case model interface IDs. Each provider
+  declares a positive exact `revision` plus at least one namespace-scoped canonical Entry in
+  `documents` or `document_prefixes`. Exact documents must exist and every prefix must match at
+  least one Package Entry. In one resolved graph, an interface ID and revision have at most one
+  provider. Interface revision is a data-contract identity, not a Package release version.
 - Dependency aliases match `[a-z][a-z0-9_]*`. Each dependency specifies one normalized source and
   one exact version. Published GitHub packages may depend only on other GitHub sources. A local
   authoring package may temporarily use an absolute `path:` dependency; relative manifest paths
   are rejected because their meaning would change after content-addressed caching.
 
-Unknown manifest fields are errors in v1. A manifest cannot define install hooks, executable
+Unknown manifest fields are errors in v2. A manifest cannot define install hooks, executable
 commands, environment variables, network callbacks, or file-replacement rules.
 
 ## Source identity and namespace
@@ -126,12 +139,13 @@ with `NAMESPACE_`. Examples for namespace `community_example` are
 
 The package loader rejects two different resolved packages that claim the same namespace. It
 also rejects duplicate document IDs and conflicting mathematical declarations across the final
-package graph. There is no implicit local override of package content. V1 uses explicit exported
+package graph. There is no implicit local override of package content. V2 uses explicit exported
 prefixes so formulas, typed objects, plots, records, and editor tooling keep one stable grammar.
 
 ## Workspace requirements
 
-`kirin.packages.toml` is the user-authored authority for direct dependencies:
+`kirin.packages.toml` remains a separately versioned schema-1 user-authored authority for direct
+dependencies; Package manifest schema 2 does not silently migrate this control file:
 
 ```toml
 schema = 1
@@ -174,7 +188,7 @@ passes through the ordinary tag, commit, manifest, graph, and canonical-content 
 
 ## GitHub resolution
 
-The normalized public source spelling is `github:OWNER/REPOSITORY`. V1 accepts public GitHub
+The normalized public source spelling is `github:OWNER/REPOSITORY`. V2 accepts public GitHub
 repositories and optionally uses `GITHUB_TOKEN` for authenticated API and archive requests.
 
 For version `1.2.3`, the resolver tries tag `v1.2.3` and then `1.2.3`, resolves the tag to a full
@@ -264,7 +278,7 @@ examples may exercise game-mechanic capabilities, but they remain outside both w
 source-distribution payloads; reusable game-specific content belongs in independently versioned
 community packages.
 
-V1 success requires local-path and GitHub packages to share one resolver, one validator, one
+V2 success requires local-path and GitHub packages to share one resolver, one validator, one
 lockfile, one content store, and one read-only workspace loading path. A test or successful build
 does not by itself establish the correctness of community game data; package authors remain
 responsible for their sources and claims.

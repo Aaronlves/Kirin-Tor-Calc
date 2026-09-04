@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import heapq
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from fractions import Fraction
 from typing import Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
-from .errors import DomainError, ProcessExecutionError, ProcessFuelError, UnsupportedError
+from .errors import (
+    DomainError,
+    InfeasibleDecisionError,
+    ProcessExecutionError,
+    ProcessFuelError,
+    UnsupportedError,
+)
 from .process_expression import (
     ProcessEventId,
     ProcessValue,
@@ -26,6 +33,7 @@ from .process_ir import (
     EventIdTypeIR,
     EventParameterIR,
     EventIdScheduleKeyIR,
+    EventIdTypeIR,
     EventIR,
     HandlerIR,
     LetEffectIR,
@@ -60,7 +68,12 @@ from .units import UnitRegistry
 
 
 DecisionSelector = Callable[[
-    int, Fraction, object, Tuple[str, ...], Mapping[str, ProcessValue]
+    int,
+    Fraction,
+    object,
+    Tuple[str, ...],
+    Mapping[str, ProcessValue],
+    Tuple[Tuple[Fraction, str], ...],
 ], str]
 BranchSelector = Callable[[
     int,
@@ -69,6 +82,38 @@ BranchSelector = Callable[[
     Tuple[Fraction, ...],
     Mapping[SymbolRefIR, ProcessValue],
 ], int]
+
+
+def _uses_event_identity_semantics(value: object, seen: set[int]) -> bool:
+    """Return whether semantic execution can observe generated event IDs."""
+
+    if isinstance(value, (EventIdTypeIR, EventIdScheduleKeyIR)):
+        return True
+    identity = id(value)
+    if identity in seen:
+        return False
+    if isinstance(value, dict):
+        seen.add(identity)
+        return any(
+            _uses_event_identity_semantics(item, seen)
+            for pair in value.items()
+            for item in pair
+        )
+    if isinstance(value, (tuple, list, set, frozenset)):
+        seen.add(identity)
+        return any(
+            _uses_event_identity_semantics(item, seen) for item in value
+        )
+    if is_dataclass(value):
+        seen.add(identity)
+        return any(
+            field.name != "location"
+            and _uses_event_identity_semantics(
+                getattr(value, field.name), seen
+            )
+            for field in fields(value)
+        )
+    return False
 
 
 @dataclass(frozen=True)
@@ -213,6 +258,26 @@ def _event_declaration(process: ProcessIR, ref: ProcessMemberRefIR):
     return next(item for item in process.events if item.ref == ref)
 
 
+class _CachedExactSignature:
+    """Immutable exact tuple with a cached hash for nested memo keys."""
+
+    __slots__ = ("value", "_hash")
+
+    def __init__(self, value: Tuple[object, ...]) -> None:
+        self.value = value
+        self._hash = hash(value)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, _CachedExactSignature):
+            return NotImplemented
+        return self.value == other.value
+
+
 class DeterministicProcessExecutor:
     """Execute one Scenario using a caller-supplied finite decision selector."""
 
@@ -245,7 +310,8 @@ class DeterministicProcessExecutor:
         self.instances: Dict[str, _InstanceState] = {}
         self.events: Dict[Tuple[Fraction, int], List[RuntimeEvent]] = defaultdict(list)
         self.decision_points: Dict[
-            Tuple[Fraction, int], List[Tuple[object, Optional[str]]]
+            Tuple[Fraction, int],
+            List[Tuple[object, Optional[str], Optional[int]]],
         ] = defaultdict(list)
         self.heap: List[Tuple[Fraction, int]] = []
         self.queued_keys: set[Tuple[Fraction, int]] = set()
@@ -260,11 +326,19 @@ class DeterministicProcessExecutor:
         self.output_events: List[ProcessOutputEvent] = []
         self.decisions: List[Tuple[Fraction, str]] = []
         self.current_time = Fraction(0)
+        self._initialized = False
+        self._complete = False
         self.stopped = False
         self.stop_reason = "horizon"
         self.target_reached = False
         self.condition_truth: Dict[int, bool] = {}
         self.connections = defaultdict(list)
+        self._history_sensitive_event_ids = _uses_event_identity_semantics(
+            scenario, set()
+        )
+        self._policy_signature_intern: Dict[
+            _CachedExactSignature, _CachedExactSignature
+        ] = {}
         for connection in scenario.connections:
             self.connections[
                 (connection.source.instance_id, connection.source.member)
@@ -472,25 +546,32 @@ class DeterministicProcessExecutor:
             current = schedule.start
             while current <= end:
                 key = (current, schedule.phase.index)
-                self.decision_points[key].append((schedule, None))
+                self.decision_points[key].append((schedule, None, None))
                 self._queue_key(key)
                 current += schedule.interval
         occurrence_counts: Dict[int, int] = defaultdict(int)
         previous_choice = None
-        for choice in self.continuous_choices:
-            if previous_choice is not None and (
+        for plan_choice_index, choice in enumerate(self.continuous_choices):
+            schedule = (
+                self.scenario.continuous_decisions[choice.schedule_index]
+                if 0 <= choice.schedule_index < len(self.scenario.continuous_decisions)
+                else None
+            )
+            ordering_key = (
                 choice.time,
+                schedule.phase.index if schedule is not None else -1,
                 choice.schedule_index,
-            ) < previous_choice:
+            )
+            if previous_choice is not None and ordering_key < previous_choice:
                 raise ProcessExecutionError(
-                    "continuous decision choices must be ordered by time and declaration"
+                    "continuous decision choices must be ordered by time, phase, and declaration"
                 )
-            previous_choice = (choice.time, choice.schedule_index)
+            previous_choice = ordering_key
             if not 0 <= choice.schedule_index < len(self.scenario.continuous_decisions):
                 raise ProcessExecutionError(
                     f"unknown continuous decision declaration {choice.schedule_index}"
                 )
-            schedule = self.scenario.continuous_decisions[choice.schedule_index]
+            assert schedule is not None
             if not schedule.start <= choice.time <= schedule.end:
                 raise ProcessExecutionError(
                     "continuous decision time is outside its declared interval",
@@ -508,7 +589,9 @@ class DeterministicProcessExecutor:
                     schedule.location,
                 )
             key = (choice.time, schedule.phase.index)
-            self.decision_points[key].append((schedule, choice.action_id))
+            self.decision_points[key].append(
+                (schedule, choice.action_id, plan_choice_index)
+            )
             self._queue_key(key)
         self._record(Fraction(0), "initial", "initialized")
         self._sample("initial")
@@ -580,6 +663,8 @@ class DeterministicProcessExecutor:
     def _next_affine_crossing(
         self, limit: Fraction
     ) -> Optional[Tuple[Fraction, int, ConditionDecisionIR]]:
+        if not self.scenario.condition_decisions:
+            return None
         span = limit - self.current_time
         if span <= 0:
             return None
@@ -605,7 +690,7 @@ class DeterministicProcessExecutor:
         self, time: Fraction, index: int, schedule: ConditionDecisionIR
     ) -> None:
         key = (time, schedule.phase.index)
-        self.decision_points[key].append((schedule, None))
+        self.decision_points[key].append((schedule, None, None))
         self._queue_key(key)
         self.condition_truth[index] = True
         self._record(
@@ -616,6 +701,8 @@ class DeterministicProcessExecutor:
         )
 
     def _synchronize_flow_conditions(self) -> None:
+        if not self.scenario.condition_decisions:
+            return
         values = self._scenario_values()
         for index, schedule in enumerate(self.scenario.condition_decisions):
             current = evaluate_process_expression(
@@ -667,7 +754,7 @@ class DeterministicProcessExecutor:
                 schedule.location,
             )
         key = (self.current_time, target_phase.index)
-        self.decision_points[key].append((schedule, None))
+        self.decision_points[key].append((schedule, None, None))
         self._queue_key(key)
         self._record(
             self.current_time,
@@ -690,6 +777,8 @@ class DeterministicProcessExecutor:
     def _update_condition_decisions(
         self, source_phase_index: int, source_phase: str
     ) -> None:
+        if not self.scenario.condition_decisions:
+            return
         values = self._scenario_values()
         for index, schedule in enumerate(self.scenario.condition_decisions):
             current = evaluate_process_expression(
@@ -840,12 +929,22 @@ class DeterministicProcessExecutor:
         return True
 
     def _choose(
-        self, time: Fraction, schedule: object, forced_choice: Optional[str] = None
+        self,
+        time: Fraction,
+        schedule: object,
+        forced_choice: Optional[str] = None,
+        plan_choice_index: Optional[int] = None,
     ) -> Tuple[str, Tuple[RuntimeEvent, ...]]:
         self._consume_decision(schedule.location)
         values = self._scenario_values()
         available = self._available_actions(schedule, values)
         if not available:
+            if forced_choice is not None:
+                raise InfeasibleDecisionError(
+                    "searched decision occurrence has no available action",
+                    schedule.location,
+                    plan_choice_index=plan_choice_index,
+                )
             raise ProcessExecutionError("decision has no available action", schedule.location)
         if forced_choice is not None:
             choice = forced_choice
@@ -863,8 +962,16 @@ class DeterministicProcessExecutor:
                 schedule,
                 available,
                 {symbol.id: value for symbol, value in values.items()},
+                tuple(self.decisions),
             )
         if choice not in available:
+            if forced_choice is not None:
+                raise InfeasibleDecisionError(
+                    f"searched action {choice!r} is unavailable; available: "
+                    + ", ".join(available),
+                    schedule.location,
+                    plan_choice_index=plan_choice_index,
+                )
             raise ProcessExecutionError(
                 f"policy selected unavailable action {choice!r}; available: "
                 + ", ".join(available),
@@ -1447,63 +1554,103 @@ class DeterministicProcessExecutor:
             return True
         return False
 
-    def run(self) -> ProcessRunResult:
+    def start(self) -> None:
+        """Initialize the executor exactly once without consuming a batch."""
+
+        if self._initialized:
+            return
         self._initialize()
+        self._initialized = True
         if self._check_stop("initial"):
+            self._complete = True
+
+    def run_next_batch(self) -> bool:
+        """Process one exact time/phase batch, returning whether one was run."""
+
+        self.start()
+        if self._complete or self.stopped:
+            return False
+        while True:
+            limit = self.heap[0][0] if self.heap else self.scenario.bounds.horizon
+            crossing = self._next_affine_crossing(limit)
+            if crossing is None:
+                break
+            self._queue_affine_crossing(*crossing)
+        if not self.heap:
+            if self.current_time < self.scenario.bounds.horizon:
+                self._advance(self.scenario.bounds.horizon)
+                self._synchronize_flow_conditions()
+                self._check_stop("horizon")
+            self._complete = True
+            return False
+        time, phase_index = heapq.heappop(self.heap)
+        key = (time, phase_index)
+        self.queued_keys.discard(key)
+        if time > self.scenario.bounds.horizon:
+            self._complete = True
+            return False
+        self._advance(time)
+        self._synchronize_flow_conditions()
+        phase = self.scenario.phases[phase_index]
+        events = [
+            event
+            for event in self.events.pop(key, ())
+            if event.id not in self.canceled
+        ]
+        for event in events:
+            if event.schedule_slot is not None and self.schedule_slots.get(
+                event.schedule_slot
+            ) == event.id:
+                del self.schedule_slots[event.schedule_slot]
+            if not event.fuel_reserved:
+                self._consume_event(event.target.member)
+        decisions = self.decision_points.pop(key, ())
+        for decision, forced_choice, plan_choice_index in decisions:
+            _choice, action_events = self._choose(
+                time, decision, forced_choice, plan_choice_index
+            )
+            events.extend(action_events)
+        if events:
+            writes = {}
+            schedules: List[object] = []
+            emits: List[_PendingEmit] = []
+            reduced_events = self._reduce(events)
+            for event in reduced_events:
+                self._process_event(event, writes, schedules, emits)
+            self._apply_writes(writes, time, phase)
+            self._apply_schedules(schedules, phase)
+            self._apply_emits(emits)
+            for event in reduced_events:
+                self._trigger_event_decisions(event)
+        self._sample(phase.id)
+        self._update_condition_decisions(phase.index, phase.id)
+        if self._check_stop(phase.id):
+            self._complete = True
+        return True
+
+    @property
+    def is_complete(self) -> bool:
+        return self._complete
+
+    def result(self) -> ProcessRunResult:
+        if not self._initialized:
+            raise ProcessExecutionError(
+                "Process result requires an initialized executor"
+            )
+        return self._result()
+
+    def run(self) -> ProcessRunResult:
+        self.start()
+        if self._complete:
             return self._result()
         if self.maximum_batches == 0:
             self.stop_reason = "batch_limit"
             return self._result()
+        if self.stop_reason == "batch_limit":
+            self.stop_reason = "horizon"
         processed_batches = 0
-        while not self.stopped:
-            limit = self.heap[0][0] if self.heap else self.scenario.bounds.horizon
-            crossing = self._next_affine_crossing(limit)
-            if crossing is not None:
-                self._queue_affine_crossing(*crossing)
-                continue
-            if not self.heap:
-                break
-            time, phase_index = heapq.heappop(self.heap)
-            key = (time, phase_index)
-            self.queued_keys.discard(key)
-            if time > self.scenario.bounds.horizon:
-                break
-            self._advance(time)
-            self._synchronize_flow_conditions()
-            phase = self.scenario.phases[phase_index]
-            events = [
-                event
-                for event in self.events.pop(key, ())
-                if event.id not in self.canceled
-            ]
-            for event in events:
-                if event.schedule_slot is not None and self.schedule_slots.get(
-                    event.schedule_slot
-                ) == event.id:
-                    del self.schedule_slots[event.schedule_slot]
-                if not event.fuel_reserved:
-                    self._consume_event(event.target.member)
-            decisions = self.decision_points.pop(key, ())
-            for decision, forced_choice in decisions:
-                _choice, action_events = self._choose(
-                    time, decision, forced_choice
-                )
-                events.extend(action_events)
-            if events:
-                writes = {}
-                schedules: List[object] = []
-                emits: List[_PendingEmit] = []
-                reduced_events = self._reduce(events)
-                for event in reduced_events:
-                    self._process_event(event, writes, schedules, emits)
-                self._apply_writes(writes, time, phase)
-                self._apply_schedules(schedules, phase)
-                self._apply_emits(emits)
-                for event in reduced_events:
-                    self._trigger_event_decisions(event)
-            self._sample(phase.id)
-            self._update_condition_decisions(phase.index, phase.id)
-            if self._check_stop(phase.id):
+        while not self._complete:
+            if not self.run_next_batch():
                 break
             processed_batches += 1
             if (
@@ -1512,14 +1659,6 @@ class DeterministicProcessExecutor:
             ):
                 self.stop_reason = "batch_limit"
                 break
-        if (
-            not self.stopped
-            and self.maximum_batches is None
-            and self.current_time < self.scenario.bounds.horizon
-        ):
-            self._advance(self.scenario.bounds.horizon)
-            self._synchronize_flow_conditions()
-            self._check_stop("horizon")
         return self._result()
 
     def _result(self) -> ProcessRunResult:
@@ -1570,6 +1709,254 @@ class DeterministicProcessExecutor:
             tuple(self.trace),
         )
 
+    def continuation_signature(self) -> Tuple[object, ...]:
+        """Return the exact runtime state required for future execution.
+
+        Histories used only by trajectory Measures are intentionally excluded;
+        callers must pair this with ``process_measure_state_signature`` before
+        treating two stochastic continuations as equivalent.
+        """
+
+        if not self.instances:
+            raise ProcessExecutionError(
+                "continuation signature requires an initialized executor"
+            )
+
+        def event_signature(event: RuntimeEvent) -> Tuple[object, ...]:
+            return (
+                event.id,
+                event.time,
+                event.phase.index,
+                event.target.instance_id,
+                event.target.member.kind.value,
+                event.target.member.member_id,
+                event.arguments,
+                event.source_ids,
+                event.fuel_reserved,
+                event.schedule_slot,
+            )
+
+        decision_sources = (
+            ("fixed", self.scenario.decisions),
+            ("event", self.scenario.event_decisions),
+            ("condition", self.scenario.condition_decisions),
+            ("continuous", self.scenario.continuous_decisions),
+        )
+
+        def decision_identity(schedule: object) -> Tuple[str, int]:
+            for kind, declarations in decision_sources:
+                for index, declaration in enumerate(declarations):
+                    if declaration is schedule:
+                        return kind, index
+            raise ProcessExecutionError(
+                "runtime decision point does not belong to the scenario"
+            )
+
+        result = self._result()
+        return (
+            self.current_time,
+            self.stopped,
+            self.stop_reason,
+            self.target_reached,
+            self.event_count,
+            self.decision_count,
+            self.branch_count,
+            self.branch_decision_count,
+            result.inputs,
+            result.states,
+            tuple(sorted(self.heap)),
+            tuple(sorted(self.queued_keys)),
+            tuple(
+                (
+                    key,
+                    tuple(
+                        sorted(
+                            (event_signature(event) for event in events),
+                            key=repr,
+                        )
+                    ),
+                )
+                for key, events in sorted(self.events.items())
+                if events
+            ),
+            tuple(
+                (
+                    key,
+                    tuple(
+                        (
+                            decision_identity(schedule),
+                            forced_choice,
+                            plan_choice_index,
+                        )
+                        for schedule, forced_choice, plan_choice_index in decisions
+                    ),
+                )
+                for key, decisions in sorted(self.decision_points.items())
+                if decisions
+            ),
+            tuple(sorted(self.canceled)),
+            tuple(
+                sorted(
+                    self.schedule_slots.items(),
+                    key=lambda item: repr(item[0]),
+                )
+            ),
+            tuple(sorted(self.condition_truth.items())),
+            tuple(self.decisions),
+        )
+
+    def policy_state_signature(self) -> Tuple[object, ...]:
+        """Return future semantics without trace-only random/action identity.
+
+        A model that can inspect generated event IDs falls back to the full
+        continuation signature.  Otherwise exact policy recursion may merge
+        histories whose current state, pending work, and fuel are identical.
+        """
+
+        if self._history_sensitive_event_ids:
+            return self.continuation_signature()
+        if not self.instances:
+            raise ProcessExecutionError(
+                "policy state signature requires an initialized executor"
+            )
+
+        decision_sources = (
+            ("fixed", self.scenario.decisions),
+            ("event", self.scenario.event_decisions),
+            ("condition", self.scenario.condition_decisions),
+            ("continuous", self.scenario.continuous_decisions),
+        )
+
+        def decision_identity(schedule: object) -> Tuple[str, int]:
+            for kind, declarations in decision_sources:
+                for index, declaration in enumerate(declarations):
+                    if declaration is schedule:
+                        return kind, index
+            raise ProcessExecutionError(
+                "runtime decision point does not belong to the scenario"
+            )
+
+        def event_semantics(event: RuntimeEvent) -> Tuple[object, ...]:
+            return (
+                event.time,
+                event.phase.index,
+                event.target.instance_id,
+                event.target.member.kind.value,
+                event.target.member.member_id,
+                event.arguments,
+                event.fuel_reserved,
+                event.schedule_slot[0:1]
+                + ((event.schedule_slot[1][0], event.schedule_slot[1][1]),)
+                if event.schedule_slot is not None
+                else None,
+            )
+
+        result = self._result()
+        future_schedule = _CachedExactSignature(
+            (
+                tuple(sorted(self.heap)),
+                tuple(sorted(self.queued_keys)),
+                tuple(
+                    (
+                        key,
+                        tuple(
+                            sorted(
+                                (
+                                    event_semantics(event)
+                                    for event in events
+                                    if event.id not in self.canceled
+                                ),
+                                key=repr,
+                            )
+                        ),
+                    )
+                    for key, events in sorted(self.events.items())
+                    if events
+                ),
+                tuple(
+                    (
+                        key,
+                        tuple(
+                            (
+                                decision_identity(schedule),
+                                forced_choice,
+                                plan_choice_index,
+                            )
+                            for (
+                                schedule,
+                                forced_choice,
+                                plan_choice_index,
+                            ) in decisions
+                        ),
+                    )
+                    for key, decisions in sorted(self.decision_points.items())
+                    if decisions
+                ),
+                tuple(
+                    sorted(
+                        self.schedule_slots.keys(), key=repr
+                    )
+                ),
+                tuple(sorted(self.condition_truth.items())),
+            )
+        )
+        future_schedule = self._policy_signature_intern.setdefault(
+            future_schedule, future_schedule
+        )
+        state_signature = _CachedExactSignature(result.states)
+        return (
+            self.current_time,
+            self._complete,
+            self.stopped,
+            self.stop_reason,
+            self.target_reached,
+            self.event_count,
+            self.decision_count,
+            # Inputs are immutable within one executor tree; every clone shares
+            # this interner and every variant starts from a fresh executor.
+            state_signature,
+            future_schedule,
+        )
+
+    def clone(self) -> "DeterministicProcessExecutor":
+        """Copy mutable execution state while sharing immutable Scenario IR."""
+
+        cloned = copy.copy(self)
+        cloned.initial_state_overrides = dict(self.initial_state_overrides)
+        cloned.input_overrides = dict(self.input_overrides)
+        cloned.instances = {
+            instance_id: _InstanceState(
+                runtime.declaration,
+                dict(runtime.inputs),
+                dict(runtime.states),
+            )
+            for instance_id, runtime in self.instances.items()
+        }
+        cloned.events = defaultdict(
+            list, {key: list(events) for key, events in self.events.items()}
+        )
+        cloned.decision_points = defaultdict(
+            list,
+            {
+                key: list(decisions)
+                for key, decisions in self.decision_points.items()
+            },
+        )
+        cloned.heap = list(self.heap)
+        cloned.queued_keys = set(self.queued_keys)
+        cloned.canceled = set(self.canceled)
+        cloned.schedule_slots = dict(self.schedule_slots)
+        cloned.trace = list(self.trace)
+        cloned.observation_samples = list(self.observation_samples)
+        cloned.output_events = list(self.output_events)
+        cloned.decisions = list(self.decisions)
+        cloned.condition_truth = dict(self.condition_truth)
+        cloned.connections = defaultdict(
+            list,
+            {key: list(targets) for key, targets in self.connections.items()},
+        )
+        return cloned
+
 
 def _render_value(value: object) -> str:
     if isinstance(value, Fraction):
@@ -1615,6 +2002,7 @@ def selector_for_policy(policy: PolicyIR, registry: UnitRegistry) -> DecisionSel
         _schedule: object,
         _available: Tuple[str, ...],
         values: Mapping[str, ProcessValue],
+        _history: Tuple[Tuple[Fraction, str], ...],
     ) -> str:
         if policy.sequence:
             if index >= len(policy.sequence):

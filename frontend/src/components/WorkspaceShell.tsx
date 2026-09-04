@@ -138,6 +138,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
     }, []), [activeProfile.tools]);
   const hasErrors = controller.validationItems.length > 0;
   const isBusy = controller.asyncState !== "idle";
+  const pendingProposalCount = controller.pluginDraftProposals.length;
   const workspacePath = controller.bootstrapData?.workspace;
   const currentWorkspaceName = workspaceName(workspacePath);
   const saveBlockedReason = !controller.dirtyCount
@@ -155,8 +156,11 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
         ? `${controller.operationJobs.length || 1} 项操作执行中`
       : hasErrors
         ? `${controller.validationItems.length} 个问题`
-        : controller.dirtyCount
-          ? `${controller.dirtyCount} 个草稿`
+        : controller.dirtyCount || pendingProposalCount
+          ? [
+              controller.dirtyCount ? `${controller.dirtyCount} 个草稿` : "",
+              pendingProposalCount ? `${pendingProposalCount} 个插件提案` : "",
+            ].filter(Boolean).join(" · ")
           : "工作区有效";
 
   useEffect(() => {
@@ -397,8 +401,8 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
               </Tooltip>
               <Tooltip label={controller.lastCheckedAt ? `最近检查：${controller.lastCheckedAt.toLocaleTimeString()}` : "尚未完成检查"}>
                 <Badge
-                  className={`workspace-status-badge${hasErrors ? " is-error" : controller.dirtyCount ? " is-dirty" : isBusy ? " is-busy" : " is-valid"}`}
-                  color={hasErrors ? "red" : controller.dirtyCount || isBusy ? "orange" : "gray"}
+                  className={`workspace-status-badge${hasErrors ? " is-error" : controller.dirtyCount || pendingProposalCount ? " is-dirty" : isBusy ? " is-busy" : " is-valid"}`}
+                  color={hasErrors ? "red" : controller.dirtyCount || pendingProposalCount || isBusy ? "orange" : "gray"}
                   variant="light"
                   leftSection={hasErrors ? <CircleAlert size={12} /> : <Check size={12} />}
                   aria-label={`工作区状态：${workspaceStatus}`}

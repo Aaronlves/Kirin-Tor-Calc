@@ -46,17 +46,18 @@ def _package(
     namespace: str = "community_example",
     expression: str = "1",
     dependencies: str = "",
+    interfaces: str = "",
     document_id: Optional[str] = None,
 ) -> Path:
     root.mkdir(parents=True)
-    manifest = f'''schema = 1
+    manifest = f'''schema = 2
 name = "{name}"
 version = "{version}"
 namespace = "{namespace}"
 description = "Test package"
 license = "MIT"
 requires_kirin = "{current_feature_line()}"
-{dependencies}'''
+{dependencies}{interfaces}'''
     (root / "kirin.package.toml").write_text(manifest, encoding="utf-8")
     entries = root / "entries"
     entries.mkdir()
@@ -88,6 +89,46 @@ def test_manifest_is_strict_and_round_trips_template(tmp_path: Path) -> None:
     (root / "kirin.package.toml").write_text(rendered + "hook = \"run-me\"\n", encoding="utf-8")
     with pytest.raises(PackageError, match="unknown package manifest field"):
         load_package_manifest(root)
+
+
+def test_package_interfaces_are_strict_scoped_and_round_trip(tmp_path: Path) -> None:
+    interface = '''
+[interfaces."fictional.theorycraft-model"]
+revision = 2
+documents = ["community_example_value"]
+document_prefixes = ["community_example_"]
+'''
+    root = _package(tmp_path / "package", interfaces=interface)
+    manifest = load_package_manifest(root)
+
+    assert manifest.interfaces[0].as_dict() == {
+        "id": "fictional.theorycraft-model",
+        "revision": 2,
+        "documents": ["community_example_value"],
+        "document_prefixes": ["community_example_"],
+    }
+    rendered = render_package_manifest(manifest)
+    (root / "kirin.package.toml").write_text(rendered, encoding="utf-8")
+    assert load_package_manifest(root) == manifest
+    PackageStoreManager(initialize(tmp_path / "workspace")).materialize(
+        f"path:{root}", "1.0.0"
+    )
+
+    missing = _package(
+        tmp_path / "missing",
+        name="community.missing",
+        namespace="community_missing",
+        interfaces='''
+[interfaces."fictional.missing"]
+revision = 1
+documents = ["community_missing_absent"]
+document_prefixes = []
+''',
+    )
+    with pytest.raises(PackageError, match="names missing document"):
+        PackageStoreManager(initialize(tmp_path / "missing-workspace")).materialize(
+            f"path:{missing}", "1.0.0"
+        )
 
 
 def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
@@ -597,10 +638,42 @@ def test_duplicate_package_namespaces_and_dependency_cycles_are_rejected(tmp_pat
         PackageResolver(PackageStoreManager(workspace)).resolve(cycle_requirements)
 
 
+def test_duplicate_package_interface_provider_is_rejected(tmp_path: Path) -> None:
+    interface = '''
+[interfaces."fictional.shared-model"]
+revision = 1
+documents = ["{document}"]
+document_prefixes = []
+'''
+    left = _package(
+        tmp_path / "left-interface",
+        name="community.left-interface",
+        namespace="left_interface",
+        interfaces=interface.format(document="left_interface_value"),
+    )
+    right = _package(
+        tmp_path / "right-interface",
+        name="community.right-interface",
+        namespace="right_interface",
+        interfaces=interface.format(document="right_interface_value"),
+    )
+    workspace = initialize(tmp_path / "interface-workspace")
+    requirements = WorkspaceRequirements(
+        workspace,
+        (
+            WorkspaceRequirement("left", f"path:{left}", "1.0.0"),
+            WorkspaceRequirement("right", f"path:{right}", "1.0.0"),
+        ),
+    )
+
+    with pytest.raises(PackageError, match="interface .* provided by"):
+        PackageResolver(PackageStoreManager(workspace)).resolve(requirements)
+
+
 def test_archive_extraction_rejects_links_and_parent_traversal(tmp_path: Path) -> None:
     archive = tmp_path / "bad.tar.gz"
     with tarfile.open(archive, "w:gz") as handle:
-        manifest = b"schema = 1\n"
+        manifest = b"schema = 2\n"
         info = tarfile.TarInfo("repo/kirin.package.toml")
         info.size = len(manifest)
         handle.addfile(info, io.BytesIO(manifest))

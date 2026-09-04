@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, fields, is_dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
+
+import sympy as sp
 
 from .errors import KTError, ReferenceError, SchemaError, SourceLocation, ValidationErrors, WorkspaceError
 from .kirin_syntax import load_kirin_document, parse_kirin_source, render_kirin_document
@@ -113,12 +117,115 @@ class Workspace:
     def _lower_scenarios_and_analyses(self) -> None:
         """Resolve composition only after every Process has been loaded."""
 
+        from .engine import Engine
+        from .process_ast import ExpressionAst
+        from .process_ir import BooleanTypeIR, NumberTypeIR, SymbolRefIR
+        from .process_model import ExpressionSymbolKind
         from .scenario_lowering import lower_analysis_asts, lower_scenario_asts
+        from .schema import _parse_result_type
+
+        engine = Engine(self)
+
+        def expression_texts(value):
+            if isinstance(value, ExpressionAst):
+                yield value.text
+                return
+            if is_dataclass(value):
+                for definition in fields(value):
+                    yield from expression_texts(getattr(value, definition.name))
+                return
+            if isinstance(value, (tuple, list)):
+                for item in value:
+                    yield from expression_texts(item)
+
+        def static_bindings(entry: Entry):
+            targets = {
+                match.group(1)
+                for source in expression_texts(entry.scenario_asts)
+                for match in re.finditer(
+                    r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_.])",
+                    source,
+                )
+            }
+            symbols = {}
+            values = {}
+            for target in sorted(targets):
+                owner_id, member_id = target.split(".", 1)
+                owner = self.entries.get(owner_id)
+                if owner is None:
+                    continue
+                declaration = (
+                    owner.fields.get(member_id)
+                    if member_id in owner.fields
+                    else owner.outputs.get(member_id)
+                )
+                if declaration is None:
+                    continue
+                if entry.package_origin is not None:
+                    allowed = self.allowed_package_sources(entry.package_origin.source)
+                    if (
+                        owner.package_origin is None
+                        or (
+                            allowed is not None
+                            and owner.package_origin.source not in allowed
+                        )
+                    ):
+                        raise SchemaError(
+                            f"package {entry.package_origin.name!r} uses static value "
+                            f"from undeclared source {target!r}",
+                            entry.location(),
+                        )
+                spec = _parse_result_type(
+                    member_id,
+                    declaration,
+                    owner.location(
+                        f"fields.{member_id}"
+                        if member_id in owner.fields
+                        else f"outputs.{member_id}"
+                    ),
+                    self.units,
+                )
+                value_type = (
+                    BooleanTypeIR(spec.domain_name)
+                    if spec.value_type == "boolean"
+                    else NumberTypeIR(
+                        spec.unit_name,
+                        spec.dimension,
+                        spec.domain_name,
+                        spec.integer,
+                    )
+                )
+                reference = SymbolRefIR(
+                    owner_id,
+                    member_id,
+                    ExpressionSymbolKind.STATIC_MEMBER,
+                    value_type,
+                )
+                prepared = engine.prepare(target, require_numeric=True)
+                exact = sp.simplify(prepared.expr)
+                if exact in (sp.true, sp.false):
+                    value = exact is sp.true
+                elif exact.is_Rational:
+                    value = Fraction(int(exact.p), int(exact.q))
+                else:
+                    raise SchemaError(
+                        f"scenario static value {target!r} must resolve to an exact "
+                        "rational or boolean value",
+                        entry.location(),
+                    )
+                symbols[target] = reference
+                values[reference] = value
+            return symbols, values
 
         processes = self.processes
         for entry in self.entries.values():
+            static_symbols, static_values = static_bindings(entry)
             lowered = lower_scenario_asts(
-                entry.scenario_asts, self.units, processes
+                entry.scenario_asts,
+                self.units,
+                processes,
+                static_symbols=static_symbols,
+                static_values=static_values,
             )
             entry.scenarios = {scenario.id: scenario for scenario in lowered}
         scenarios = self.scenarios

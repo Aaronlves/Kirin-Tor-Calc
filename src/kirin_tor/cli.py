@@ -803,7 +803,11 @@ def process_analysis_command(
         elif operation == "compare":
             summary = f"已比较 {len(result['policies'])} 个策略"
         else:
-            summary = f"运行完成：{len(result['outcomes'])} 个精确结果"
+            outcome_states = len(result["outcomes"])
+            source_paths = result.get("source_path_count", outcome_states)
+            summary = f"运行完成：{outcome_states} 个精确结果状态"
+            if source_paths != outcome_states:
+                summary += f"（由 {source_paths} 条原始路径精确合并）"
         _emit(result, json_output, summary)
 
     _execute(action, json_output)
