@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 PACKAGE = "kirin_tor"
 WEB_ASSET_SUFFIXES = {".css", ".html", ".js"}
+PROTOCOL_ASSET_SUFFIXES = {".json", ".mjs"}
 GAME_SPECIFIC_MARKERS = (
     b"brewmaster",
     "酒仙".encode("utf-8"),
@@ -24,8 +25,19 @@ def expected_package_files(repository: Path) -> dict[str, bytes]:
         if not path.is_file():
             continue
         relative = path.relative_to(source)
-        if path.suffix == ".py" or (
-            relative.parts[0] == "web_assets" and path.suffix in WEB_ASSET_SUFFIXES
+        if (
+            path.suffix == ".py"
+            or (
+                relative.parts[0] == "web_assets"
+                and path.suffix in WEB_ASSET_SUFFIXES
+            )
+            or (
+                relative.parts[0] == "protocol_assets"
+                and (
+                    path.suffix in PROTOCOL_ASSET_SUFFIXES
+                    or path.name.endswith(".d.mts")
+                )
+            )
         ):
             member = str(PurePosixPath(PACKAGE, *relative.parts))
             expected[member] = path.read_bytes()

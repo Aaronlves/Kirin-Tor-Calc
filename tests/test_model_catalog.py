@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from kirin_tor.errors import ParameterError, StaleRevisionError
+from kirin_tor.errors import InvalidRequestError, StaleRevisionError
 from kirin_tor.model_catalog import MODEL_DESCRIPTOR_KINDS, ModelCatalog
 from kirin_tor.package_authoring import add_path_package
 from kirin_tor.package_manifest import current_feature_line
@@ -72,7 +72,7 @@ def test_catalog_covers_declared_kinds_and_revision_bound_queries(
         "aoe_pattern.total",
         "combo.total",
     ]
-    with pytest.raises(ParameterError, match="does not match"):
+    with pytest.raises(InvalidRequestError, match="does not match"):
         workbench.model_action(
             "model.query",
             {

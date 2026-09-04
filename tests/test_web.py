@@ -93,11 +93,12 @@ def test_web_bootstrap_serves_assets_and_requires_session_token(example_workspac
         assert "^" not in result["authoring_contract"]["tokens"]["operators"]
         protocol = result["plugins"]["protocol"]
         assert protocol["api"] == "2"
-        assert protocol["actions"]["compare"] == {
-            "permission": "operation.compare",
-            "handler": "operation",
-            "operation": "compare",
-        }
+        assert protocol["actions"]["compare"]["permission"] == "operation.compare"
+        assert protocol["actions"]["compare"]["handler"] == "operation"
+        assert protocol["actions"]["compare"]["operation"] == "compare"
+        assert protocol["actions"]["compare"]["hard_limits"]["variants"] == 8
+        assert protocol["actions"]["analyze"]["execution"] == "job"
+        assert protocol["actions"]["evaluate-many"]["operation"] == "evaluate_many"
         assert protocol["actions"]["grid"]["operation"] == "grid"
         assert protocol["actions"]["model.query"]["handler"] == "catalog"
         assert protocol["limits"]["max_comparison_variants"] == 8
@@ -330,6 +331,127 @@ def test_web_serves_only_active_sandboxed_plugin_assets_and_projections(
         assert unavailable.value.code == 404
 
 
+def test_web_plugin_preferences_and_proposals_require_an_active_exact_contribution(
+    example_workspace: Path,
+) -> None:
+    approval_home = example_workspace.parent / "plugin-approval"
+    add_path_package(example_workspace, "fictional_models", EXAMPLE_PACKAGE)
+    PluginManager(example_workspace, approval_home=approval_home).add_path(
+        "talents", EXAMPLE_PLUGIN
+    )
+
+    with RunningServer(example_workspace, plugin_approval_home=approval_home) as running:
+        bootstrap = decoded(running.request("/api/bootstrap")[2])
+        renderer = bootstrap["plugins"]["contributions"]["renderers"][0]
+        identity = {
+            "plugin_id": renderer["plugin_id"],
+            "content_sha256": renderer["content_sha256"],
+            "contribution_id": renderer["id"],
+        }
+
+        saved = decoded(
+            running.request(
+                "/api/plugin/storage",
+                {
+                    "action": "set",
+                    "identity": identity,
+                    "payload": {"key": "ui.compact", "value": True},
+                },
+            )[2]
+        )
+        assert saved["status"] == "ok"
+        loaded = decoded(
+            running.request(
+                "/api/plugin/storage",
+                {
+                    "action": "get",
+                    "identity": identity,
+                    "payload": {"key": "ui.compact"},
+                },
+            )[2]
+        )
+        assert loaded["found"] is True
+        assert loaded["value"] is True
+
+        template = next(
+            item
+            for item in bootstrap["templates"]
+            if item["origin"] == "package" and item["id"] == "build"
+        )
+        proposal_payload = {
+            "revision": bootstrap["catalog"]["revision"],
+            "title": "Save a fictional Build",
+            "description": "Generated from a locked Package template.",
+            "changes": [
+                {
+                    "kind": "create-from-template",
+                    "template": template["value"],
+                    "document_id": "plugin_web_build",
+                    "bindings": {"coefficient": "0.5"},
+                }
+            ],
+        }
+        proposal = decoded(
+            running.request(
+                "/api/plugin/proposal",
+                {
+                    "identity": identity,
+                    "payload": proposal_payload,
+                    "overlays": {},
+                },
+            )[2]
+        )
+        assert proposal["status"] == "ok"
+        assert proposal["changes"][0]["key"] == "entries/plugin_web_build.kirin"
+        assert "= 0.5 in 0..1" in proposal["changes"][0]["text"]
+        assert not (example_workspace / "entries" / "plugin_web_build.kirin").exists()
+
+        revalidated = decoded(
+            running.request(
+                "/api/plugin/proposal/revalidate",
+                {"payload": proposal_payload, "overlays": {}},
+            )[2]
+        )
+        assert revalidated == proposal
+
+        cleared = decoded(
+            running.request(
+                "/api/plugin",
+                {
+                    "action": "clear_preferences",
+                    "payload": {"alias": "talents"},
+                },
+            )[2]
+        )
+        assert cleared["preferences_cleared"] is True
+        assert decoded(
+            running.request(
+                "/api/plugin/storage",
+                {
+                    "action": "get",
+                    "identity": identity,
+                    "payload": {"key": "ui.compact"},
+                },
+            )[2]
+        )["found"] is False
+
+        running.request(
+            "/api/plugin",
+            {"action": "disable", "payload": {"alias": "talents"}},
+        )
+        with pytest.raises(urllib.error.HTTPError) as disabled:
+            running.request(
+                "/api/plugin/storage",
+                {
+                    "action": "get",
+                    "identity": identity,
+                    "payload": {"key": "ui.compact"},
+                },
+            )
+        assert disabled.value.code == 400
+        assert decoded(disabled.value.read())["code"] == "plugin_disabled"
+
+
 def test_web_validates_saves_and_calculates_from_shared_services(example_workspace: Path) -> None:
     relative = "entries/组合模型.kirin"
     source_path = example_workspace / relative
@@ -408,6 +530,77 @@ def test_web_operation_jobs_report_stages_and_results(example_workspace: Path) -
         )[2])
         assert cancelled["state"] == "cancelled"
         assert cancelled["error"]["code"] == "operation_cancelled"
+
+
+def test_web_plugin_operations_are_revision_bound_and_jobs_are_owner_scoped(
+    example_workspace: Path,
+) -> None:
+    with RunningServer(example_workspace) as running:
+        bootstrap = decoded(running.request("/api/bootstrap")[2])
+        revision = bootstrap["catalog"]["revision"]
+        status, _headers, body = running.request(
+            "/api/plugin/operation",
+            {
+                "action": "evaluate-many",
+                "payload": {
+                    "revision": revision,
+                    "targets": ["combo.total", "aoe_pattern.total"],
+                },
+                "overlays": {},
+            },
+        )
+        result = decoded(body)
+        assert status == 200
+        assert result["operation"] == "evaluate-many"
+        assert result["revision"] == revision
+        assert len(result["result"]["results"]) == 2
+
+        started = decoded(
+            running.request(
+                "/api/plugin/job",
+                {
+                    "job_action": "start",
+                    "owner": "digest:community.example.view",
+                    "action": "analyze",
+                    "payload": {
+                        "revision": revision,
+                        "target": "rotation.replay_rotation",
+                        "include_trace": False,
+                    },
+                    "overlays": {},
+                },
+            )[2]
+        )
+        assert started["status"] == "accepted"
+        with pytest.raises(urllib.error.HTTPError) as denied:
+            running.request(
+                "/api/plugin/job",
+                {
+                    "job_action": "status",
+                    "owner": "digest:community.other.view",
+                    "job_id": started["job_id"],
+                },
+            )
+        assert denied.value.code == 400
+        assert decoded(denied.value.read())["code"] == "unknown_identity"
+
+        job = started
+        deadline = time.monotonic() + 10
+        while job["state"] in {"queued", "running"} and time.monotonic() < deadline:
+            time.sleep(0.05)
+            job = decoded(
+                running.request(
+                    "/api/plugin/job",
+                    {
+                        "job_action": "status",
+                        "owner": "digest:community.example.view",
+                        "job_id": started["job_id"],
+                    },
+                )[2]
+            )
+        assert job["state"] == "completed"
+        assert job["result"]["operation"] == "analyze"
+        assert "owner" not in job
 
 
 def test_web_creates_static_template_drafts_without_writing(example_workspace: Path) -> None:

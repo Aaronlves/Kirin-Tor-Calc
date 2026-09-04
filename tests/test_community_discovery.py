@@ -26,7 +26,7 @@ def _plugin_manifest() -> bytes:
             "api": "2",
             "description": "A discovered fixture plugin.",
             "license": "MIT",
-            "requires": {"kirin_feature": "0.4", "interfaces": []},
+            "requires": {"kirin_feature": current_feature_line(), "interfaces": []},
             "contributes": {
                 "views": [
                     {
@@ -126,7 +126,7 @@ def test_plugin_topic_discovery_returns_only_compatible_manifests() -> None:
             "api": "2",
             "description": "A discovered fixture plugin.",
             "license": "MIT",
-            "requires": {"kirin_feature": "0.4", "interfaces": []},
+            "requires": {"kirin_feature": current_feature_line(), "interfaces": []},
         }
     ]
     assert all(path == "kirin.plugin.json" for _, path, _, _ in client.reads)

@@ -97,6 +97,50 @@ class StaleRevisionError(KTError):
     code = "stale_revision"
 
 
+class InvalidRequestError(KTError):
+    code = "invalid_request"
+
+
+class UnknownIdentityError(KTError):
+    code = "unknown_identity"
+
+
+class LimitExceededError(KTError):
+    code = "limit_exceeded"
+
+
+class JobCancelledError(KTError):
+    code = "job_cancelled"
+
+
+class WorkspaceInvalidError(KTError):
+    code = "workspace_invalid"
+
+
+class OperationFailedError(KTError):
+    code = "operation_failed"
+
+
+class UnsupportedCapabilityError(KTError):
+    code = "unsupported_capability"
+
+
+class PermissionDeniedError(KTError):
+    code = "permission_denied"
+
+
+class PluginDisabledError(KTError):
+    code = "plugin_disabled"
+
+
+class ProposalInvalidError(KTError):
+    code = "proposal_invalid"
+
+
+class ProposalStaleError(KTError):
+    code = "proposal_stale"
+
+
 class DomainError(KTError):
     code = "domain_error"
 

@@ -10,7 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Optional, Tuple
 
-from .errors import PackageError, PluginError, WorkspaceError
+from .errors import (
+    PackageError,
+    PermissionDeniedError,
+    PluginDisabledError,
+    PluginError,
+    WorkspaceError,
+)
 from .package_manifest import atomic_write_text, current_feature_line
 from .package_store import PackageResolution, locked_workspace_resolution
 from .plugin_manifest import (
@@ -114,6 +120,7 @@ class ResolvedPlugin:
             "description": manifest.description if manifest else None,
             "license": manifest.license if manifest else None,
             "requires": manifest.requires.as_dict() if manifest else None,
+            "storage": manifest.storage.as_dict() if manifest and manifest.storage else None,
             "content_sha256": locked.content_sha256 if locked else None,
             "approved": self.approved,
             "active": self.active,
@@ -538,6 +545,48 @@ class PluginManager:
             )
         return self.summary(resolved=result)
 
+    def authorize_contribution(
+        self,
+        plugin_id: str,
+        content_sha256: str,
+        contribution_id: str,
+        permission: str,
+    ) -> PluginManifest:
+        """Resolve one active immutable frame identity and enforce its permission."""
+
+        if self.safe_mode:
+            raise PluginDisabledError("Plugin capabilities are unavailable in Safe Mode")
+        for item in self.resolved():
+            if (
+                not item.active
+                or item.manifest is None
+                or item.locked is None
+                or item.manifest.id != plugin_id
+                or item.locked.content_sha256 != content_sha256
+            ):
+                continue
+            surfaces = (
+                *item.manifest.contributes.renderers,
+                *item.manifest.contributes.views,
+                *item.manifest.contributes.tools,
+            )
+            contribution = next(
+                (candidate for candidate in surfaces if candidate.id == contribution_id),
+                None,
+            )
+            if contribution is None:
+                raise PluginDisabledError(
+                    "Plugin contribution is not active for this content snapshot"
+                )
+            if permission not in contribution.permissions:
+                raise PermissionDeniedError(
+                    f"Plugin contribution did not declare {permission}"
+                )
+            return item.manifest
+        raise PluginDisabledError(
+            "Plugin is disabled, unapproved, incompatible, or no longer current"
+        )
+
     def summary(self, *, resolved: Optional[Tuple[ResolvedPlugin, ...]] = None) -> dict:
         contributions = {
             "renderers": [],
@@ -572,6 +621,12 @@ class PluginManager:
                 "required_interfaces": [
                     item.as_dict() for item in item.manifest.requires.interfaces
                 ],
+                "storage_schema": (
+                    item.manifest.storage.preferences.schema
+                    if item.manifest.storage
+                    and item.manifest.storage.preferences
+                    else None
+                ),
             }
             for key in contributions:
                 group = getattr(item.manifest.contributes, key)

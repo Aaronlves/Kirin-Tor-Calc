@@ -1,6 +1,6 @@
 {
-  "_Checkbox-BnxTA4rl.js": {
-    "file": "Checkbox-BnxTA4rl.js",
+  "_Checkbox-CcSO5kuG.js": {
+    "file": "Checkbox-CcSO5kuG.js",
     "name": "Checkbox",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -8,20 +8,12 @@
       "index.html"
     ]
   },
-  "_Code-CZwi4ekT.js": {
-    "file": "Code-CZwi4ekT.js",
-    "name": "Code",
-    "imports": [
-      "_createLucideIcon-DaQyNmly.js"
-    ]
-  },
-  "_CommunityDiscoveryPanel-BCYJwJjy.js": {
-    "file": "CommunityDiscoveryPanel-BCYJwJjy.js",
+  "_CommunityDiscoveryPanel-Co-NMA8f.js": {
+    "file": "CommunityDiscoveryPanel-Co-NMA8f.js",
     "name": "CommunityDiscoveryPanel",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-o8MnP4Zk.js",
-      "_Code-CZwi4ekT.js",
+      "_SimpleGrid-Gtg7phcI.js",
       "_TextInput-e06uXaa8.js",
       "_external-link-QPe0SYdV.js",
       "_refresh-cw-CD7olmvR.js",
@@ -35,16 +27,16 @@
       "_createLucideIcon-DaQyNmly.js"
     ]
   },
-  "_RelationshipGraphCanvas-C8dEnuSs.js": {
-    "file": "RelationshipGraphCanvas-C8dEnuSs.js",
+  "_RelationshipGraphCanvas-Bap3GrRB.js": {
+    "file": "RelationshipGraphCanvas-Bap3GrRB.js",
     "name": "RelationshipGraphCanvas",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
       "index.html"
     ]
   },
-  "_Select-Bc0PYD6U.js": {
-    "file": "Select-Bc0PYD6U.js",
+  "_Select-_imtug8q.js": {
+    "file": "Select-_imtug8q.js",
     "name": "Select",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -52,16 +44,16 @@
       "index.html"
     ]
   },
-  "_SimpleGrid-o8MnP4Zk.js": {
-    "file": "SimpleGrid-o8MnP4Zk.js",
+  "_SimpleGrid-Gtg7phcI.js": {
+    "file": "SimpleGrid-Gtg7phcI.js",
     "name": "SimpleGrid",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
       "index.html"
     ]
   },
-  "_Tabs-BST2lkyw.js": {
-    "file": "Tabs-BST2lkyw.js",
+  "_Tabs-DDyhzqtM.js": {
+    "file": "Tabs-DDyhzqtM.js",
     "name": "Tabs",
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
@@ -128,7 +120,7 @@
     ]
   },
   "index.html": {
-    "file": "index-GJWK7d1G.js",
+    "file": "index-CHViNwAZ.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -147,76 +139,72 @@
       "src/components/WorkspaceSettings.tsx"
     ],
     "css": [
-      "index-CUejrQ9m.css"
+      "index-DMlHOwBG.css"
     ]
   },
   "src/components/ChangeReview.tsx": {
-    "file": "ChangeReview-DsSgFB8M.js",
+    "file": "ChangeReview-COEiYoOI.js",
     "name": "ChangeReview",
     "src": "src/components/ChangeReview.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-BST2lkyw.js",
-      "_Select-Bc0PYD6U.js",
-      "_Code-CZwi4ekT.js",
+      "_Tabs-DDyhzqtM.js",
+      "_Select-_imtug8q.js",
       "_rotate-ccw-DuCUnsve.js",
       "_trash-2-DwdJPv2e.js",
       "index.html"
     ]
   },
   "src/components/SyntaxReference.tsx": {
-    "file": "SyntaxReference-e3ezgxbJ.js",
+    "file": "SyntaxReference-CrivHjw5.js",
     "name": "SyntaxReference",
     "src": "src/components/SyntaxReference.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_copy-DzEbZYJo.js",
       "index.html"
     ]
   },
   "src/components/WorkspaceSearch.tsx": {
-    "file": "WorkspaceSearch-CQib95Tc.js",
+    "file": "WorkspaceSearch-zbwQY1IS.js",
     "name": "WorkspaceSearch",
     "src": "src/components/WorkspaceSearch.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Checkbox-BnxTA4rl.js",
+      "_Checkbox-CcSO5kuG.js",
       "_TextInput-e06uXaa8.js",
       "index.html"
     ]
   },
   "src/components/WorkspaceSettings.tsx": {
-    "file": "WorkspaceSettings-DQFQh6Es.js",
+    "file": "WorkspaceSettings-CvBYsHLy.js",
     "name": "WorkspaceSettings",
     "src": "src/components/WorkspaceSettings.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-o8MnP4Zk.js",
-      "_Select-Bc0PYD6U.js",
-      "_Code-CZwi4ekT.js",
+      "_SimpleGrid-Gtg7phcI.js",
+      "_Select-_imtug8q.js",
       "_TextInput-e06uXaa8.js",
       "_copy-DzEbZYJo.js",
       "index.html"
     ]
   },
   "src/views/DocumentsView.tsx": {
-    "file": "DocumentsView-QWmrKuQf.js",
+    "file": "DocumentsView-D8nT9C5B.js",
     "name": "DocumentsView",
     "src": "src/views/DocumentsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-BST2lkyw.js",
-      "_SimpleGrid-o8MnP4Zk.js",
-      "_Select-Bc0PYD6U.js",
-      "_Checkbox-BnxTA4rl.js",
-      "_Code-CZwi4ekT.js",
+      "_Tabs-DDyhzqtM.js",
+      "_SimpleGrid-Gtg7phcI.js",
+      "_Select-_imtug8q.js",
+      "_Checkbox-CcSO5kuG.js",
       "_folder-input-Dz7BCKAP.js",
       "_TextInput-e06uXaa8.js",
       "_copy-DzEbZYJo.js",
@@ -224,34 +212,32 @@
       "_rotate-ccw-DuCUnsve.js",
       "_trash-2-DwdJPv2e.js",
       "index.html",
-      "_RelationshipGraphCanvas-C8dEnuSs.js"
+      "_RelationshipGraphCanvas-Bap3GrRB.js"
     ]
   },
   "src/views/GraphView.tsx": {
-    "file": "GraphView-kagaRCWn.js",
+    "file": "GraphView-2IeZCuxK.js",
     "name": "GraphView",
     "src": "src/views/GraphView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Code-CZwi4ekT.js",
       "_TextInput-e06uXaa8.js",
       "_external-link-QPe0SYdV.js",
       "_refresh-cw-CD7olmvR.js",
       "index.html",
-      "_RelationshipGraphCanvas-C8dEnuSs.js"
+      "_RelationshipGraphCanvas-Bap3GrRB.js"
     ]
   },
   "src/views/PackagesView.tsx": {
-    "file": "PackagesView-CXGXz79l.js",
+    "file": "PackagesView-DP9Ea5BK.js",
     "name": "PackagesView",
     "src": "src/views/PackagesView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Tabs-BST2lkyw.js",
-      "_CommunityDiscoveryPanel-BCYJwJjy.js",
-      "_Code-CZwi4ekT.js",
+      "_Tabs-DDyhzqtM.js",
+      "_CommunityDiscoveryPanel-Co-NMA8f.js",
       "_folder-input-Dz7BCKAP.js",
       "_TextInput-e06uXaa8.js",
       "_refresh-cw-CD7olmvR.js",
@@ -260,15 +246,14 @@
     ]
   },
   "src/views/PluginsView.tsx": {
-    "file": "PluginsView-BIMPMNaL.js",
+    "file": "PluginsView-DTdaGc0q.js",
     "name": "PluginsView",
     "src": "src/views/PluginsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_SimpleGrid-o8MnP4Zk.js",
-      "_CommunityDiscoveryPanel-BCYJwJjy.js",
-      "_Code-CZwi4ekT.js",
+      "_SimpleGrid-Gtg7phcI.js",
+      "_CommunityDiscoveryPanel-Co-NMA8f.js",
       "_TextInput-e06uXaa8.js",
       "_refresh-cw-CD7olmvR.js",
       "_trash-2-DwdJPv2e.js",
@@ -276,14 +261,13 @@
     ]
   },
   "src/views/RunsView.tsx": {
-    "file": "RunsView-Dt5hBW4c.js",
+    "file": "RunsView-BLgHx9BN.js",
     "name": "RunsView",
     "src": "src/views/RunsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_createLucideIcon-DaQyNmly.js",
-      "_Checkbox-BnxTA4rl.js",
-      "_Code-CZwi4ekT.js",
+      "_Checkbox-CcSO5kuG.js",
       "_TextInput-e06uXaa8.js",
       "_refresh-cw-CD7olmvR.js",
       "_rotate-ccw-DuCUnsve.js",

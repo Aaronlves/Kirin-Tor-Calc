@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Mapping, Optional, Tuple
 
 from .diagnostics import extract_author_title
 from .errors import SchemaError, WorkspaceError
+from .kirin_v2 import parse_kirin_v2_source, render_kirin_v2_document
+from .limits import MAX_EXPRESSION_LENGTH, MAX_PLUGIN_TEMPLATE_BINDINGS
 from .package_store import PackageResolution, locked_workspace_resolution
 from .schema import require_identifier
 from .workspace import DocumentDraft, Workspace, build_document_draft
@@ -17,6 +19,10 @@ from .workspace import DocumentDraft, Workspace, build_document_draft
 TEMPLATE_DIRECTORY = "templates"
 _HEADER_RE = re.compile(
     r'^@(entry)\s+([A-Za-z_][A-Za-z0-9_]*)(\s+"(?:[^"\\]|\\.)*")?$',
+    re.MULTILINE,
+)
+_BINDING_RE = re.compile(
+    r"^\s*//\s*@template-bind\s+([A-Za-z_][A-Za-z0-9_]*)\s*$",
     re.MULTILINE,
 )
 
@@ -31,6 +37,7 @@ class TemplateInfo:
     source_path: Optional[Path] = None
     package_name: Optional[str] = None
     package_version: Optional[str] = None
+    bindings: Tuple[str, ...] = ()
     error: Optional[str] = None
 
     def as_dict(self) -> dict:
@@ -47,6 +54,7 @@ class TemplateInfo:
             ),
             "package_name": self.package_name,
             "package_version": self.package_version,
+            "bindings": list(self.bindings),
             "error": self.error,
         }
 
@@ -80,6 +88,27 @@ def _file_info(
     package_version: Optional[str] = None,
 ) -> TemplateInfo:
     source = path.read_text(encoding="utf-8")
+    bindings = tuple(_BINDING_RE.findall(source))
+    binding_error = None
+    if len(bindings) != len(set(bindings)):
+        binding_error = "template contains duplicate @template-bind names"
+    elif len(bindings) > MAX_PLUGIN_TEMPLATE_BINDINGS:
+        binding_error = (
+            f"template exceeds {MAX_PLUGIN_TEMPLATE_BINDINGS} bindings"
+        )
+    else:
+        try:
+            raw, _positions, _processes, _scenarios, _analyses = (
+                parse_kirin_v2_source(source, path)
+            )
+            missing = sorted(set(bindings) - set(raw.get("inputs", {})))
+            if missing:
+                binding_error = (
+                    "template bindings must name declared inputs: "
+                    + ", ".join(missing)
+                )
+        except SchemaError as exc:
+            binding_error = str(exc)
     match = _HEADER_RE.search(source)
     if match is None or match.group(1) != kind:
         return TemplateInfo(
@@ -91,6 +120,7 @@ def _file_info(
             source_path=path,
             package_name=package_name,
             package_version=package_version,
+            bindings=bindings,
             error=f"template must contain one @{kind} document header",
         )
     return TemplateInfo(
@@ -102,6 +132,8 @@ def _file_info(
         source_path=path,
         package_name=package_name,
         package_version=package_version,
+        bindings=bindings,
+        error=binding_error,
     )
 
 
@@ -136,7 +168,7 @@ def list_templates(
                     _file_info(
                         path,
                         kind,
-                        value=f"package:{package.source}:{relative}",
+                        value=f"package:{package.content_sha256}:{relative}",
                         origin="package",
                         package_name=package.manifest.name,
                         package_version=package.manifest.version,
@@ -157,6 +189,51 @@ def expand_template_source(source: str, kind: str, document_id: str) -> str:
     return expanded if expanded.endswith("\n") else expanded + "\n"
 
 
+def apply_template_bindings(
+    source: str,
+    bindings: Mapping[str, object],
+    *,
+    path: Path,
+) -> str:
+    """Apply declared input defaults, then render one canonical new document."""
+
+    if not bindings:
+        return source
+    if len(bindings) > MAX_PLUGIN_TEMPLATE_BINDINGS:
+        raise WorkspaceError(
+            f"template binding count exceeds {MAX_PLUGIN_TEMPLATE_BINDINGS}"
+        )
+    declared = tuple(_BINDING_RE.findall(source))
+    unknown = sorted(set(bindings) - set(declared))
+    if unknown:
+        raise WorkspaceError(
+            "template does not declare binding(s): " + ", ".join(unknown)
+        )
+    raw, _positions, process_asts, scenario_asts, analysis_asts = (
+        parse_kirin_v2_source(source, path)
+    )
+    for name, value in bindings.items():
+        if not isinstance(value, str) or not value.strip():
+            raise WorkspaceError(f"template binding {name!r} must be non-empty text")
+        text = value.strip()
+        if len(text) > MAX_EXPRESSION_LENGTH:
+            raise WorkspaceError(
+                f"template binding {name!r} exceeds {MAX_EXPRESSION_LENGTH} characters"
+            )
+        input_data = raw.get("inputs", {}).get(name)
+        if input_data is None:
+            raise WorkspaceError(f"template binding input does not exist: {name}")
+        input_data["default"] = (
+            True if text == "true" else False if text == "false" else text
+        )
+    return render_kirin_v2_document(
+        raw,
+        process_asts,
+        scenario_asts,
+        analysis_asts,
+    )
+
+
 def build_from_template(
     root: Path,
     template_value: str,
@@ -164,6 +241,7 @@ def build_from_template(
     *,
     package_resolution: Optional[PackageResolution] = None,
     include_packages: bool = True,
+    bindings: Optional[Mapping[str, object]] = None,
 ) -> DocumentDraft:
     """Expand one static template into an independent in-memory document draft."""
     root = root.resolve()
@@ -182,6 +260,8 @@ def build_from_template(
     if selected.error:
         raise SchemaError(selected.error)
     if selected.origin == "builtin":
+        if bindings:
+            raise WorkspaceError("built-in template does not declare bindings")
         entry_template = selected.template_id
         return build_document_draft(
             root,
@@ -189,9 +269,19 @@ def build_from_template(
             document_id,
             entry_template=entry_template,
         )
+    unknown_bindings = sorted(set(bindings or {}) - set(selected.bindings))
+    if unknown_bindings:
+        raise WorkspaceError(
+            "template does not declare binding(s): " + ", ".join(unknown_bindings)
+        )
     assert selected.source_path is not None
     source = selected.source_path.read_text(encoding="utf-8")
     expanded = expand_template_source(source, selected.kind, document_id)
+    expanded = apply_template_bindings(
+        expanded,
+        bindings or {},
+        path=selected.source_path,
+    )
     return DocumentDraft(
         selected.kind,
         document_id,

@@ -67,6 +67,10 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       headers: { "X-Kirin-Token": "kirin-e2e-token" },
       data: { drafts: {} },
     });
+    await rm(
+      resolve(".e2e-workspace", "entries", "fictional_saved_build.kirin"),
+      { force: true },
+    );
   });
 
   test("沙箱插件注册文档呈现器、页面、工具、命令与 Profile", async ({ page, request }) => {
@@ -85,25 +89,52 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     await expect(page.locator(".cm-activeLine")).toContainText('crit "暴击率"');
     await talentFrame.getByRole("button", { name: "计算 combo.total" }).click();
     await expect(talentFrame.getByText(/验证后结果：2,420/)).toBeVisible();
+    const verifiedResults = page.getByRole("complementary", { name: "Kirin Tor 核心计算结果" });
+    await expect(verifiedResults.getByText("当前技能结果", { exact: true })).toBeVisible();
+    await expect(verifiedResults).toContainText("2,420");
+    await expect(verifiedResults).toContainText("Kirin Tor 核心计算");
     await talentFrame.getByLabel("临时暴击率").fill("0.5");
     await talentFrame.getByRole("button", { name: "使用临时暴击率计算" }).click();
     await expect(talentFrame.getByText(/临时结果：3,300/)).toBeVisible();
     await talentFrame.getByRole("button", { name: "扫描暴击率" }).click();
     await expect(talentFrame.getByText("扫描结果：3 个点", { exact: true })).toBeVisible();
     await talentFrame.getByRole("button", { name: "检查全部数学动作" }).click();
-    await expect(talentFrame.getByText(/Catalog 与数学动作检查通过.*compare 上限 8/)).toBeVisible();
+    await expect(talentFrame.getByText(/Catalog、数学动作与偏好协议检查通过.*compare 上限 8/)).toBeVisible();
 
-    await talentFrame.getByRole("button", { name: "提交默认暴击率草稿提案" }).click();
+    const densityButton = talentFrame.getByRole("button", { name: /界面密度：(舒展|紧凑)/ });
+    await expect(densityButton).toBeVisible();
+    const densityBefore = await densityButton.textContent();
+    expect(densityBefore).toMatch(/^界面密度：(舒展|紧凑)$/);
+    await densityButton.click();
+    await expect(densityButton).toHaveText(
+      densityBefore?.includes("舒展") ? "界面密度：紧凑" : "界面密度：舒展",
+    );
+
+    await talentFrame.getByRole("button", { name: "提交 Build 模板提案" }).click();
     const changeReview = page.getByRole("dialog", { name: "保存前变更审查" });
     await expect(changeReview).toBeVisible();
     await expect(changeReview.getByRole("tab", { name: "插件提案 1" })).toHaveAttribute("aria-selected", "true");
-    await expect(changeReview.getByText("更新默认暴击率", { exact: true })).toBeVisible();
+    await expect(changeReview.getByText("保存当前虚构 Build", { exact: true })).toBeVisible();
+    await expect(changeReview).toContainText("结构化绑定 coefficient=0.5");
     await expect(changeReview.getByLabel("插件提案比较")).toContainText("probability = 0.5 in 0..1");
+    await expect(
+      access(resolve(".e2e-workspace", "entries", "fictional_saved_build.kirin")),
+    ).rejects.toThrow();
     await changeReview.getByRole("button", { name: "接受为未保存草稿" }).click();
     await expect(changeReview.getByRole("tab", { name: "草稿 1" })).toHaveAttribute("aria-selected", "true");
+    await expect(changeReview.getByLabel("保存前草稿比较")).toContainText("@entry fictional_saved_build");
     await expect(changeReview.getByLabel("保存前草稿比较")).toContainText("probability = 0.5 in 0..1");
+    const savedProposal = page.waitForResponse((response) => (
+      response.url().endsWith("/api/save") && response.request().method() === "POST"
+    ));
+    await changeReview.getByRole("button", { name: "保存全部草稿" }).click();
+    expect((await savedProposal).ok()).toBeTruthy();
+    await expect(
+      access(resolve(".e2e-workspace", "entries", "fictional_saved_build.kirin")),
+    ).resolves.toBeUndefined();
     await changeReview.getByRole("button", { name: "关闭工作区工具" }).click();
 
+    await openCombo(page);
     await page.locator(".plugin-document-switch .mantine-SegmentedControl-label").filter({ hasText: "通用" }).click();
     await expect(page.getByText("文档投影", { exact: true })).toBeVisible();
 
@@ -1305,6 +1336,7 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
     const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：双技能组合（虚构）" });
     await editor.press(`${modKey}+End`);
     await editor.type("\n// workspace switch recovery");
+    await expect(page.getByLabel("工作区状态：1 个草稿")).toBeVisible();
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const settings = page.getByRole("dialog", { name: "工作台设置" });

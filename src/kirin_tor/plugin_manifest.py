@@ -269,6 +269,26 @@ class PluginHostRequirements:
 
 
 @dataclass(frozen=True)
+class PluginPreferenceStorage:
+    schema: int
+
+    def as_dict(self) -> dict:
+        return {"schema": self.schema}
+
+
+@dataclass(frozen=True)
+class PluginStorage:
+    preferences: Optional[PluginPreferenceStorage] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "preferences": (
+                self.preferences.as_dict() if self.preferences is not None else None
+            )
+        }
+
+
+@dataclass(frozen=True)
 class PluginManifest:
     root: Path = field(compare=False)
     id: str
@@ -279,13 +299,14 @@ class PluginManifest:
     license: str
     requires: PluginHostRequirements
     contributes: PluginContributions
+    storage: Optional[PluginStorage] = None
 
     @property
     def path(self) -> Path:
         return self.root / PLUGIN_MANIFEST
 
     def as_dict(self) -> dict:
-        return {
+        result = {
             "schema": PLUGIN_SCHEMA_VERSION,
             "id": self.id,
             "name": self.name,
@@ -296,6 +317,9 @@ class PluginManifest:
             "requires": self.requires.as_dict(),
             "contributes": self.contributes.as_dict(),
         }
+        if self.storage is not None:
+            result["storage"] = self.storage.as_dict()
+        return result
 
 
 def _host_requirements(raw: Any, path: Path) -> PluginHostRequirements:
@@ -338,6 +362,32 @@ def _host_requirements(raw: Any, path: Path) -> PluginHostRequirements:
             _location(path, "requires.interfaces"),
         )
     return PluginHostRequirements(feature, tuple(interfaces))
+
+
+def _plugin_storage(raw: Any, path: Path) -> Optional[PluginStorage]:
+    if raw is None:
+        return None
+    data = _mapping(raw, "storage", path)
+    _reject_unknown(data, {"preferences"}, "storage", path)
+    preference_data = _mapping(data.get("preferences"), "storage.preferences", path)
+    _reject_unknown(
+        preference_data,
+        {"schema"},
+        "storage.preferences",
+        path,
+    )
+    schema = preference_data.get("schema")
+    if (
+        not isinstance(schema, int)
+        or isinstance(schema, bool)
+        or schema < 1
+        or schema > 2_147_483_647
+    ):
+        raise PluginError(
+            "storage.preferences.schema must be a positive 32-bit integer",
+            _location(path, "storage.preferences.schema"),
+        )
+    return PluginStorage(PluginPreferenceStorage(schema))
 
 
 def _surface(
@@ -474,6 +524,7 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
             "license",
             "requires",
             "contributes",
+            "storage",
         },
         "plugin manifest",
         path,
@@ -490,6 +541,7 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
     if api != PLUGIN_API_VERSION:
         raise PluginError(f"plugin api must be {PLUGIN_API_VERSION!r}", _location(path, "api"))
     requirements = _host_requirements(data.get("requires"), path)
+    storage = _plugin_storage(data.get("storage"), path)
     contribution_data = _mapping(data.get("contributes"), "contributes", path)
     _reject_unknown(
         contribution_data,
@@ -575,16 +627,34 @@ def load_plugin_manifest(root: Path, *, check_entries: bool = True) -> PluginMan
         if unknown_views or unknown_tools:
             detail = ", ".join((*unknown_views, *unknown_tools))
             raise PluginError(f"profile {profile.id!r} references unknown ids: {detail}", _location(path, profile.id))
+    permissions = {
+        permission
+        for group in (
+            contributions.renderers,
+            contributions.views,
+            contributions.tools,
+        )
+        for contribution in group
+        for permission in contribution.permissions
+    }
+    if "storage.preferences" in permissions and (
+        storage is None or storage.preferences is None
+    ):
+        raise PluginError(
+            "storage.preferences permission requires storage.preferences.schema",
+            _location(path, "storage"),
+        )
     return PluginManifest(
-        root,
-        plugin_id,
-        _text(data.get("name"), "name", path),
-        version,
-        api,
-        _text(data.get("description"), "description", path),
-        _text(data.get("license"), "license", path),
-        requirements,
-        contributions,
+        root=root,
+        id=plugin_id,
+        name=_text(data.get("name"), "name", path),
+        version=version,
+        api=api,
+        description=_text(data.get("description"), "description", path),
+        license=_text(data.get("license"), "license", path),
+        requires=requirements,
+        contributes=contributions,
+        storage=storage,
     )
 
 

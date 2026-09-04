@@ -1,20 +1,10 @@
-const PROTOCOL = "kirin-workbench-plugin";
+import { createKirinPlugin } from "./kirin-plugin-sdk.mjs";
+
+const kirin = createKirinPlugin({ api: 2 });
 const app = document.querySelector("#app");
 let contribution = null;
 let context = {};
-let capabilities = null;
-let nextAction = 0;
-const pending = new Map();
-
-function post(message) {
-  parent.postMessage({ protocol: PROTOCOL, api: 2, ...message }, "*");
-}
-
-function action(name, payload) {
-  const id = `example-${++nextAction}`;
-  post({ type: "action", id, action: name, payload });
-  return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-}
+let capabilities = kirin.descriptor;
 
 function text(value) {
   return value == null ? "—" : String(value);
@@ -80,7 +70,7 @@ function renderTree() {
     button.append(title, canonical, kind);
     if (member?.line) {
       button.addEventListener("click", () => {
-        void action("navigate-source", {
+        void kirin.request("navigate-source", {
           key: documentProjection.key,
           line: member.line,
           column: member.column || 1,
@@ -101,7 +91,9 @@ function renderTree() {
     calculate.addEventListener("click", async () => {
       calculate.disabled = true;
       try {
-        const value = await action("evaluate", { target: targetId });
+        const envelope = await kirin.operations.evaluate({ target: targetId });
+        const value = envelope.result;
+        await kirin.results.present(envelope.operation_id, { title: "当前技能结果" });
         result.textContent = `验证后结果：${text(value.formatted || value.approximate || value.exact)}`;
         result.hidden = false;
       } catch (error) {
@@ -134,10 +126,12 @@ function renderTree() {
       evaluateOverride.addEventListener("click", async () => {
         evaluateOverride.disabled = true;
         try {
-          const value = await action("evaluate", {
+          const envelope = await kirin.operations.evaluate({
             target: targetId,
             overrides: { [critInputId]: input.value },
           });
+          const value = envelope.result;
+          await kirin.results.present(envelope.operation_id, { title: "临时参数结果", order: 10 });
           overrideResult.textContent = `临时结果：${text(value.formatted || value.approximate || value.exact)}`;
           overrideResult.hidden = false;
         } catch (error) {
@@ -155,12 +149,13 @@ function renderTree() {
       scan.addEventListener("click", async () => {
         scan.disabled = true;
         try {
-          const value = await action("scan", {
+          const envelope = await kirin.operations.scan({
             x: critInputId,
             range: "0:0.5",
             points: 3,
             targets: [targetId],
           });
+          const value = envelope.result;
           scanResult.textContent = `扫描结果：${Array.isArray(value.rows) ? value.rows.length : 0} 个点`;
           scanResult.hidden = false;
         } catch (error) {
@@ -178,34 +173,32 @@ function renderTree() {
       checkProtocol.addEventListener("click", async () => {
         checkProtocol.disabled = true;
         try {
-          const revision = context.catalog?.revision;
-          if (!revision) throw new Error("宿主没有提供模型 revision");
-          await action("model.capabilities", { revision });
-          const queried = await action("model.query", {
-            revision,
+          if (!context.catalog?.revision) throw new Error("宿主没有提供模型 revision");
+          await kirin.model.capabilities();
+          const queried = await kirin.model.query({
             kind: ["output"],
             prefix: "aoe_pattern.",
             limit: capabilities?.limits?.max_model_query_limit || 100,
           });
           const aoeTarget = (queried.items || []).find((item) => item.id === "aoe_pattern.total");
           if (!aoeTarget) throw new Error("没有找到二维网格示例输出");
-          await action("model.get", { revision, id: targetId, kind: "output" });
-          await action("model.dependencies", {
-            revision,
+          await kirin.model.get({ id: targetId, kind: "output" });
+          await kirin.model.dependencies({
             id: targetId,
             kind: "output",
             depth: 2,
           });
-          await action("model.document", { revision, id: documentProjection.id });
-          await action("explain", { target: targetId });
-          await action("compare", {
+          await kirin.model.document({ id: documentProjection.id });
+          await kirin.operations.evaluateMany({ targets: [targetId, aoeTarget.id] });
+          await kirin.operations.explain({ target: targetId });
+          await kirin.operations.compare({
             target: targetId,
             variants: [
               { name: "默认" },
               { name: "高暴击", overrides: { [critInputId]: "0.5" } },
             ],
           });
-          await action("grid", {
+          await kirin.operations.grid({
             target: aoeTarget.id,
             x: "aoe_pattern.bonus",
             x_range: "0:1",
@@ -214,14 +207,26 @@ function renderTree() {
             y_range: "1:3",
             y_points: 3,
           });
-          await action("solve", {
+          await kirin.operations.solve({
             target: targetId,
             variable: critInputId,
             equals: "2750",
             range: "0:1",
           });
+          const analysisPage = await kirin.model.query({ kind: ["analysis"], limit: 1 });
+          if (analysisPage.items?.[0]) {
+            const disposableJob = await kirin.operations.analyze({
+              target: analysisPage.items[0].id,
+              include_trace: false,
+            });
+            await kirin.jobs.status(disposableJob.job_id);
+            await kirin.jobs.cancel(disposableJob.job_id);
+          }
+          await kirin.storage.get("ui.protocol-audit");
+          await kirin.storage.set("ui.protocol-audit", true);
+          await kirin.storage.delete("ui.protocol-audit");
           protocolResult.textContent = [
-            "Catalog 与数学动作检查通过",
+            "Catalog、数学动作与偏好协议检查通过",
             `compare 上限 ${text(capabilities?.limits?.max_comparison_variants)}`,
           ].join("；");
           protocolResult.hidden = false;
@@ -235,23 +240,26 @@ function renderTree() {
       const propose = document.createElement("button");
       propose.type = "button";
       propose.className = "action";
-      propose.textContent = "提交默认暴击率草稿提案";
+      propose.textContent = "提交 Build 模板提案";
       const proposalResult = resultBlock();
       propose.addEventListener("click", async () => {
         propose.disabled = true;
         try {
-          const draft = context.draft;
-          if (draft?.status !== "ok") throw new Error("当前本地草稿不可用于插件提案");
-          const candidate = draft.text.replace(
-            /(^\s*input\s+crit\s+"[^"]*"\s*:\s*probability\s*=\s*)(\S+)(\s+in\s+0\.\.1\s*$)/m,
-            `$1${input.value}$3`,
-          );
-          if (candidate === draft.text) throw new Error("没有找到可更新的 crit 输入，或候选值没有变化");
-          const value = await action("propose-draft", {
-            key: draft.document.key,
-            title: "更新默认暴击率",
-            description: `把 combo.crit 的源码默认值改为 ${input.value}。`,
-            text: candidate,
+          const template = (context.templates || []).find((item) => (
+            item.origin === "package"
+            && item.package_name === "community.fictional-models"
+            && item.bindings?.includes("coefficient")
+          ));
+          if (!template) throw new Error("没有找到 Package 提供的 Build 模板");
+          const value = await kirin.proposals.submit({
+            title: "保存当前虚构 Build",
+            description: "由 Package 模板和结构化绑定生成本地 Build 文档。",
+            changes: [{
+              kind: "create-from-template",
+              template: template.value,
+              document_id: "fictional_saved_build",
+              bindings: { coefficient: input.value },
+            }],
           });
           proposalResult.textContent = value.status === "queued"
             ? "提案已进入 Kirin Tor 保存前变更审查；源码尚未改变。"
@@ -264,6 +272,28 @@ function renderTree() {
           propose.disabled = false;
         }
       });
+      const density = document.createElement("button");
+      density.type = "button";
+      density.className = "action";
+      density.textContent = "界面密度：读取中";
+      let compact = false;
+      const updateDensity = () => {
+        density.textContent = `界面密度：${compact ? "紧凑" : "舒展"}`;
+      };
+      void kirin.storage.get("ui.compact").then((stored) => {
+        compact = stored.found && stored.value === true;
+        updateDensity();
+      });
+      density.addEventListener("click", async () => {
+        density.disabled = true;
+        try {
+          compact = !compact;
+          await kirin.storage.set("ui.compact", compact);
+          updateDensity();
+        } finally {
+          density.disabled = false;
+        }
+      });
       label.append(input);
       controls.append(
         label,
@@ -273,6 +303,7 @@ function renderTree() {
         scanResult,
         checkProtocol,
         protocolResult,
+        density,
         propose,
         proposalResult,
       );
@@ -315,14 +346,15 @@ function renderWorkspace(kind) {
     run.addEventListener("click", async () => {
       run.disabled = true;
       try {
-        const queried = await action("model.query", {
-          revision: context.catalog.revision,
+        const queried = await kirin.model.query({
           kind: ["analysis"],
           limit: 1,
         });
         const analysis = queried.items?.[0];
         if (!analysis) throw new Error("当前目录没有具名 Process Analysis");
-        const value = await action("analyze", { target: analysis.id, include_trace: false });
+        const job = await kirin.operations.analyze({ target: analysis.id, include_trace: false });
+        const value = await kirin.jobs.wait(job);
+        await kirin.results.present(value.operation_id, { title: "Build 分析结果" });
         result.textContent = `分析完成：${text(value.operation)}`;
         result.hidden = false;
       } catch (error) {
@@ -347,21 +379,14 @@ function render() {
   }
 }
 
-addEventListener("message", (event) => {
-  const message = event.data;
-  if (!message || message.protocol !== PROTOCOL || message.api !== 2) return;
-  if (message.type === "activate" || message.type === "context") {
-    contribution = message.contribution;
-    capabilities = message.capabilities || capabilities;
-    context = message.context || {};
-    render();
-  } else if (message.type === "action-result" || message.type === "action-error") {
-    const request = pending.get(message.id);
-    if (!request) return;
-    pending.delete(message.id);
-    if (message.type === "action-result") request.resolve(message.result);
-    else request.reject(message.error);
-  }
+kirin.onContext((nextContext, nextContribution) => {
+  contribution = nextContribution;
+  context = nextContext;
+  render();
 });
 
-post({ type: "ready" });
+const activation = await kirin.ready();
+capabilities = activation.capabilities;
+contribution = activation.contribution;
+context = activation.context;
+render();

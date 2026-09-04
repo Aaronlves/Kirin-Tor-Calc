@@ -1,0 +1,13 @@
+@kirin 2
+@entry fictional_build_template "虚构 Build 模板"
+@game-version "acceptance-1"
+@status "example_only"
+
+----
+这个 Package 模板只用于验证结构化绑定和 Plugin Proposal 2，不代表任何真实游戏。
+----
+
+// @template-bind coefficient
+input coefficient "选择系数": probability = 0.25 in 0..1
+
+output selected_value "选择结果": dimensionless = coefficient * fictional_contract.example_value

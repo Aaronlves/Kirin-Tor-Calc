@@ -19,13 +19,15 @@ The workbench keeps the following authority boundary:
 | State or surface | Author-editable | Persistence | Authority role |
 | --- | --- | --- | --- |
 | Local `.kirin` buffer | In the official editor | Unsaved overlay until Save All | Editable draft over the same source model; not durable authority |
-| Plugin draft proposal | No direct editing contract | Ephemeral until accepted or rejected | Validated candidate projection; cannot affect the current buffer or source by itself |
+| Plugin proposal transaction | No direct editing contract | Ephemeral until accepted or rejected | Validated all-or-nothing candidate; cannot affect buffers or source by itself |
+| Plugin preference | Through the owning Plugin's bounded API; clearable in Settings | User-local, workspace/Plugin-isolated JSON | Non-authoritative UI preference; never evaluated as model state |
 | Local `.kirin` file | Through validated Save All or an external local editor/Agent | Durable workspace content | Authoritative local definition; validity is established separately |
 | Package `.kirin` file | No | Locked Package content | Read-only authoritative dependency |
 | Agent prompt, transcript, or activity state | No Workbench editing contract | Outside Kirin Tor | Not model authority and not displayed or recorded by Kirin Tor |
 | Completion and symbol index | No | Rebuilt in memory | Tolerant authoring projection, not validation evidence |
 | Bundled syntax reference | No | Versioned frontend content | Official read-only writing reference whose catalog completeness and examples are regression-tested |
 | Result, chart, formula, diagnostic, and relationship inspector | No | Ephemeral | Derived projection of the current valid workspace overlay |
+| Plugin host-result slot | No value editing; the Plugin may request a short label and order | Ephemeral and revision-bound | Host-rendered projection of a contribution-owned core operation result |
 | `.kirin/workbench-recovery.json` | No direct editing contract | Bounded ignored control state | Crash/restart recovery only; never evaluated independently |
 | Run snapshot or exported artifact | No definition editing | Durable output | Immutable evidence or export, not current source authority |
 
@@ -128,16 +130,25 @@ The stable host discovers contributions only from enabled, locally approved, API
 
 A matching document renderer is selected by validated canonical entry ID, ID prefix, or Package name. It receives a structured projection only after the complete overlay validates. The author can switch back to the generic result/chart projection without changing source or plugin state. Top-level plugin views and tools receive only the workspace summary unless their manifest declares another supported permission.
 
-Every executable surface is an iframe with `sandbox="allow-scripts"` and no same-origin permission. Static module assets may be fetched from the exact loopback workbench origin, but the frame has no session token and its response sets `connect-src 'none'`. Host actions are limited to the validated navigation and mathematical operations named by the contribution's explicit permissions. Save, recovery, Package mutation, plugin mutation, arbitrary operation forwarding, host DOM access, and filesystem access are never delegated.
+Every executable surface is an iframe with `sandbox="allow-scripts"` and no same-origin permission. Static module assets may be fetched from the exact loopback workbench origin, but the frame has no session token and its response sets `connect-src 'none'`. Host actions are limited to the validated navigation, Catalog, mathematical operation, host-result presentation, bounded preference, and proposal capabilities named by the contribution's explicit permissions. Save, recovery control, Package mutation, plugin mutation, arbitrary operation forwarding, host DOM access, and filesystem access are never delegated.
 
 With separately declared permissions, a Plugin receives a fixed-size revision-bearing Catalog
-summary and can page through public descriptors or request temporary evaluation overrides,
-explanation, variant comparison, one- or two-dimensional scans, single-variable solving, or a named Process Analysis. The host accepts only
-canonical public outputs, declared inputs, known presets and named Analyses from the current valid
-overlay, selects the precision and timeout, and returns the ordinary core result. Plugin operations
-cannot write artifacts, create run records, mutate source or choose an arbitrary backend operation.
+summary and can page through public descriptors or request single/multi-output evaluation,
+explanation, variant comparison, one- or two-dimensional scans, single-variable solving, or a named
+Process Analysis job. The host accepts only canonical public outputs, declared inputs, known presets
+and named Analyses from the current valid overlay, selects precision and timeout, and returns a
+revision/provenance-bearing envelope around the ordinary core result. Plugin operations cannot write
+artifacts, create run records, mutate source or choose an arbitrary backend operation.
 This bridge lets a domain Plugin supply a graphical theorycraft workflow without becoming a second
 mathematical implementation.
+
+Every synchronous mathematical response contains an opaque operation handle owned by the mounted
+contribution. With `result.present`, the Plugin can place that result in an adjacent host-owned slot.
+The host renders a bounded direct summary from the unchanged operation envelope, together with the
+core/provenance label, warnings and source-navigation action; complex structures are identified
+without the slot inventing a game-specific interpretation. The Plugin controls neither displayed
+values nor the trust label. Revision changes mark the slot stale.
+Numbers rendered inside the executable iframe remain explicitly labeled as third-party presentation.
 
 Package manifest interfaces bind stable dotted IDs and exact revisions to namespace-scoped Package
 Entries. Plugin manifest requirements are resolved before activation; missing, mismatched,
@@ -148,22 +159,47 @@ envelope across static, structured, Process, Scenario, Analysis, chart, and evid
 Local Package paths and raw `.kirin` source are not sent to the frame.
 
 The bootstrap payload and each frame activation expose one backend-published Plugin protocol
-descriptor containing supported actions, required permissions, exact backend operation mappings,
-and resource limits. The Workbench bridge consumes that descriptor for authorization, routing, and
-validation; action and limit constants are not independently redefined in the browser adapter.
+descriptor containing supported actions, request/result schemas, required permissions, exact backend
+operation mappings, sync/job execution class, overlay/run/artifact policy, unload behavior, errors and
+resource limits. Generated JSON artifacts, frontend types and the dependency-free TypeScript/ESM SDK
+come from the same Python definition. The Workbench bridge consumes that descriptor for authorization
+and generic operation/job routing; action and limit constants are not independently redefined in the
+browser adapter.
 
-With separate `draft.read` and `draft.propose` permissions, a Plugin may receive the currently
-loaded local document buffer and submit one complete candidate replacement for that same document.
-The source buffer is capped at 400,000 UTF-8 bytes for the Plugin bridge and is never exposed for a
-locked Package document. Submission does not update the editor: the host validates the complete
-candidate workspace, records immutable Plugin identity and content-digest provenance, and opens the
-candidate in **保存前变更审查**. At most 16 proposals may wait in the in-memory queue. Acceptance
-requires an unchanged proposal baseline and a second complete-workspace validation, after which the
-candidate becomes an ordinary unsaved local draft. Rejection changes nothing, and browser reload or
-host shutdown discards the proposal queue. Save All remains the only browser action that writes the
-accepted draft to local source.
+Long Analysis requests are owner-scoped jobs. Only the contribution that created a job can query or
+cancel it, although the trusted global Workbench still lists and can terminate every current job.
+The host pushes truthful stage changes without inventing percentages; disabling, unmounting or
+reloading a contribution cancels its live Analysis jobs. Synchronous and job requests are bound to
+the Catalog revision known by the Plugin, so edits cannot silently mix two model revisions.
 
-Plugin installation, update, enable, disable, removal, verification, activation status, digest, compatibility details, and contribution counts are available from the built-in Plugins drawer and the corresponding CLI. `kt web --safe-mode` returns no active contributions and refuses plugin assets even when workspace control files request them. A malformed plugin control file is reported without preventing the core Safe Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol v2](workbench-plugin-system-v2.md).
+With `storage.preferences`, a Plugin uses a JSON namespace isolated by local user, workspace, and
+Plugin ID. The manifest must declare a positive storage schema revision; changing it resets only that
+namespace. The host enforces published key, value, depth, count, and total-byte limits. These values
+are suitable for compact layout and recent-view choices, never builds, numerical assumptions,
+credentials, source copies, or any value used by the mathematical engine. Settings exposes a
+per-Plugin clear action, and Safe Mode does not activate the Plugin or inject its preferences.
+
+With separate `draft.read`, `template.read`, and `proposal.submit` permissions, a Plugin may receive
+the bounded current local buffer and the bounded data-only creation-template catalog, then submit one
+all-or-nothing candidate transaction. A transaction may create a complete local Entry, create one
+from a built-in/workspace/immutable-Package template with explicitly declared structured bindings,
+and replace an existing local Entry against its buffer SHA-256. It cannot delete, move, or alter
+Package source. Submission does not update the editor: the host validates the complete candidate
+workspace, records immutable Plugin identity and content-digest provenance, and opens every change
+in **保存前变更审查**. At most 16 proposals may wait, with at most 16 document changes and a bounded
+combined source size per proposal. Acceptance requires unchanged revision and baselines plus a second
+complete-workspace validation, after which all changes become ordinary unsaved local drafts as one
+unit. Rejection changes nothing, reload discards the queue, and Save All remains the only browser
+action that writes accepted drafts to local source.
+
+Plugin installation, update, enable, disable, removal, verification, activation status, digest,
+compatibility details, and contribution counts are available from the built-in Plugins drawer and
+the corresponding CLI. Authors can also create, check, test in a disposable workspace, and
+deterministically bundle an SDK-backed Plugin without executing repository scripts. `kt web
+--safe-mode` returns no active contributions and refuses plugin assets even when workspace control
+files request them. A malformed plugin control file is reported without preventing the core Safe
+Mode workbench from opening. Full protocol details are in [Workbench Extension Plugin protocol
+v2](workbench-plugin-system-v2.md).
 
 The interface detects the current browser platform when rendering shortcut labels. `Ctrl/⌘` below means `Ctrl` on Windows and Linux, and `Command` on macOS; the handlers accept the corresponding modifier rather than assuming macOS key names.
 
@@ -294,6 +330,6 @@ Closing or refreshing the browser with dirty buffers triggers the browser's unsa
 
 ## Verification boundary
 
-The Playwright acceptance suite verifies the empty-workspace creation flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, every public Plugin action, bounded Plugin proposal review and draft acceptance, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, and both supported projects retain visual layout baselines. Firefox is temporarily outside the supported and tested browser matrix because Playwright 1.62.1's bundled Firefox 153 cannot start on macOS 27 ([upstream issue](https://github.com/microsoft/playwright/issues/42082)); this is a verification boundary, not evidence of a known Kirin Tor functional defect in Firefox. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web and MCP adapters, authoring index, source validation, and strict validation of every syntax-reference example.
+The Playwright acceptance suite verifies the empty-workspace creation flow, the three remembered focus modes, persistent workspace identity and Settings, platform-correct shortcuts, configurable notification timeout, directory grouping, real-file move, document switching and creation validation, completion insertion, current-document and workspace diagnostic scopes, current-document and workspace replacement, save review, single/all draft discard, new-draft removal, document duplication, contextual syntax help, find/replace and undo, outlines, definition/reference navigation, parameter hints, validated rename, automatic result/chart/formula projection, non-authoritative trial comparison, run-record and preset-draft actions, every public Plugin action, contribution-owned host-result presentation, bounded preference persistence, Package-template proposal review and transaction-to-draft acceptance, multiple static and Process charts, source traceability, diagnostic quick fixes, keyboard-readable graph data, syntax-reference opening/search/copy behavior, draft recovery, clean external-source reload, external document discovery, and dirty-draft conflict handling. It runs against Chromium and WebKit; axe-core checks the welcome surface, main authoring surface, Settings, syntax drawer, and dialogs, and both supported projects retain visual layout baselines. Firefox is temporarily outside the supported and tested browser matrix because Playwright 1.62.1's bundled Firefox 153 cannot start on macOS 27 ([upstream issue](https://github.com/microsoft/playwright/issues/42082)); this is a verification boundary, not evidence of a known Kirin Tor functional defect in Firefox. Python tests separately cover the workbench services, cancellable operation jobs, document lifecycle validation, Web and MCP adapters, authoring index, source validation, and strict validation of every syntax-reference example.
 
 CI runs the Python matrix plus TypeScript checking, the Chromium and WebKit browser projects, accessibility checks, visual baselines, packaged-asset synchronization, explicit JavaScript/CSS bundle budgets, and a 100-document validation benchmark. These establish regression and bounded performance evidence for the tested fixtures. They do not by themselves establish human usability acceptance, Firefox support, every operating-system/browser combination, or a mobile product contract below the documented minimum width.

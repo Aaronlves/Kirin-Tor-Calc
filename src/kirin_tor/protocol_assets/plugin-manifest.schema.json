@@ -1,0 +1,509 @@
+{
+  "$id": "https://kirin-tor.invalid/schemas/plugin-v2/plugin-manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "api": {
+      "const": "2"
+    },
+    "contributes": {
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "properties": {
+            "renderers": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "renderers"
+          ]
+        },
+        {
+          "properties": {
+            "views": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "views"
+          ]
+        },
+        {
+          "properties": {
+            "tools": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "tools"
+          ]
+        },
+        {
+          "properties": {
+            "commands": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "commands"
+          ]
+        },
+        {
+          "properties": {
+            "profiles": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "profiles"
+          ]
+        }
+      ],
+      "properties": {
+        "commands": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": [
+                  "open-view",
+                  "open-tool",
+                  "activate-profile"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "description",
+              "action",
+              "target"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "profiles": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "default_view": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "document_focus_mode": {
+                "enum": [
+                  "editor",
+                  "split",
+                  "preview"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "tools": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 256,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "views": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 256,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "description",
+              "views",
+              "default_view",
+              "document_focus_mode"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "renderers": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "entry": {
+                "pattern": "^web/.+\\.html$",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "match": {
+                "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "properties": {
+                      "document_ids": {
+                        "items": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 256,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "document_ids"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "document_id_prefixes": {
+                        "items": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 256,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "document_id_prefixes"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "package_names": {
+                        "items": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 256,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "package_names"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "document_id_prefixes": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 256,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "document_ids": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 256,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "package_names": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 256,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "type": "object"
+              },
+              "permissions": {
+                "items": {
+                  "enum": [
+                    "document.read",
+                    "draft.read",
+                    "model.read",
+                    "operation.analyze",
+                    "operation.compare",
+                    "operation.evaluate",
+                    "operation.explain",
+                    "operation.job",
+                    "operation.scan",
+                    "operation.solve",
+                    "proposal.submit",
+                    "result.present",
+                    "source.navigate",
+                    "storage.preferences",
+                    "template.read",
+                    "workspace.summary"
+                  ]
+                },
+                "maxItems": 256,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "priority": {
+                "maximum": 1000,
+                "minimum": -1000,
+                "type": "integer"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "entry",
+              "match"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "entry": {
+                "pattern": "^web/.+\\.html$",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "permissions": {
+                "items": {
+                  "enum": [
+                    "document.read",
+                    "draft.read",
+                    "model.read",
+                    "operation.analyze",
+                    "operation.compare",
+                    "operation.evaluate",
+                    "operation.explain",
+                    "operation.job",
+                    "operation.scan",
+                    "operation.solve",
+                    "proposal.submit",
+                    "result.present",
+                    "source.navigate",
+                    "storage.preferences",
+                    "template.read",
+                    "workspace.summary"
+                  ]
+                },
+                "maxItems": 256,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "entry"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "views": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "entry": {
+                "pattern": "^web/.+\\.html$",
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "permissions": {
+                "items": {
+                  "enum": [
+                    "document.read",
+                    "draft.read",
+                    "model.read",
+                    "operation.analyze",
+                    "operation.compare",
+                    "operation.evaluate",
+                    "operation.explain",
+                    "operation.job",
+                    "operation.scan",
+                    "operation.solve",
+                    "proposal.submit",
+                    "result.present",
+                    "source.navigate",
+                    "storage.preferences",
+                    "template.read",
+                    "workspace.summary"
+                  ]
+                },
+                "maxItems": 256,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "entry"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "description": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$",
+      "type": "string"
+    },
+    "license": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "requires": {
+      "additionalProperties": false,
+      "properties": {
+        "interfaces": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "kirin_feature": {
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kirin_feature"
+      ],
+      "type": "object"
+    },
+    "schema": {
+      "const": 2
+    },
+    "storage": {
+      "additionalProperties": false,
+      "properties": {
+        "preferences": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "schema"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "preferences"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "name",
+    "version",
+    "api",
+    "description",
+    "license",
+    "requires",
+    "contributes"
+  ],
+  "title": "Kirin Tor Workbench Plugin manifest v2",
+  "type": "object"
+}

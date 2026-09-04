@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kirin-tor-cli"
-version = "0.4.0"
+version = "0.5.0"
 description = "A game-neutral, file-driven theorycrafting CLI and local browser workbench"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,6 +37,9 @@ kirin_tor = [
   "web_assets/*.html",
   "web_assets/*.css",
   "web_assets/*.js",
+  "protocol_assets/*.json",
+  "protocol_assets/*.mjs",
+  "protocol_assets/*.d.mts",
 ]
 
 [tool.pytest.ini_options]

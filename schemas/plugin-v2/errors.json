@@ -1,0 +1,16 @@
+{
+  "interface_unavailable": "a required model interface is unavailable",
+  "invalid_request": "the request does not satisfy the public action schema",
+  "job_cancelled": "the operation job was explicitly cancelled",
+  "limit_exceeded": "the request exceeds a published hard limit",
+  "operation_failed": "the mathematical service returned a structured failure",
+  "permission_denied": "the contribution did not declare the required permission",
+  "plugin_disabled": "the plugin is no longer active or approved",
+  "proposal_invalid": "a proposed workspace candidate is invalid",
+  "proposal_stale": "a proposal baseline changed before acceptance",
+  "result_too_large": "the response cannot fit the plugin message envelope",
+  "stale_revision": "the request targets an obsolete workspace revision",
+  "unknown_identity": "a requested canonical identity does not exist",
+  "unsupported_capability": "the current host does not provide the requested capability",
+  "workspace_invalid": "the current workspace overlay cannot be calculated"
+}

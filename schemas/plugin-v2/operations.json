@@ -1,0 +1,962 @@
+{
+  "analyze": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "job",
+    "handler": "operation",
+    "hard_limits": {},
+    "operation": "process_analysis",
+    "permission": "operation.analyze",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "include_trace": {
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "target"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/job"
+    },
+    "timeout_class": "analysis",
+    "unload_policy": "cancel"
+  },
+  "compare": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {
+      "variants": 8
+    },
+    "operation": "compare",
+    "permission": "operation.compare",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "variants": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "overrides": {
+                "additionalProperties": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxProperties": 128,
+                "type": "object"
+              },
+              "preset": {
+                "oneOf": [
+                  {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "revision",
+        "target",
+        "variants"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "evaluate": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {},
+    "operation": "eval",
+    "permission": "operation.evaluate",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "overrides": {
+          "additionalProperties": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 128,
+          "type": "object"
+        },
+        "preset": {
+          "oneOf": [
+            {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "target"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "evaluate-many": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {
+      "targets": 64
+    },
+    "operation": "evaluate_many",
+    "permission": "operation.evaluate",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "overrides": {
+          "additionalProperties": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 128,
+          "type": "object"
+        },
+        "preset": {
+          "oneOf": [
+            {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "maxLength": 240,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "revision",
+        "targets"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "explain": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {},
+    "operation": "explain",
+    "permission": "operation.explain",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "target"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "grid": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {
+      "total_points": 10000
+    },
+    "operation": "grid",
+    "permission": "operation.scan",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "overrides": {
+          "additionalProperties": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 128,
+          "type": "object"
+        },
+        "preset": {
+          "oneOf": [
+            {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "x_points": {
+          "maximum": 10000,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "x_range": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "y": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "y_points": {
+          "maximum": 10000,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "y_range": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "target",
+        "x",
+        "x_range",
+        "y",
+        "y_range"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "job.cancel": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "job",
+    "hard_limits": {},
+    "permission": "operation.job",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/job"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "job.status": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "job",
+    "hard_limits": {},
+    "permission": "operation.job",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_id"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/job"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "model.capabilities": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "catalog",
+    "hard_limits": {},
+    "permission": "model.read",
+    "request_schema": {
+      "$ref": "model-catalog.schema.json#/$defs/capabilities"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "model.dependencies": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "catalog",
+    "hard_limits": {},
+    "permission": "model.read",
+    "request_schema": {
+      "$ref": "model-catalog.schema.json#/$defs/dependencies"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "model.document": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "catalog",
+    "hard_limits": {},
+    "permission": "model.read",
+    "request_schema": {
+      "$ref": "model-catalog.schema.json#/$defs/document"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "model.get": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "catalog",
+    "hard_limits": {},
+    "permission": "model.read",
+    "request_schema": {
+      "$ref": "model-catalog.schema.json#/$defs/get"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "model.query": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "catalog",
+    "hard_limits": {},
+    "permission": "model.read",
+    "request_schema": {
+      "$ref": "model-catalog.schema.json#/$defs/query"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "navigate-source": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "host",
+    "hard_limits": {},
+    "permission": "source.navigate",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "key": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "proposal.submit": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "proposal",
+    "hard_limits": {
+      "bindings": 64,
+      "bytes": 800000,
+      "changes": 16
+    },
+    "permission": "proposal.submit",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "changes": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "bindings": {
+                    "additionalProperties": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxProperties": 64,
+                    "type": "object"
+                  },
+                  "document_id": {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "create-from-template"
+                  },
+                  "template": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "template",
+                  "document_id"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "document_id": {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "create-document"
+                  },
+                  "text": {
+                    "maxLength": 400000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "document_id",
+                  "text"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "base_sha256": {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "key": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "replace-document"
+                  },
+                  "text": {
+                    "maxLength": 400000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "key",
+                  "base_sha256",
+                  "text"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 500,
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "title",
+        "changes"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "result.present": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "result",
+    "hard_limits": {},
+    "permission": "result.present",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "order": {
+          "maximum": 100,
+          "minimum": -100,
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "handle"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "scan": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {
+      "points": 10000,
+      "targets": 64
+    },
+    "operation": "scan",
+    "permission": "operation.scan",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "overrides": {
+          "additionalProperties": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 128,
+          "type": "object"
+        },
+        "points": {
+          "maximum": 10000,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "preset": {
+          "oneOf": [
+            {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "range": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "maxLength": 240,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "x": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "targets",
+        "x",
+        "range"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "solve": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": true,
+    "execution": "sync",
+    "handler": "operation",
+    "hard_limits": {},
+    "operation": "solve",
+    "permission": "operation.solve",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "equals": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "overrides": {
+          "additionalProperties": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxProperties": 128,
+          "type": "object"
+        },
+        "preset": {
+          "oneOf": [
+            {
+              "maxLength": 240,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "range": {
+          "oneOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "target": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "variable": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "target",
+        "variable",
+        "equals"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/operationEnvelope"
+    },
+    "timeout_class": "standard",
+    "unload_policy": "none"
+  },
+  "storage.delete": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "storage",
+    "hard_limits": {},
+    "permission": "storage.preferences",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "storage.get": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "storage",
+    "hard_limits": {},
+    "permission": "storage.preferences",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  },
+  "storage.set": {
+    "allow_artifacts": false,
+    "allow_durable_run": false,
+    "allow_unsaved_overlays": false,
+    "execution": "sync",
+    "handler": "storage",
+    "hard_limits": {
+      "value_bytes": 16384
+    },
+    "permission": "storage.preferences",
+    "request_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "result_schema": {
+      "$ref": "protocol.schema.json#/$defs/actionResult"
+    },
+    "timeout_class": "none",
+    "unload_policy": "none"
+  }
+}

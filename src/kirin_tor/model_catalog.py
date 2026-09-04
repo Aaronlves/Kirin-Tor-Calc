@@ -11,7 +11,13 @@ from enum import Enum
 from fractions import Fraction
 from typing import Any, Iterable, Mapping, Optional
 
-from .errors import ParameterError, StaleRevisionError
+from .errors import (
+    InvalidRequestError,
+    LimitExceededError,
+    StaleRevisionError,
+    UnknownIdentityError,
+    UnsupportedCapabilityError,
+)
 from .limits import (
     DEFAULT_MODEL_QUERY_LIMIT,
     MAX_CATALOG_SUMMARY_INTERFACES,
@@ -533,12 +539,12 @@ class ModelCatalog:
 
     def _decode_cursor(self, cursor: object, fingerprint: str) -> int:
         if not isinstance(cursor, str) or not cursor or len(cursor) > MAX_MODEL_CURSOR_CHARS:
-            raise ParameterError("model query cursor is invalid")
+            raise InvalidRequestError("model query cursor is invalid")
         try:
             raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
             value = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ParameterError("model query cursor is invalid") from exc
+            raise InvalidRequestError("model query cursor is invalid") from exc
         if (
             not isinstance(value, dict)
             or set(value) != {"revision", "query", "offset"}
@@ -548,7 +554,7 @@ class ModelCatalog:
             or isinstance(value.get("offset"), bool)
             or value["offset"] < 0
         ):
-            raise ParameterError(
+            raise InvalidRequestError(
                 "model query cursor does not match this revision and query"
             )
         return value["offset"]
@@ -566,7 +572,7 @@ class ModelCatalog:
                 for item in raw_kinds
             )
         ):
-            raise ParameterError(
+            raise InvalidRequestError(
                 "model query kind must contain supported descriptor kinds"
             )
         kinds = sorted(set(raw_kinds))
@@ -576,7 +582,7 @@ class ModelCatalog:
             if value is None or value == "":
                 return None
             if not isinstance(value, str) or len(value) > MAX_PLUGIN_IDENTITY_CHARS:
-                raise ParameterError(f"model query {name} is invalid")
+                raise InvalidRequestError(f"model query {name} is invalid")
             return value
 
         interface = optional_text("interface")
@@ -586,7 +592,7 @@ class ModelCatalog:
             or isinstance(interface_revision, bool)
             or interface_revision < 1
         ):
-            raise ParameterError(
+            raise InvalidRequestError(
                 "model query interface_revision must be a positive integer"
             )
         owner = optional_text("owner")
@@ -598,7 +604,7 @@ class ModelCatalog:
             or limit < 1
             or limit > MAX_MODEL_QUERY_LIMIT
         ):
-            raise ParameterError(
+            raise LimitExceededError(
                 f"model query limit must be from 1 to {MAX_MODEL_QUERY_LIMIT}"
             )
         filters = {
@@ -634,7 +640,7 @@ class ModelCatalog:
             )
         ]
         if offset > len(matches):
-            raise ParameterError("model query cursor offset is outside the result set")
+            raise InvalidRequestError("model query cursor offset is outside the result set")
         items = matches[offset : offset + limit]
         next_offset = offset + len(items)
         return {
@@ -656,16 +662,16 @@ class ModelCatalog:
         descriptor_id = payload.get("id")
         kind = payload.get("kind")
         if not isinstance(descriptor_id, str) or not descriptor_id:
-            raise ParameterError("model descriptor id must be non-empty text")
+            raise InvalidRequestError("model descriptor id must be non-empty text")
         candidates = self._by_id.get(descriptor_id, [])
         if kind is not None:
             if not isinstance(kind, str) or kind not in MODEL_DESCRIPTOR_KINDS:
-                raise ParameterError("model descriptor kind is invalid")
+                raise InvalidRequestError("model descriptor kind is invalid")
             candidates = [item for item in candidates if item["kind"] == kind]
         if not candidates:
-            raise ParameterError(f"unknown model descriptor: {descriptor_id}")
+            raise UnknownIdentityError(f"unknown model descriptor: {descriptor_id}")
         if len(candidates) > 1:
-            raise ParameterError(
+            raise InvalidRequestError(
                 f"model descriptor {descriptor_id!r} is ambiguous; supply kind"
             )
         return candidates[0]
@@ -687,7 +693,7 @@ class ModelCatalog:
             or depth < 1
             or depth > MAX_MODEL_DEPENDENCY_DEPTH
         ):
-            raise ParameterError(
+            raise LimitExceededError(
                 f"model dependency depth must be from 1 to {MAX_MODEL_DEPENDENCY_DEPTH}"
             )
         nodes: dict[tuple[str, str], dict] = {(root["id"], root["kind"]): root}
@@ -721,7 +727,7 @@ class ModelCatalog:
         self._require_revision(payload.get("revision"))
         document_id = payload.get("id")
         if not isinstance(document_id, str) or document_id not in self.workspace.documents:
-            raise ParameterError(
+            raise UnknownIdentityError(
                 "model document id is not a validated canonical Entry"
             )
         items = [
@@ -765,5 +771,7 @@ class ModelCatalog:
             "model.capabilities": self.capabilities,
         }.get(action)
         if handler is None:
-            raise ParameterError(f"unknown model catalog action: {action}")
+            raise UnsupportedCapabilityError(
+                f"unknown model catalog action: {action}"
+            )
         return handler(dict(payload or {}))

@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Box, Group, Title } from "@mantine/core";
-import { Puzzle, ShieldAlert } from "lucide-react";
+import { Badge, Box, Button, Code, Group, Stack, Text, Title } from "@mantine/core";
+import { CheckCircle2, Crosshair, Puzzle, ShieldAlert, X } from "lucide-react";
 
+import { ApiError } from "../api";
 import type { WorkbenchController } from "../hooks/useWorkbench";
 import type {
   DocumentProjection,
-  InputItem,
+  OperationResult,
+  PluginProposalRequestChange,
   PluginSurfaceContribution,
-  TargetItem,
-  WorkspaceIndex,
 } from "../types";
 import { EmptyState, LoadingState } from "./ui";
 
 const PROTOCOL = "kirin-workbench-plugin";
-
-type JsonRecord = Record<string, unknown>;
 
 class PluginActionError extends Error {
   code: string;
@@ -26,13 +24,9 @@ class PluginActionError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function requiredText(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || !value.trim() || value.length > maximum) {
-    throw new PluginActionError("invalid_action", `${label} 必须是长度不超过 ${maximum} 的非空文本。`);
+    throw new PluginActionError("invalid_request", `${label} 必须是长度不超过 ${maximum} 的非空文本。`);
   }
   return value.trim();
 }
@@ -42,72 +36,37 @@ function optionalText(value: unknown, label: string, maximum: number): string | 
   return requiredText(value, label, maximum);
 }
 
-function proposedSource(value: unknown, maximum: number): string {
-  if (typeof value !== "string" || !value || new TextEncoder().encode(value).length > maximum) {
-    throw new PluginActionError(
-      "invalid_action",
-      `text 必须是非空且不超过 ${maximum} 字节的 Kirin Tor 源码。`,
-    );
-  }
-  return value;
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function targetFor(index: WorkspaceIndex, value: unknown, maximum: number): TargetItem {
-  const id = requiredText(value, "target", maximum);
-  const target = index.targets.find((item) => item.value === id);
-  if (!target) throw new PluginActionError("invalid_action", "target 不是当前有效工作区中的公开输出。");
-  return target;
+interface VerifiedResultSlot {
+  handle: string;
+  title: string;
+  order: number;
+  envelope: OperationResult;
 }
 
-function inputFor(index: WorkspaceIndex, value: unknown, maximum: number, allowed?: Set<string>): InputItem {
-  const id = requiredText(value, "input", maximum);
-  const input = index.inputs.find((item) => item.value === id);
-  if (!input || (allowed && !allowed.has(id))) {
-    throw new PluginActionError("invalid_action", "input 不是该数学操作可使用的公开输入。");
+function resultRows(envelope: OperationResult): OperationResult[] {
+  const result = record(envelope.result) ? envelope.result : {};
+  if (Array.isArray(result.results)) {
+    return result.results.filter(record).slice(0, 12);
   }
-  return input;
+  if (Array.isArray(result.variants)) {
+    return result.variants
+      .map((item) => record(item) && record(item.result) ? item.result : null)
+      .filter(record)
+      .slice(0, 12);
+  }
+  return [result];
 }
 
-function presetFor(index: WorkspaceIndex, value: unknown, maximum: number): string | undefined {
-  const preset = optionalText(value, "preset", maximum);
-  if (!preset) return undefined;
-  if (!index.presets.some((item) => item.value === preset)) {
-    throw new PluginActionError("invalid_action", "preset 不是当前有效工作区中的具名方案。");
+function displayedValue(result: OperationResult): string {
+  for (const key of ["formatted", "approximate", "exact"]) {
+    const value = result[key];
+    if (value !== undefined && value !== null && value !== "") return String(value);
   }
-  return preset;
-}
-
-function operationValue(value: unknown, label: string, maximum: number): string {
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return requiredText(value, label, maximum);
-}
-
-function overridesFor(
-  index: WorkspaceIndex,
-  value: unknown,
-  allowed: Set<string>,
-  identityMaximum: number,
-  expressionMaximum: number,
-  reserved: Set<string> = new Set(),
-): Record<string, string> {
-  if (value === undefined || value === null) return {};
-  if (!isRecord(value)) {
-    throw new PluginActionError("invalid_action", "overrides 必须是公开输入到数值文本的对象。");
-  }
-  const entries = Object.entries(value);
-  if (entries.length > index.inputs.length) {
-    throw new PluginActionError("invalid_action", "overrides 超过当前工作区的输入数量。");
-  }
-  const result: Record<string, string> = {};
-  for (const [name, raw] of entries) {
-    inputFor(index, name, identityMaximum, allowed);
-    if (reserved.has(name)) {
-      throw new PluginActionError("invalid_action", `${name} 已是当前求解或扫描变量，不能同时覆盖。`);
-    }
-    result[name] = operationValue(raw, `override ${name}`, expressionMaximum);
-  }
-  return result;
+  return "已生成结构化结果";
 }
 
 interface PluginSurfaceProps {
@@ -138,13 +97,45 @@ export function PluginSurface({
 }: PluginSurfaceProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
+  const loadedEntryRef = useRef<string | null>(null);
+  const frameSessionRef = useRef(0);
+  const ownedJobsRef = useRef(new Set<string>());
+  const liveJobsRef = useRef(new Set<string>());
+  const pluginJobRef = useRef(controller.pluginJob);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [liveJobIds, setLiveJobIds] = useState<string[]>([]);
+  const verifiedResultsRef = useRef(new Map<string, OperationResult>());
+  const [verifiedSlots, setVerifiedSlots] = useState<VerifiedResultSlot[]>([]);
   const [selectedProjection, setSelectedProjection] = useState<DocumentProjection | null>(null);
   const effectiveProjection = projection === undefined ? selectedProjection : projection;
   const pluginProtocol = controller.pluginSummary.protocol;
   const limits = pluginProtocol.limits;
-  const apiVersion = Number(pluginProtocol.api);
+  const apiVersion = pluginProtocol.api;
+  const jobOwner = `${contribution.content_sha256}:${contribution.id}`;
+  const pluginIdentity = useMemo(() => ({
+    plugin_id: contribution.plugin_id,
+    content_sha256: contribution.content_sha256,
+    contribution_id: contribution.id,
+  }), [contribution.content_sha256, contribution.id, contribution.plugin_id]);
+  pluginJobRef.current = controller.pluginJob;
+  const cancelLiveJobs = useCallback(() => {
+    for (const jobId of liveJobsRef.current) {
+      void pluginJobRef.current("cancel", jobOwner, { jobId }).catch(() => undefined);
+    }
+    liveJobsRef.current.clear();
+    ownedJobsRef.current.clear();
+    setLiveJobIds([]);
+  }, [jobOwner]);
+  const rememberVerifiedResult = useCallback((value: unknown) => {
+    if (!record(value) || typeof value.operation_id !== "string") return;
+    verifiedResultsRef.current.set(value.operation_id, value);
+  }, []);
+
+  useEffect(() => {
+    verifiedResultsRef.current.clear();
+    setVerifiedSlots([]);
+  }, [jobOwner]);
 
   useEffect(() => {
     if (
@@ -223,6 +214,7 @@ export function PluginSurface({
             kind: document.kind,
           },
           text: source,
+          content_sha256: controller.validation?.source_sha256?.[document.key] ?? null,
           dirty: source !== (controller.originals[document.key] ?? ""),
         };
       }
@@ -232,16 +224,31 @@ export function PluginSurface({
         ? controller.validation.catalog ?? controller.bootstrapData?.catalog
         : { status: "unavailable", reason: "workspace_invalid" };
     }
+    if (contribution.permissions.includes("template.read")) {
+      value.templates = (controller.bootstrapData?.templates ?? []).map((item) => ({
+        value: item.value,
+        id: item.id,
+        label: item.label,
+        kind: item.kind,
+        origin: item.origin,
+        package_name: item.package_name ?? null,
+        package_version: item.package_version ?? null,
+        bindings: item.bindings ?? [],
+        error: item.error ?? null,
+      }));
+    }
     return value;
   }, [
     contribution.permissions,
     controller.bootstrapData?.packages,
+    controller.bootstrapData?.templates,
     controller.buffers,
     controller.currentDocument,
     controller.documents,
     controller.originals,
     controller.validation?.status,
     controller.validation?.catalog,
+    controller.validation?.source_sha256,
     controller.workspaceIndex,
     effectiveProjection,
     limits,
@@ -269,6 +276,7 @@ export function PluginSurface({
         plugin_version: contribution.plugin_version,
         permissions: contribution.permissions,
         required_interfaces: contribution.required_interfaces,
+        storage_schema: contribution.storage_schema,
       },
       capabilities: pluginProtocol,
       context,
@@ -288,6 +296,57 @@ export function PluginSurface({
   useEffect(() => {
     if (readyRef.current) activation("context");
   }, [activation]);
+
+  useEffect(() => {
+    if (!liveJobIds.length) return;
+    let active = true;
+    const poll = async () => {
+      const completed: string[] = [];
+      await Promise.all(liveJobIds.map(async (jobId) => {
+        try {
+          const job = await controller.pluginJob("status", jobOwner, { jobId });
+          if (!active) return;
+          if (job.state === "completed") rememberVerifiedResult(job.result);
+          post({ type: "job-update", job });
+          if (!["queued", "running"].includes(job.state)) completed.push(jobId);
+        } catch (caught) {
+          if (!active) return;
+          completed.push(jobId);
+          post({
+            type: "job-update",
+            job: {
+              job_id: jobId,
+              operation: "analyze",
+              state: "failed",
+              stage: "failed",
+              cancellable: false,
+              error: {
+                code: caught instanceof ApiError && typeof caught.payload.code === "string"
+                  ? caught.payload.code
+                  : "operation_failed",
+                message: caught instanceof Error ? caught.message : "任务状态不可用。",
+              },
+            },
+          });
+        }
+      }));
+      if (completed.length) {
+        completed.forEach((jobId) => liveJobsRef.current.delete(jobId));
+        setLiveJobIds([...liveJobsRef.current]);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 300);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [controller.pluginJob, jobOwner, liveJobIds, post, rememberVerifiedResult]);
+
+  useEffect(() => () => {
+    frameSessionRef.current += 1;
+    cancelLiveJobs();
+  }, [cancelLiveJobs]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -330,7 +389,7 @@ export function PluginSurface({
       };
       const capability = pluginProtocol.actions[action];
       if (!capability) {
-        reply("action-error", { code: "unsupported_action", message: "插件请求的 action 不受支持。" });
+        reply("action-error", { code: "unsupported_capability", message: "插件请求的 action 不受支持。" });
         return;
       }
       if (!contribution.permissions.includes(capability.permission)) {
@@ -340,12 +399,6 @@ export function PluginSurface({
         });
         return;
       }
-      const operationName = (): string => {
-        if (capability.handler !== "operation" || !capability.operation) {
-          throw new PluginActionError("unsupported_action", "该 action 没有可调用的数学后端操作。");
-        }
-        return capability.operation;
-      };
       const requireValidModel = () => {
         if (controller.validation?.status !== "ok") {
           throw new PluginActionError("workspace_invalid", "当前工作区无效，不能执行插件数学操作。");
@@ -357,21 +410,19 @@ export function PluginSurface({
           reply("action-result", result);
           return;
         }
-        if (action === "propose-draft") {
-          const key = requiredText(payload.key, "key", limits.max_path_chars);
-          if (key !== controller.currentDocument?.key) {
-            throw new PluginActionError("invalid_action", "插件只能为当前文档提交草稿提案。");
-          }
-          const result = await controller.proposePluginDraft({
+        if (capability.handler === "proposal") {
+          const result = await controller.proposePluginTransaction({
             pluginId: contribution.plugin_id,
             pluginName: contribution.plugin_name,
             pluginVersion: contribution.plugin_version,
             pluginContentSha256: contribution.content_sha256,
             contributionId: contribution.id,
-            documentKey: key,
+            revision: requiredText(payload.revision, "revision", limits.max_identity_chars),
             title: requiredText(payload.title, "title", limits.max_title_chars),
             description: optionalText(payload.description, "description", limits.max_description_chars),
-            proposedText: proposedSource(payload.text, limits.max_draft_source_bytes),
+            changes: Array.isArray(payload.changes)
+              ? payload.changes as PluginProposalRequestChange[]
+              : [],
           });
           reply("action-result", {
             status: result.status,
@@ -381,207 +432,81 @@ export function PluginSurface({
           });
           return;
         }
-        requireValidModel();
-        const index = controller.workspaceIndex;
-        if (action === "evaluate") {
-          const target = targetFor(index, payload.target, limits.max_identity_chars);
-          const allowed = new Set(target.inputs ?? []);
-          const result = await controller.operation(operationName(), {
-            target: target.value,
-            preset: presetFor(index, payload.preset, limits.max_identity_chars),
-            overrides: overridesFor(
-              index,
-              payload.overrides,
-              allowed,
-              limits.max_identity_chars,
-              limits.max_expression_chars,
-            ),
-            precision: 30,
-            display_digits: 12,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
-          reply("action-result", result);
-          return;
-        }
-        if (action === "explain") {
-          const target = targetFor(index, payload.target, limits.max_identity_chars);
-          const result = await controller.operation(operationName(), {
-            target: target.value,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
-          reply("action-result", result);
-          return;
-        }
-        if (action === "compare") {
-          const target = targetFor(index, payload.target, limits.max_identity_chars);
-          if (
-            !Array.isArray(payload.variants)
-            || payload.variants.length < 1
-            || payload.variants.length > limits.max_comparison_variants
-          ) {
-            throw new PluginActionError(
-              "invalid_action",
-              `variants 必须包含 1 至 ${limits.max_comparison_variants} 个方案。`,
-            );
+        if (capability.handler === "result") {
+          const handle = requiredText(payload.handle, "handle", limits.max_identity_chars);
+          const envelope = verifiedResultsRef.current.get(handle);
+          if (!envelope) {
+            throw new PluginActionError("unknown_identity", "结果 handle 不属于当前 Plugin contribution。");
           }
-          const allowed = new Set(target.inputs ?? []);
-          const names = new Set<string>();
-          const variants = payload.variants.map((raw, variantIndex) => {
-            if (!isRecord(raw)) throw new PluginActionError("invalid_action", "每个 variant 必须是对象。");
-            const name = requiredText(
-              raw.name,
-              `variant ${variantIndex + 1} name`,
-              limits.max_variant_name_chars,
-            );
-            if (names.has(name)) throw new PluginActionError("invalid_action", "variant 名称不能重复。");
-            names.add(name);
-            return {
-              name,
-              preset: presetFor(index, raw.preset, limits.max_identity_chars),
-              overrides: overridesFor(
-                index,
-                raw.overrides,
-                allowed,
-                limits.max_identity_chars,
-                limits.max_expression_chars,
-              ),
-            };
-          });
-          const result = await controller.operation(operationName(), {
-            target: target.value,
-            variants,
-            precision: 30,
-            display_digits: 12,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
+          const order = payload.order === undefined ? 0 : Number(payload.order);
+          if (!Number.isInteger(order) || order < -100 || order > 100) {
+            throw new PluginActionError("invalid_request", "结果排序必须是 -100 到 100 的整数。");
+          }
+          const title = optionalText(payload.title, "title", limits.max_title_chars)
+            ?? String(envelope.operation ?? "核心计算结果");
+          setVerifiedSlots((current) => [
+            ...current.filter((item) => item.handle !== handle),
+            { handle, title, order, envelope },
+          ].sort((left, right) => left.order - right.order || left.handle.localeCompare(right.handle)));
+          reply("action-result", { status: "ok", handle });
+          return;
+        }
+        if (capability.handler === "storage") {
+          const storageAction = action.split(".")[1];
+          if (!(["get", "set", "delete"] as string[]).includes(storageAction)) {
+            throw new PluginActionError("unsupported_capability", "偏好操作不受支持。");
+          }
+          const result = await controller.pluginStorage(
+            storageAction as "get" | "set" | "delete",
+            pluginIdentity,
+            payload,
+          );
           reply("action-result", result);
           return;
         }
-        if (action === "scan") {
-          if (
-            !Array.isArray(payload.targets)
-            || payload.targets.length < 1
-            || payload.targets.length > limits.max_operation_targets
-          ) {
-            throw new PluginActionError(
-              "invalid_action",
-              `targets 必须包含 1 至 ${limits.max_operation_targets} 个公开输出。`,
-            );
+        if (capability.handler === "job") {
+          const jobId = requiredText(payload.job_id, "job_id", limits.max_identity_chars);
+          if (!ownedJobsRef.current.has(jobId)) {
+            throw new PluginActionError("unknown_identity", "这个任务不属于当前 Plugin contribution。");
           }
-          const targets = payload.targets.map((item) => targetFor(index, item, limits.max_identity_chars));
-          const allowed = new Set(targets.flatMap((item) => item.inputs ?? []));
-          const x = inputFor(index, payload.x, limits.max_identity_chars, allowed).value;
-          const points = payload.points === undefined ? 41 : payload.points;
-          if (!Number.isInteger(points) || Number(points) < 2 || Number(points) > limits.max_scan_points) {
-            throw new PluginActionError("invalid_action", `points 必须是 2 至 ${limits.max_scan_points} 的整数。`);
+          const job = await controller.pluginJob(
+            action === "job.cancel" ? "cancel" : "status",
+            jobOwner,
+            { jobId },
+          );
+          if (!["queued", "running"].includes(job.state)) {
+            liveJobsRef.current.delete(job.job_id);
+            setLiveJobIds([...liveJobsRef.current]);
           }
-          const result = await controller.operation(operationName(), {
-            x,
-            range: requiredText(payload.range, "range", limits.max_expression_chars),
-            points: Number(points),
-            targets: targets.map((item) => item.value),
-            preset: presetFor(index, payload.preset, limits.max_identity_chars),
-            overrides: overridesFor(
-              index,
-              payload.overrides,
-              allowed,
-              limits.max_identity_chars,
-              limits.max_expression_chars,
-              new Set([x]),
-            ),
-            precision: 30,
-            display_digits: 12,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
+          if (job.state === "completed") rememberVerifiedResult(job.result);
+          reply("action-result", job);
+          return;
+        }
+        if (capability.handler === "operation") {
+          requireValidModel();
+          if (capability.execution === "job") {
+            const frameSession = frameSessionRef.current;
+            const job = await controller.pluginJob("start", jobOwner, {
+              action,
+              payload,
+            });
+            ownedJobsRef.current.add(job.job_id);
+            if (frameSession !== frameSessionRef.current) {
+              await controller.pluginJob("cancel", jobOwner, { jobId: job.job_id });
+              ownedJobsRef.current.delete(job.job_id);
+              return;
+            }
+            liveJobsRef.current.add(job.job_id);
+            setLiveJobIds([...liveJobsRef.current]);
+            reply("action-result", job);
+            return;
+          }
+          const result = await controller.pluginOperation(action, payload);
+          rememberVerifiedResult(result);
           reply("action-result", result);
           return;
         }
-        if (action === "grid") {
-          const target = targetFor(index, payload.target, limits.max_identity_chars);
-          const allowed = new Set(target.inputs ?? []);
-          const x = inputFor(index, payload.x, limits.max_identity_chars, allowed).value;
-          const y = inputFor(index, payload.y, limits.max_identity_chars, allowed).value;
-          if (x === y) throw new PluginActionError("invalid_action", "二维网格的 x 与 y 必须是不同输入。");
-          const xPoints = payload.x_points === undefined ? 21 : payload.x_points;
-          const yPoints = payload.y_points === undefined ? 21 : payload.y_points;
-          if (
-            !Number.isInteger(xPoints)
-            || !Number.isInteger(yPoints)
-            || Number(xPoints) < 2
-            || Number(yPoints) < 2
-            || Number(xPoints) * Number(yPoints) > limits.max_scan_points
-          ) {
-            throw new PluginActionError(
-              "invalid_action",
-              `网格轴至少各 2 点，且总点数不能超过 ${limits.max_scan_points}。`,
-            );
-          }
-          const result = await controller.operation(operationName(), {
-            x,
-            x_range: requiredText(payload.x_range, "x_range", limits.max_expression_chars),
-            x_points: Number(xPoints),
-            y,
-            y_range: requiredText(payload.y_range, "y_range", limits.max_expression_chars),
-            y_points: Number(yPoints),
-            target: target.value,
-            preset: presetFor(index, payload.preset, limits.max_identity_chars),
-            overrides: overridesFor(
-              index,
-              payload.overrides,
-              allowed,
-              limits.max_identity_chars,
-              limits.max_expression_chars,
-              new Set([x, y]),
-            ),
-            precision: 30,
-            display_digits: 12,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
-          reply("action-result", result);
-          return;
-        }
-        if (action === "solve") {
-          const target = targetFor(index, payload.target, limits.max_identity_chars);
-          const allowed = new Set(target.inputs ?? []);
-          const variable = inputFor(index, payload.variable, limits.max_identity_chars, allowed).value;
-          const result = await controller.operation(operationName(), {
-            target: target.value,
-            variable,
-            equals: requiredText(payload.equals, "equals", limits.max_expression_chars),
-            range: optionalText(payload.range, "range", limits.max_expression_chars),
-            preset: presetFor(index, payload.preset, limits.max_identity_chars),
-            overrides: overridesFor(
-              index,
-              payload.overrides,
-              allowed,
-              limits.max_identity_chars,
-              limits.max_expression_chars,
-              new Set([variable]),
-            ),
-            precision: 30,
-            timeout: limits.standard_operation_timeout_seconds,
-          });
-          reply("action-result", result);
-          return;
-        }
-        if (action === "analyze") {
-          const target = requiredText(payload.target, "analysis target", limits.max_identity_chars);
-          if (!index.analyses.some((item) => item.value === target)) {
-            throw new PluginActionError("invalid_action", "target 不是当前有效工作区中的具名 Process Analysis。");
-          }
-          const includeTrace = payload.include_trace ?? false;
-          if (typeof includeTrace !== "boolean") {
-            throw new PluginActionError("invalid_action", "include_trace 必须是布尔值。");
-          }
-          const result = await controller.operation(operationName(), {
-            target,
-            include_trace: includeTrace,
-            timeout: limits.analysis_timeout_seconds,
-          });
-          reply("action-result", result);
-          return;
-        }
-        throw new PluginActionError("unsupported_action", "插件请求的 action 不受支持。");
+        throw new PluginActionError("unsupported_capability", "插件请求的 action 不受支持。");
       };
       if (action === "navigate-source") {
         const key = payload.key;
@@ -593,7 +518,7 @@ export function PluginSurface({
           || (line !== undefined && line !== null && (!Number.isInteger(line) || Number(line) < 1))
           || (column !== undefined && column !== null && (!Number.isInteger(column) || Number(column) < 1))
         ) {
-          reply("action-error", { code: "invalid_action", message: "invalid source location" });
+          reply("action-error", { code: "invalid_request", message: "invalid source location" });
           return;
         }
         onNavigateToSource(key, line == null ? null : Number(line), column == null ? null : Number(column));
@@ -601,15 +526,22 @@ export function PluginSurface({
         return;
       }
       void perform().catch((caught) => {
+        const candidateCode = caught instanceof PluginActionError
+          ? caught.code
+          : caught instanceof ApiError && typeof caught.payload.code === "string"
+            ? caught.payload.code
+            : "operation_failed";
         reply("action-error", {
-          code: caught instanceof PluginActionError ? caught.code : "operation_failed",
+          code: Object.prototype.hasOwnProperty.call(pluginProtocol.errors, candidateCode)
+            ? candidateCode
+            : "operation_failed",
           message: caught instanceof Error ? caught.message : "数学操作未完成。",
         });
       });
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [activation, apiVersion, contribution, controller, limits, onNavigateToSource, pluginProtocol.actions, post]);
+  }, [activation, apiVersion, contribution, controller, limits, onNavigateToSource, pluginIdentity, pluginProtocol.actions, post, rememberVerifiedResult]);
 
   if (!contribution.entry_url.startsWith("/plugins/")) {
     return <EmptyState
@@ -627,18 +559,92 @@ export function PluginSurface({
           <Puzzle size={14} />
           <Title className="plugin-surface-title" order={headingOrder ?? (compact ? 3 : 2)}>{contribution.title}</Title>
         </Group>
-        <Badge variant="outline" color="gray" size="xs">{contribution.plugin_name} {contribution.plugin_version}</Badge>
+        <Group gap={5} wrap="nowrap">
+          <Badge variant="outline" color="gray" size="xs">第三方 Plugin 呈现</Badge>
+          <Badge variant="outline" color="gray" size="xs">{contribution.plugin_name} {contribution.plugin_version}</Badge>
+        </Group>
       </Group>
-      {!ready && !error && <div className="plugin-surface-state"><LoadingState label="正在启动沙箱插件…" /></div>}
-      {error && <div className="plugin-surface-state"><EmptyState icon={<ShieldAlert size={22} />} title="插件未能启动" description={error} /></div>}
-      <iframe
-        ref={frameRef}
-        className={`plugin-frame${ready && !error ? " is-ready" : ""}`}
-        src={contribution.entry_url}
-        title={`${contribution.title}（由 ${contribution.plugin_name} 提供）`}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-      />
+      <div className={`plugin-surface-body${verifiedSlots.length ? " has-verified-results" : ""}`}>
+        {!ready && !error && <div className="plugin-surface-state"><LoadingState label="正在启动沙箱插件…" /></div>}
+        {error && <div className="plugin-surface-state"><EmptyState icon={<ShieldAlert size={22} />} title="插件未能启动" description={error} /></div>}
+        <iframe
+          ref={frameRef}
+          className={`plugin-frame${ready && !error ? " is-ready" : ""}`}
+          src={contribution.entry_url}
+          title={`${contribution.title}（由 ${contribution.plugin_name} 提供）`}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          onLoad={() => {
+            if (loadedEntryRef.current !== contribution.entry_url) {
+              loadedEntryRef.current = contribution.entry_url;
+              return;
+            }
+            frameSessionRef.current += 1;
+            cancelLiveJobs();
+            readyRef.current = false;
+            setReady(false);
+          }}
+        />
+        {verifiedSlots.length > 0 && <aside className="plugin-verified-results" aria-label="Kirin Tor 核心计算结果">
+          {verifiedSlots.map((slot) => {
+            const stale = slot.envelope.revision !== controller.validation?.catalog?.revision;
+            const provenance = record(slot.envelope.provenance) ? slot.envelope.provenance : {};
+            const targets = Array.isArray(provenance.targets) ? provenance.targets.filter(record) : [];
+            const rows = resultRows(slot.envelope);
+            const source = targets.map((item) => record(item.source_location) ? item.source_location : null).find(record);
+            const sourceDocument = source
+              ? controller.documents.find((item) => item.id === source.document)
+              : undefined;
+            return <Box className={`plugin-verified-result${stale ? " is-stale" : ""}`} key={slot.handle}>
+              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                <Box>
+                  <Group gap={5}>
+                    <CheckCircle2 size={14} />
+                    <Badge color={stale ? "orange" : "green"} variant="light">
+                      {stale ? "模型已变化" : "Kirin Tor 核心计算"}
+                    </Badge>
+                  </Group>
+                  <Text fw={680} fz="sm" mt={6}>{slot.title}</Text>
+                </Box>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="compact-xs"
+                  aria-label={`移除核心结果 ${slot.title}`}
+                  onClick={() => setVerifiedSlots((current) => current.filter((item) => item.handle !== slot.handle))}
+                ><X size={13} /></Button>
+              </Group>
+              <Stack gap={7} mt="sm">
+                {rows.map((row, index) => <Box className="plugin-verified-value" key={`${slot.handle}-${index}`}>
+                  <Text c="dimmed" fz="xs">{String(row.target ?? targets[index]?.id ?? slot.envelope.operation ?? "结果")}</Text>
+                  <Text fw={720}>{displayedValue(row)}</Text>
+                  <Group gap={5} mt={3}>
+                    {row.unit !== undefined && <Badge variant="outline" color="gray">{String(row.unit)}</Badge>}
+                    {row.exact !== undefined && <Code>{String(row.exact)}</Code>}
+                  </Group>
+                </Box>)}
+              </Stack>
+              <Group justify="space-between" mt="sm" wrap="nowrap">
+                <Text c="dimmed" fz="xs">revision {String(slot.envelope.revision ?? "").slice(0, 12)}</Text>
+                {source && sourceDocument && <Button
+                  variant="subtle"
+                  color="gray"
+                  size="compact-xs"
+                  leftSection={<Crosshair size={12} />}
+                  onClick={() => onNavigateToSource(
+                    sourceDocument.key,
+                    typeof source.line === "number" ? source.line : null,
+                    typeof source.column === "number" ? source.column : null,
+                  )}
+                >来源</Button>}
+              </Group>
+              {Array.isArray(slot.envelope.warnings) && slot.envelope.warnings.length > 0 && <Text c="orange" fz="xs" mt={6}>
+                {slot.envelope.warnings.map(String).join("；")}
+              </Text>}
+            </Box>;
+          })}
+        </aside>}
+      </div>
     </Box>
   );
 }

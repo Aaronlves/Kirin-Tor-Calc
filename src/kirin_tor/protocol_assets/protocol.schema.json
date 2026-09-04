@@ -1,0 +1,1805 @@
+{
+  "$defs": {
+    "actionErrorMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "const": "2"
+        },
+        "error": {
+          "properties": {
+            "code": {
+              "enum": [
+                "interface_unavailable",
+                "invalid_request",
+                "job_cancelled",
+                "limit_exceeded",
+                "operation_failed",
+                "permission_denied",
+                "plugin_disabled",
+                "proposal_invalid",
+                "proposal_stale",
+                "result_too_large",
+                "stale_revision",
+                "unknown_identity",
+                "unsupported_capability",
+                "workspace_invalid"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "protocol": {
+          "const": "kirin-workbench-plugin"
+        },
+        "type": {
+          "const": "action-error"
+        }
+      },
+      "required": [
+        "protocol",
+        "api",
+        "type",
+        "id",
+        "error"
+      ],
+      "type": "object"
+    },
+    "actionRequest": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "analyze"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "include_trace": {
+                  "type": "boolean"
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "target"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "compare"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "variants": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "overrides": {
+                        "additionalProperties": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxProperties": 128,
+                        "type": "object"
+                      },
+                      "preset": {
+                        "oneOf": [
+                          {
+                            "maxLength": 240,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "revision",
+                "target",
+                "variants"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "evaluate"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "overrides": {
+                  "additionalProperties": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxProperties": 128,
+                  "type": "object"
+                },
+                "preset": {
+                  "oneOf": [
+                    {
+                      "maxLength": 240,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "target"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "evaluate-many"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "overrides": {
+                  "additionalProperties": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxProperties": 128,
+                  "type": "object"
+                },
+                "preset": {
+                  "oneOf": [
+                    {
+                      "maxLength": 240,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "targets": {
+                  "items": {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "revision",
+                "targets"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "explain"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "target"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "grid"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "overrides": {
+                  "additionalProperties": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxProperties": 128,
+                  "type": "object"
+                },
+                "preset": {
+                  "oneOf": [
+                    {
+                      "maxLength": 240,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "x_points": {
+                  "maximum": 10000,
+                  "minimum": 2,
+                  "type": "integer"
+                },
+                "x_range": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "y": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "y_points": {
+                  "maximum": 10000,
+                  "minimum": 2,
+                  "type": "integer"
+                },
+                "y_range": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "target",
+                "x",
+                "x_range",
+                "y",
+                "y_range"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "job.cancel"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "job_id": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "job_id"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "job.status"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "job_id": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "job_id"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "model.capabilities"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "model-catalog.schema.json#/$defs/capabilities"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "model.dependencies"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "model-catalog.schema.json#/$defs/dependencies"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "model.document"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "model-catalog.schema.json#/$defs/document"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "model.get"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "model-catalog.schema.json#/$defs/get"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "model.query"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "model-catalog.schema.json#/$defs/query"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "navigate-source"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "column": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "key": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "line": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "proposal.submit"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "changes": {
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bindings": {
+                            "additionalProperties": {
+                              "maxLength": 2000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxProperties": 64,
+                            "type": "object"
+                          },
+                          "document_id": {
+                            "maxLength": 240,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "create-from-template"
+                          },
+                          "template": {
+                            "maxLength": 500,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "template",
+                          "document_id"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "document_id": {
+                            "maxLength": 240,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "create-document"
+                          },
+                          "text": {
+                            "maxLength": 400000,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "document_id",
+                          "text"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "base_sha256": {
+                            "pattern": "^[0-9a-f]{64}$",
+                            "type": "string"
+                          },
+                          "key": {
+                            "maxLength": 500,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "replace-document"
+                          },
+                          "text": {
+                            "maxLength": 400000,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "key",
+                          "base_sha256",
+                          "text"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "description": {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "title": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "title",
+                "changes"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "result.present"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "handle": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "order": {
+                  "maximum": 100,
+                  "minimum": -100,
+                  "type": "integer"
+                },
+                "title": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "handle"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "scan"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "overrides": {
+                  "additionalProperties": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxProperties": 128,
+                  "type": "object"
+                },
+                "points": {
+                  "maximum": 10000,
+                  "minimum": 2,
+                  "type": "integer"
+                },
+                "preset": {
+                  "oneOf": [
+                    {
+                      "maxLength": 240,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "range": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "targets": {
+                  "items": {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "x": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "targets",
+                "x",
+                "range"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "solve"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "equals": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "overrides": {
+                  "additionalProperties": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxProperties": 128,
+                  "type": "object"
+                },
+                "preset": {
+                  "oneOf": [
+                    {
+                      "maxLength": 240,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "range": {
+                  "oneOf": [
+                    {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revision": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "target": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "variable": {
+                  "maxLength": 240,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "revision",
+                "target",
+                "variable",
+                "equals"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "storage.delete"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "storage.get"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "const": "storage.set"
+            },
+            "api": {
+              "const": "2"
+            },
+            "id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z][A-Za-z0-9._-]*$",
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "key",
+                "value"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "action"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "id",
+            "action",
+            "payload"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "actionResult": {
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "actionResultMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "const": "2"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "protocol": {
+          "const": "kirin-workbench-plugin"
+        },
+        "result": {
+          "type": "object"
+        },
+        "type": {
+          "const": "action-result"
+        }
+      },
+      "required": [
+        "protocol",
+        "api",
+        "type",
+        "id",
+        "result"
+      ],
+      "type": "object"
+    },
+    "activation": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "api": {
+              "const": "2"
+            },
+            "capabilities": {
+              "$ref": "#/$defs/capabilityDescriptor"
+            },
+            "context": {
+              "$ref": "#/$defs/context"
+            },
+            "contribution": {
+              "$ref": "#/$defs/contribution"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "activate"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "contribution",
+            "capabilities",
+            "context"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "api": {
+              "const": "2"
+            },
+            "capabilities": {
+              "$ref": "#/$defs/capabilityDescriptor"
+            },
+            "context": {
+              "$ref": "#/$defs/context"
+            },
+            "contribution": {
+              "$ref": "#/$defs/contribution"
+            },
+            "protocol": {
+              "const": "kirin-workbench-plugin"
+            },
+            "type": {
+              "const": "context"
+            }
+          },
+          "required": [
+            "protocol",
+            "api",
+            "type",
+            "contribution",
+            "capabilities",
+            "context"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "capabilityDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "type": "object"
+        },
+        "api": {
+          "const": "2"
+        },
+        "errors": {
+          "type": "object"
+        },
+        "events": {
+          "type": "object"
+        },
+        "limits": {
+          "type": "object"
+        },
+        "permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protocol": {
+          "const": "kirin-workbench-plugin"
+        }
+      },
+      "required": [
+        "protocol",
+        "api",
+        "permissions",
+        "actions",
+        "events",
+        "limits",
+        "errors"
+      ],
+      "type": "object"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "type": "object"
+        },
+        "document": {
+          "type": "object"
+        },
+        "draft": {
+          "type": "object"
+        },
+        "members": {
+          "type": "array"
+        },
+        "relationships": {
+          "type": "array"
+        },
+        "templates": {
+          "type": "array"
+        },
+        "workspace": {
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "contribution": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "renderer",
+            "view",
+            "tool"
+          ]
+        },
+        "permissions": {
+          "items": {
+            "enum": [
+              "document.read",
+              "draft.read",
+              "model.read",
+              "operation.analyze",
+              "operation.compare",
+              "operation.evaluate",
+              "operation.explain",
+              "operation.job",
+              "operation.scan",
+              "operation.solve",
+              "proposal.submit",
+              "result.present",
+              "source.navigate",
+              "storage.preferences",
+              "template.read",
+              "workspace.summary"
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "plugin_id": {
+          "type": "string"
+        },
+        "plugin_name": {
+          "type": "string"
+        },
+        "plugin_version": {
+          "type": "string"
+        },
+        "required_interfaces": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "storage_schema": {
+          "oneOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "plugin_id",
+        "plugin_name",
+        "plugin_version",
+        "permissions",
+        "required_interfaces",
+        "storage_schema"
+      ],
+      "type": "object"
+    },
+    "hostToPluginMessage": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/activation"
+        },
+        {
+          "$ref": "#/$defs/actionResultMessage"
+        },
+        {
+          "$ref": "#/$defs/actionErrorMessage"
+        },
+        {
+          "$ref": "#/$defs/jobUpdate"
+        }
+      ]
+    },
+    "job": {
+      "properties": {
+        "cancellable": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "object"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "result": {
+          "type": "object"
+        },
+        "stage": {
+          "enum": [
+            "queued",
+            "executing",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "accepted"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "job_id",
+        "operation",
+        "state",
+        "stage",
+        "cancellable"
+      ],
+      "type": "object"
+    },
+    "jobUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "const": "2"
+        },
+        "job": {
+          "$ref": "#/$defs/job"
+        },
+        "protocol": {
+          "const": "kirin-workbench-plugin"
+        },
+        "type": {
+          "const": "job-update"
+        }
+      },
+      "required": [
+        "protocol",
+        "api",
+        "type",
+        "job"
+      ],
+      "type": "object"
+    },
+    "operationEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "type": "object"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "provenance": {
+          "type": "object"
+        },
+        "result": {
+          "type": "object"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "operation_id",
+        "operation",
+        "revision",
+        "targets",
+        "applied",
+        "provenance",
+        "warnings",
+        "result"
+      ],
+      "type": "object"
+    },
+    "pluginToHostMessage": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ready"
+        },
+        {
+          "$ref": "#/$defs/actionRequest"
+        }
+      ]
+    },
+    "ready": {
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "const": "2"
+        },
+        "protocol": {
+          "const": "kirin-workbench-plugin"
+        },
+        "type": {
+          "const": "ready"
+        }
+      },
+      "required": [
+        "protocol",
+        "api",
+        "type"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://kirin-tor.invalid/schemas/plugin-v2/protocol.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/pluginToHostMessage"
+    },
+    {
+      "$ref": "#/$defs/hostToPluginMessage"
+    }
+  ]
+}

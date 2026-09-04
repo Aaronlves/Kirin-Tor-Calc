@@ -1,8 +1,8 @@
 # Kirin Tor 可规模化游戏插件平台提案
 
-> 状态：设计提案，尚未成为实现合同  
+> 状态：Phase 0–3 已实现并形成现行合同；Phase 4 仍是设计提案
 > 日期：2026-09-04  
-> 目标版本：后续 Kirin Tor feature line；版本号须在实施前另行确定  
+> 现行实现：Kirin Tor 0.5 feature line；Phase 4 的远程发布与外部作者验收尚未完成
 > 当前合同：Community Package protocol v2、Workbench Extension Plugin protocol v2 描述现行行为
 
 ## 1. 提案目标
@@ -64,22 +64,22 @@ Kirin Tor 应成为一个游戏中立、来源可审查、计算可重放的数�
 - Community Package 是不可执行、可锁定、内容寻址、只读加载的数据与模型发布单元；
 - Workbench Plugin 通过沙箱 iframe 提供 renderer、view、tool、command 和 profile；
 - Plugin 可以按权限查询 revision-bound Catalog，并调用 evaluate、explain、compare、scan、grid、solve 和具名 Process Analysis；
-- Plugin 可以提交当前本地文档的候选全文，由工作台校验并进入人工审查；
-- 示例插件的 Chromium 与 WebKit 流程覆盖当前 v2 action，包括五个 Catalog action。
+- Plugin 可以提交有界、全有或全无的多文档候选事务，包括由声明式模板创建本地条目；
+- Plugin 可以把宿主操作 handle 放入相邻的 host-owned result slot，并使用与模型隔离的有界本地偏好；
+- 示例插件的 Chromium 与 WebKit 流程覆盖当前 v2 action，包括五个 Catalog action、可信结果呈现、偏好和 Proposal 2。
 
-当前能力仍不足以支撑大型第三方游戏平台：
+Phase 2 已补齐正式 SDK、生成型协议工件、统一 Operation Service、批量求值、Plugin
+可见且按 contribution 隔离的长任务，以及离线作者工具。Phase 3 已补齐可信结果槽、
+有界偏好和多文档 Proposal 2。当前剩余缺口属于 Phase 4：
 
-1. 每个插件仍手写 `postMessage` 生命周期、请求关联和错误处理；
-2. 没有多输出批量求值、Plugin 可见的长任务进度或按任务取消；
-3. 没有安全、限额、非权威的 Plugin 偏好存储；
-4. 草稿提案只覆盖当前文档的完整替换，不支持从模板新建用户配置或多文档原子候选；
-5. iframe 可以显示自算或伪造的数值，因此“能调用核心”不等于“呈现必然来自核心”；
-6. 只有示例插件，没有正式 SDK、脚手架、JSON Schema、生成型类型和完整的第三方 conformance kit。
+1. 尚未提供签名发布、远程 exact-release 索引、撤回与信任状态传播；
+2. 尚未用外部作者完成 Package + Plugin 的公开文档人类验收；
+3. 当前可信呈现是宿主拥有的通用结果槽，不是完整的声明式游戏界面 DSL。
 
 Phase 0 已消除此前存在的 compare 8/64 分叉：backend 发布一份 Plugin capability
 descriptor，Workbench 用它取得 action 权限、backend operation 映射与所有桥接 limits；compare
-当前统一为底层已经验证的 8 个 variant。该注册表和内置 conformance matrix 是后续生成
-Schema、SDK 与 Operation Service 2 的基线，不代表后续阶段已经实现。
+当前统一为底层已经验证的 8 个 variant。Phase 1 在此基础上完成 Package interface 与
+Catalog 2；Phase 2 已由同一注册表生成 Schema、SDK，并实现 Operation Service 2。
 
 ## 5. 不可破坏的架构
 
@@ -139,9 +139,7 @@ Package provenance                  │    exact bounded results
 
 ### 6.2 Package 提供接口
 
-建议在下一版 Package manifest 中加入：
-
-以下版本号与 ID 仅用于说明目标合同，不预先决定实际 release 编号。
+现行 Package manifest schema 2 提供模型接口。以下版本号与 ID 是合同示例：
 
 ```toml
 schema = 2
@@ -175,7 +173,7 @@ Package release 仍以 source、release version、resolved commit 和 content SH
 
 ### 6.3 Plugin 要求接口
 
-建议下一代 Plugin manifest 使用严格 schema 2 / API 2：
+现行 Plugin manifest 使用严格 schema 2 / API 2：
 
 ```json
 {
@@ -304,7 +302,7 @@ API 2 至少提供：
 }
 ```
 
-`payload` 按 kind 使用严格 schema。首个完整版本应覆盖：
+`payload` 按 kind 使用严格 schema。现行 Catalog 覆盖：
 
 - entry；
 - dimension、unit、domain；
@@ -363,14 +361,14 @@ Core 不提供 `ability`、`talent` 或 `item` kind。Package 使用普通 `type
 
 Plugin host、CLI adapter、Web adapter、SDK types、文档和测试应从同一注册表或同一生成源取得操作名与 limits。不得再次出现前端 64、backend 8 的分叉。
 
-### 8.2 初始操作集合
+### 8.2 现行操作集合
 
-| Action | 目标 | 建议边界 |
+| Action | 目标 | 现行边界 |
 | --- | --- | --- |
 | `evaluate` | 一个公开 output | 同当前精确求值 |
 | `evaluate-many` | 同一 preset/override 下多个 outputs | 最多 64 个，单次共享 workspace/parameter preparation |
 | `explain` | 一个公开 output | 返回公式、条件、依赖、单位与来源 |
-| `compare` | 一个 output 的多个方案 | 初始沿用 backend 已证明的 8 个上限，除非基准与实现同时提升 |
+| `compare` | 一个 output 的多个方案 | 最多 8 个；除非基准与实现同时提升 |
 | `scan` | 一个输入轴、多个 outputs | 总点数与曲线数均受注册表约束 |
 | `grid` | 两个输入轴、一个 output | 总点数不超过 core limit |
 | `solve` | 单 output 单变量 | 只允许其声明依赖输入 |
@@ -434,20 +432,20 @@ Plugin API 提供：
 
 ### 9.1 两类 surface
 
-目标平台应明确区分：
+现行平台明确区分：
 
-1. **Executable surface**：当前 sandbox iframe 的后继；可提供完全自定义游戏视觉，但其文字和数值是第三方呈现；
-2. **Host-verified surface**：Plugin 提交声明式布局与 canonical binding，由 Kirin Tor 宿主直接渲染值、单位、proof 和 provenance。
+1. **Executable surface**：sandbox iframe；可提供完全自定义游戏视觉，但其文字和数值是第三方呈现；
+2. **Host-verified surface**：当前由 host-owned result slot 承担；宿主根据 contribution-owned operation handle 直接渲染有界结果摘要、revision、警告和来源。
 
 Executable surface 可以调用 Core，但宿主不能证明它没有忽略或篡改结果。因此不得仅凭“插件已批准”给 iframe 中的数字加“由 Kirin Tor 验证”标签。
 
 ### 9.2 Host-verified result slot
 
-首个可信呈现能力不必立即发明完整 UI DSL。可以先提供 host-owned result slot：
+现行可信呈现能力不引入完整 UI DSL，而是提供 host-owned result slot：
 
 - Plugin 发起操作后得到不可伪造的 host result handle；
 - Plugin 请求把该 handle 呈现在 iframe 邻接的宿主区域；
-- 宿主负责数字、单位、精确/近似状态、警告、proof 与来源入口；
+- 宿主负责 `formatted` / `approximate` / `exact` / `unit` 的有界直接摘要、警告、revision 与来源入口；复杂结果明确标为结构化结果，不由通用槽猜测游戏含义；
 - Plugin 只能提供短标题和排序建议，不能替换值；
 - workspace revision 变化后 slot 明确标记 stale 或清除。
 
@@ -465,7 +463,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
 
 ### 10.2 User-local preferences
 
-新增可选 `storage.preferences` 权限，提供按本地用户、workspace、Plugin ID 隔离的键值存储：
+可选 `storage.preferences` 权限提供按本地用户、workspace、Plugin ID 隔离的键值存储：
 
 - 每个 Plugin 最多 64 KiB；
 - 只接受 JSON-safe 值和有界 key；
@@ -488,7 +486,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
 
 ## 11. Authoring Proposal 2
 
-现有单文档全文提案证明了 review 边界。可规模化版本应扩展为有界 proposal transaction：
+现行 Proposal 2 将早期单文档全文提案扩展为有界 proposal transaction：
 
 ```json
 {
@@ -498,7 +496,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
   "changes": [
     {
       "kind": "create-from-template",
-      "template": "community.fictional-models:build",
+      "template": "package:<content-sha256>:entries/build.kirin",
       "document_id": "my_arcane_build",
       "bindings": {"crit": "25%"}
     },
@@ -512,7 +510,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
 }
 ```
 
-首版规则：
+现行规则：
 
 - 最多 16 个待审 proposal；
 - 每个 proposal 最多 16 个文档变化，总 UTF-8 字节数有统一上限；
@@ -520,7 +518,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
 - 不得编辑 Package source；
 - create 必须来自已安装 Package 或内置模板，或提交完整合法新文档；
 - replace 必须匹配当前 buffer revision；
-- 首版不支持删除与移动；
+- 当前 Proposal 2 不支持删除与移动；
 - 宿主在入队和接受时分别验证完整候选 workspace；
 - review 展示每个文件的 base/candidate、Plugin identity/version/digest 和校验结果；
 - 用户只能整体接受或整体拒绝，避免半套模型；
@@ -533,7 +531,7 @@ iframe 自身内存用于当前挂载期间的 hover、展开、临时输入和�
 
 ### 12.1 官方 SDK
 
-仓库应提供一个小型、无运行时依赖的 TypeScript SDK，并发布编译后的静态 ESM 文件供 Plugin vendoring：
+仓库提供一个小型、无运行时依赖的 TypeScript SDK，并发布编译后的静态 ESM 文件供 Plugin vendoring：
 
 ```ts
 const kirin = createKirinPlugin({ api: 2 });
@@ -547,6 +545,23 @@ const abilities = await kirin.model.query({
 const result = await kirin.operations.evaluateMany({
   targets: ["fictional_damage.total", "fictional_damage.per_target"],
   overrides: { "fictional_character.crit": "25%" },
+});
+await kirin.results.present(result.operation_id, { title: "当前 Build" });
+
+await kirin.storage.set("ui.compact", true);
+
+const buildTemplate = kirin.context.templates.find(
+  (item) => item.bindings.includes("coefficient"),
+);
+if (!buildTemplate) throw new Error("Required Build template is unavailable");
+await kirin.proposals.submit({
+  title: "保存当前 Build",
+  changes: [{
+    kind: "create-from-template",
+    template: buildTemplate.value,
+    document_id: "my_build",
+    bindings: { coefficient: "0.5" },
+  }],
 });
 ```
 
@@ -580,13 +595,13 @@ SDK 不得实现数学、Package resolution 或源码写入。
 
 ### 12.3 CLI
 
-建议增加：
+现行 CLI 提供：
 
 ```text
 kt plugin new DIRECTORY --id ID
-kt plugin check [DIRECTORY]
+kt plugin check [DIRECTORY] [--workspace WORKSPACE]
 kt plugin test [DIRECTORY] --workspace WORKSPACE
-kt plugin bundle [DIRECTORY]
+kt plugin bundle [DIRECTORY] [--out ARCHIVE] [--force]
 ```
 
 - `new` 生成最小无框架示例、manifest、README、license placeholder 和测试；
@@ -664,28 +679,26 @@ API 2 使用稳定 code，文字仅用于显示。最低错误集合：
 在声称平台可用前，仓库必须拥有一个完全虚构、但结构完整的参考栈：
 
 ```text
-examples/platform/
-  fictional-model-package/
+examples/
+  packages/fictional-models/
     kirin.package.toml
-    entries/
-      semantics.kirin
-      data.kirin
-      calculations.kirin
-      process.kirin
-      presets.kirin
+    entries/contract.kirin
     templates/entries/build.kirin
-  fictional-game-plugin/
+  plugins/fictional-talent-tree/
     kirin.plugin.json
-    web/
-    tests/
-  consumer-workspace/
+    web/index.html
+    web/plugin.js
+    web/kirin-plugin-sdk.mjs
+  虚构技能工作区/
     kirin.workspace
-    kirin.packages.toml
-    kirin.lock
-    kirin.plugins.toml
-    kirin.plugins.lock
-    entries/user_build.kirin
+    entries/*.kirin
+frontend/tests/
+  e2e_server.py
+  e2e/workbench.spec.ts
 ```
+
+E2E server 把上述三部分组装到一次性的 consumer workspace；Package/Plugin requirements、
+lock、approval 与接受后的源码都在 fixture 生命周期内生成，不把一次测试安装提交为第二套权威状态。
 
 Reference Plugin 必须只通过公开 SDK、Catalog 与 Operation Service 工作，不导入 Kirin Tor 内部模块，不复制 Package 公式。它至少展示：
 
@@ -814,6 +827,16 @@ dependencies、interface membership 与 payload。275 Entry 的 Package fixture 
 
 退出条件：reference Plugin 不包含手写协议代码或复制的数学公式；所有 action 通过 conformance matrix。
 
+当前状态：已完成。v2 capability registry 现同时定义 permission、request/result schema、hard
+limits、timeout class、sync/job execution、overlay/run/artifact policy、unload policy、events 与
+stable errors。Operation Service 只接受八个具名数学 action，并新增共享 Workspace/Engine 的
+`evaluate-many`；Process Analysis 通过 contribution-owned job 执行，支持 status、host-pushed
+update、cancel 和 frame unload cancellation。单一生成源产出 JSON Schemas、operation/limit/error
+catalog、前端 TypeScript contract、无依赖 ESM SDK/声明文件与参考 Plugin 的 vendored SDK；CI
+拒绝生成漂移。`kt plugin new/check/test/bundle` 均为离线、非执行式作者工具，bundle 是确定性
+静态归档。参考 Plugin 已删除手写 `postMessage`、request-ID/pending map、revision 拼接与
+backend 参数控制，并通过 SDK 覆盖当前全部公开 action。
+
 ### Phase 3：可信呈现、storage 与 Proposal 2
 
 工作：
@@ -824,6 +847,16 @@ dependencies、interface membership 与 payload。275 Entry 的 Package fixture 
 - 完善审查、stale、recovery 与 Save All 交互。
 
 退出条件：用户可以完全在游戏视觉层选择一个 build、得到宿主计算结果、保存为可审查 `.kirin` 草稿，并能区分 host-verified 与第三方呈现。
+
+当前状态：已完成并通过自动化合同验证。宿主为同步 Operation Service 结果签发仅限当前
+contribution 的 opaque handle；Plugin 可请求在 iframe 邻接区域呈现该结果，宿主保留核心计算、
+来源入口和 revision stale 标记，第三方 iframe 继续带有独立信任标签。`storage.preferences`
+使用 manifest schema revision，按本地用户、workspace 与 Plugin ID 隔离并实施 JSON、key、
+深度、单值、总量与条目数上限；设置界面可清除单个 Plugin 的状态。Proposal 2 支持
+`create-from-template`、`create-document` 与 `replace-document`，在入队和接受时验证完整候选
+workspace，整体接受后只进入普通未保存 buffer、recovery 与 Save All 流程。参考 Plugin 的
+Chromium/WebKit 路径覆盖结果槽、偏好持久化和 Package 模板提案。以上证据仍不等于
+第三方作者的人类验收。
 
 ### Phase 4：发布与发现
 
@@ -855,9 +888,9 @@ dependencies、interface membership 与 payload。275 Entry 的 Package fixture 
 13. reference stack 覆盖大型查询、计算、Analysis、提案和恢复；
 14. 外部 Plugin 作者完成一次不依赖仓库内部知识的人类验收。
 
-## 20. 建议立即接受的决策
+## 20. 已接受的架构决策
 
-本提案建议先接受以下方向，再开始实现：
+Phase 0–3 已按以下方向实现；Phase 4 不得反向破坏这些边界：
 
 1. **继续维持三层结构**：Core / Package / Plugin，不新增第四种游戏逻辑载体；
 2. **以模型接口而不是 Package 名称形成 Plugin 数据合同**；
@@ -870,21 +903,22 @@ dependencies、interface membership 与 payload。275 Entry 的 Package fixture 
 9. **先完成 API 2 与 reference stack，再讨论远程 Plugin 安装**；
 10. **若没有外部 v1 使用者，采用清洁切换而不是长期兼容层**。
 
-这些决策一旦接受，应拆成独立的实施规范和里程碑。本文本身不授权修改 Package schema、Plugin API 或 `.kirin` 语言。
+这些决策的当前行为合同由实现、生成协议、对应规范与 conformance tests 共同确定；本路线文档本身不凌驾于它们，也不单独授权改变 Package schema、Plugin API 或 `.kirin` 语言。
 
-## 21. 接受后的规范拆分
+## 21. 规范归属
 
-本提案不应直接膨胀成唯一的永久规范。方向获得接受后，按下列权威边界拆分：
+本路线文档不是唯一的永久规范。现行实现按下列权威边界归属；单独文件尚未存在时，
+`workbench-plugin-system-v2.md` 与生成协议共同承担对应合同，不能假定一个不存在的文档已经发布：
 
-| 后续规范 | 负责内容 | 不负责内容 |
+| 规范或合同 | 负责内容 | 不负责内容 |
 | --- | --- | --- |
 | `package-system-v2.md` | interface provider、manifest、锁定图和兼容状态 | Plugin 消息与 UI |
-| `model-catalog-v2.md` | revision、descriptor、分页、query/get/dependencies | 数学求值语义 |
-| `operation-capabilities-v2.md` | action registry、limits、result envelope、job | 游戏模型含义 |
+| 生成协议与 `workbench-plugin-system-v2.md` | revision、descriptor、分页、query/get/dependencies | 数学求值语义 |
+| `plugin_protocol.py` 生成工件与 `workbench-plugin-system-v2.md` | action registry、limits、result envelope、job | 游戏模型含义 |
 | `workbench-plugin-system-v2.md` | manifest、权限、激活、sandbox、surface、storage | Package 数据正确性 |
-| `plugin-sdk.md` | TypeScript API、生命周期、错误和作者用法 | backend 实现 |
-| `plugin-conformance.md` | fixture、测试矩阵、浏览器与安全验收 | 人工可用性结论 |
-| `host-verified-presentation.md` | result handle、宿主呈现与信任标签 | 任意游戏视觉设计 |
-| `authoring-proposal-v2.md` | template、候选事务、review、recovery 与 Save All | 直接源码写权限 |
+| `sdk/plugin/README.md` 与生成声明 | TypeScript API、生命周期、错误和作者用法 | backend 实现 |
+| 测试矩阵与 CI | fixture、浏览器与安全 conformance | 人工可用性结论 |
+| `workbench-plugin-system-v2.md` | result handle、宿主呈现与信任标签 | 任意游戏视觉设计 |
+| `workbench-plugin-system-v2.md` 与 `web-workbench.md` | template、候选事务、review、recovery 与 Save All | 直接源码写权限 |
 
-每份规范必须引用同一个 machine-readable protocol source，而不是复制 action、permission、error code 或 limit 列表。只有相应规范、实现和 conformance fixture 同时完成后，README 才能把该能力从“提案”改为“已实现”。
+规范必须引用同一个 machine-readable protocol source，而不是另建 action、permission、error code 或 limit 真源。只有相应规范、实现和 conformance fixture 同时完成后，README 才能把该能力从“提案”改为“已实现”。

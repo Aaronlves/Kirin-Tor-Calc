@@ -13,6 +13,7 @@ from .errors import DomainError, ParameterError, UnitError, UnsupportedError
 from .expression import MathValue, parse_exact_number
 from .limits import (
     DEFAULT_TIMEOUT_SECONDS,
+    MAX_PLUGIN_OPERATION_TARGETS,
     MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS,
     MAX_SCAN_POINTS,
 )
@@ -89,16 +90,13 @@ def _ensure_real_finite(expr: sp.Expr) -> None:
         )
 
 
-def _evaluate_core(
-    workspace: Workspace,
+def _evaluate_prepared(
+    engine: Engine,
     target: str,
-    preset: Optional[str],
-    overrides: Optional[Mapping[str, str]],
+    prepared,
     precision: int,
     display_digits: int,
 ) -> dict:
-    engine = Engine(workspace)
-    prepared = engine.prepare(target, preset, overrides, require_numeric=True)
     internal_exact = sp.simplify(prepared.expr)
     unit_name = engine.target_unit_name(target, prepared.value.dimension)
     unit_scale = engine.unit_scale_expr(unit_name)
@@ -114,7 +112,7 @@ def _evaluate_core(
     else:
         _ensure_real_finite(exact)
         rendered_approx = sp.sstr(sp.N(exact, precision).evalf(display_digits))
-    display, digits = display_options(workspace, target, display_digits)
+    display, digits = display_options(engine.workspace, target, display_digits)
     return {
         "status": "ok",
         "operation": "eval",
@@ -137,6 +135,19 @@ def _evaluate_core(
     }
 
 
+def _evaluate_core(
+    workspace: Workspace,
+    target: str,
+    preset: Optional[str],
+    overrides: Optional[Mapping[str, str]],
+    precision: int,
+    display_digits: int,
+) -> dict:
+    engine = Engine(workspace)
+    prepared = engine.prepare(target, preset, overrides, require_numeric=True)
+    return _evaluate_prepared(engine, target, prepared, precision, display_digits)
+
+
 def evaluate(
     engine: Engine,
     target: str,
@@ -152,6 +163,106 @@ def evaluate(
     return run_with_timeout(
         _evaluate_core,
         (engine.workspace, target, preset, overrides, precision, display_digits),
+        timeout_seconds,
+    )
+
+
+def _evaluate_many_core(
+    workspace: Workspace,
+    targets: Sequence[str],
+    preset: Optional[str],
+    overrides: Optional[Mapping[str, str]],
+    precision: int,
+    display_digits: int,
+) -> dict:
+    """Prepare one workspace and one Engine for a bounded output batch."""
+
+    if not targets or len(targets) > MAX_PLUGIN_OPERATION_TARGETS:
+        raise ParameterError(
+            f"evaluate-many requires between 1 and {MAX_PLUGIN_OPERATION_TARGETS} targets"
+        )
+    if len(set(targets)) != len(targets):
+        raise ParameterError("evaluate-many targets must be unique")
+    engine = Engine(workspace)
+    resolved = [(target, engine.resolve_target(target)) for target in targets]
+    all_inputs = {
+        name: spec
+        for _target, value in resolved
+        for name, spec in value.inputs.items()
+    }
+    canonical_overrides: dict[str, str] = {}
+    for raw_name, raw_value in (overrides or {}).items():
+        canonical = engine.resolve_input_key(raw_name, all_inputs)
+        if canonical in canonical_overrides:
+            raise ParameterError(
+                f"evaluate-many override assigns {canonical!r} more than once"
+            )
+        canonical_overrides[canonical] = raw_value
+
+    results = []
+    dependency_ids: set[str] = set()
+    effective_parameters: dict[str, str] = {}
+    for target, value in resolved:
+        target_overrides = {
+            name: raw_value
+            for name, raw_value in canonical_overrides.items()
+            if name in value.inputs
+        }
+        prepared = engine.prepare(
+            target,
+            preset,
+            target_overrides,
+            require_numeric=True,
+        )
+        result = _evaluate_prepared(
+            engine, target, prepared, precision, display_digits
+        )
+        results.append(result)
+        dependency_ids.update(result["dependency_ids"])
+        effective_parameters.update(result["parameters"])
+    return {
+        "status": "ok",
+        "operation": "evaluate-many",
+        "targets": list(targets),
+        "preset": preset,
+        "overrides": canonical_overrides,
+        "parameters": dict(sorted(effective_parameters.items())),
+        "results": results,
+        "dependency_ids": sorted(dependency_ids),
+    }
+
+
+def evaluate_many(
+    engine: Engine,
+    targets: Sequence[str],
+    preset: Optional[str] = None,
+    overrides: Optional[Mapping[str, str]] = None,
+    precision: int = 30,
+    display_digits: int = 12,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
+    """Evaluate several outputs against one immutable workspace/input preparation."""
+
+    precision_value(precision)
+    if (
+        isinstance(display_digits, bool)
+        or not isinstance(display_digits, int)
+        or display_digits < 1
+        or display_digits > precision
+    ):
+        raise ParameterError(
+            "display digits must be between 1 and the numerical precision"
+        )
+    return run_with_timeout(
+        _evaluate_many_core,
+        (
+            engine.workspace,
+            tuple(targets),
+            preset,
+            overrides,
+            precision,
+            display_digits,
+        ),
         timeout_seconds,
     )
 

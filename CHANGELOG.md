@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.5.0 — 2026-09-05
+
+- Completed Plugin platform Phase 3 with contribution-scoped host result handles and adjacent
+  host-owned presentation, revision-stale labeling, manifest-versioned per-user/workspace/Plugin
+  preference storage with strict JSON quotas and explicit clearing, and all-or-nothing Proposal 2
+  transactions. Proposals can create local entries from declared built-in, workspace, or immutable
+  Package templates with structured bindings, create complete documents, and replace local documents;
+  the host validates the entire candidate workspace both before review and before acceptance, then
+  produces only ordinary unsaved buffers governed by recovery and Save All. The reference Plugin now
+  demonstrates the trust-label boundary, preference lifecycle, and Package-template Build proposal.
+- Completed Plugin platform Phase 2 with a revision-bound Operation Service, shared-Engine
+  `evaluate-many`, contribution-owned cancellable Analysis jobs, host-pushed job stages, and a
+  complete capability descriptor for request/result schemas, limits, timeout/execution classes,
+  overlay/run/artifact policy, unload behavior, and stable errors. One deterministic generator now
+  emits versioned JSON Schemas, operation/limit/error catalogs, frontend TypeScript contracts, and
+  the dependency-free ESM Plugin SDK. Added offline non-executing `kt plugin new`, `check`, `test`,
+  and deterministic `bundle` author tools; migrated the reference Plugin from handwritten messaging
+  to the vendored SDK without copying mathematical formulas.
 - Expanded sandboxed Workbench Plugins with a bounded validated model index and granular read-only
   permissions for temporary evaluation, explanation, variant comparison, scans and grids,
   single-variable solving, and named Process Analysis. The host validates canonical targets,
@@ -10,10 +28,10 @@
   draft permissions now let a Plugin read the bounded current local buffer and submit a complete
   candidate to a volatile, provenance-bearing review queue; the host validates on submission and
   acceptance, rejects stale baselines, and only turns an accepted proposal into an unsaved draft.
-  The backend now publishes the authoritative Plugin v1 capability registry for action permissions,
+  The backend first published the authoritative Plugin v1 capability registry for action permissions,
   backend operation routing, and bridge limits to bootstrap and frame activation. The Workbench
   consumes that descriptor directly, the comparison limit is consistently eight variants, and the
-  reference Plugin acceptance path exercises every public action.
+  reference Plugin acceptance path exercised every public action before the clean API 2 migration.
 - Added data-only Package model interfaces and strict Plugin feature/interface requirements. The
   host now prevents incompatible Plugins from activating while retaining inspectable missing,
   revision-mismatch, ambiguous, invalid-provider, and Kirin-feature diagnostics. Package manifest
@@ -78,7 +96,7 @@
   is retained for the previously accepted invalid forms.
 - Preserved source labels in tolerant completion and added structure-type and type-field candidates
   from local and locked Package sources, including qualified owner and declared-type details.
-- Retained explicit Package feature-line compatibility for 0.3 Packages on Kirin Tor 0.4 while
+- Retained explicit Package feature-line compatibility for 0.3 and 0.4 Packages on Kirin Tor 0.5 while
   continuing to apply the current strict parser, graph validation, and engine checks.
 - Kept the browser workbench available when a locked Package graph cannot load: local documents,
   recovery, built-in/workspace templates, and Package repair controls remain accessible while

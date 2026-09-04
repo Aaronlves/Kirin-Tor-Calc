@@ -230,6 +230,55 @@ def test_local_workbench_plugin_cli_workflow(
     assert json.loads(removed.stdout)["plugins"] == []
 
 
+def test_plugin_author_cli_new_check_test_and_bundle(
+    example_workspace: Path,
+    tmp_path: Path,
+) -> None:
+    plugin = tmp_path / "author-plugin"
+    created = runner.invoke(
+        app,
+        [
+            "plugin",
+            "new",
+            str(plugin),
+            "--id",
+            "community.author-plugin",
+            "--json",
+        ],
+    )
+    assert created.exit_code == 0, created.output
+    assert json.loads(created.stdout)["id"] == "community.author-plugin"
+
+    checked = runner.invoke(
+        app, ["plugin", "check", str(plugin), "--json"]
+    )
+    assert checked.exit_code == 0, checked.output
+    assert json.loads(checked.stdout)["api"] == "2"
+
+    tested = runner.invoke(
+        app,
+        [
+            "plugin",
+            "test",
+            str(plugin),
+            "--workspace",
+            str(example_workspace),
+            "--json",
+        ],
+    )
+    assert tested.exit_code == 0, tested.output
+    assert json.loads(tested.stdout)["suite"] == "offline-protocol-v2"
+
+    output = tmp_path / "author-plugin.ktplugin.zip"
+    bundled = runner.invoke(
+        app,
+        ["plugin", "bundle", str(plugin), "--out", str(output), "--json"],
+    )
+    assert bundled.exit_code == 0, bundled.output
+    assert json.loads(bundled.stdout)["bundle"] == str(output)
+    assert output.is_file()
+
+
 def test_installed_entry_point_runs_outside_source_tree(tmp_path: Path) -> None:
     executable = shutil.which("kt")
     if executable is None:

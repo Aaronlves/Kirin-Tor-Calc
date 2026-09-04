@@ -1,7 +1,8 @@
 # Kirin Tor Workbench Extension Plugin protocol v2
 
-> 本文描述当前已实现的 v2 合同。后续 Operation Service、SDK、可信结果呈现与发布能力
-> 仍以[可规模化游戏插件平台提案](scalable-game-plugin-platform-proposal.md)为设计依据。
+> 本文描述当前已实现的 v2 合同，包括 Model Catalog 2、Operation Service 2、生成式 SDK、
+> host-owned result slot、持久偏好、Proposal 2 与本地作者工具。发布与发现的后续能力仍以
+> [可规模化游戏插件平台提案](scalable-game-plugin-platform-proposal.md)为设计依据。
 
 ## Purpose
 
@@ -17,9 +18,10 @@ enables, or executes a Workbench Plugin.
 
 Protocol v2 supports explicitly selected local directories. A plugin may use separately granted,
 read-only mathematical permissions to query the revision-bound public Model Catalog and ask the host to
-perform bounded calculations. Separately granted draft permissions can expose the current local
-buffer and submit a candidate to the host-owned review queue; the core still owns every parse,
-validation, evaluation, search and analysis. The protocol does not define a marketplace, remote installer, signature authority, native
+perform bounded calculations. Separately granted permissions can expose the current local buffer and
+available data-only templates, persist bounded non-model preferences, present a core result in a
+host-owned slot, and submit an atomic candidate transaction to the review queue; the core still owns
+every parse, validation, evaluation, search and analysis. The protocol does not define a marketplace, remote installer, signature authority, native
 executable plugin, mathematical backend plugin, or unrestricted main-page JavaScript extension.
 
 ## Community discovery
@@ -112,8 +114,11 @@ server sends `nosniff` and an explicit media type.
   "api": "2",
   "description": "A fictional talent-tree presentation plugin.",
   "license": "MIT",
+  "storage": {
+    "preferences": {"schema": 1}
+  },
   "requires": {
-    "kirin_feature": "0.4",
+    "kirin_feature": "0.5",
     "interfaces": [
       {"id": "fictional.theorycraft-model", "revision": 2}
     ]
@@ -130,7 +135,11 @@ server sends `nosniff` and an explicit media type.
           "document_id_prefixes": [],
           "package_names": []
         },
-        "permissions": ["model.read", "document.read", "source.navigate", "operation.evaluate"]
+        "permissions": [
+          "model.read", "document.read", "draft.read", "template.read",
+          "proposal.submit", "result.present", "storage.preferences",
+          "source.navigate", "operation.evaluate"
+        ]
       }
     ],
     "views": [
@@ -175,7 +184,7 @@ server sends `nosniff` and an explicit media type.
 
 Unknown fields are errors. `id` is a dotted lower-case public identifier. Contribution IDs must
 begin with `<plugin-id>.`; versions are exact `MAJOR.MINOR.PATCH` values, and `api` is exactly
-`"1"`. Entry paths must identify existing `.html` files under `web/`.
+`"2"`. Entry paths must identify existing `.html` files under `web/`.
 
 Every renderer must declare at least one exact document ID, document-ID prefix, or Package name.
 Matching uses validated canonical document identity and Package provenance, never the displayed
@@ -194,11 +203,18 @@ Protocol v2 permissions are:
   source content, canonical IDs, Package provenance, and source coordinates;
 - `draft.read`: receive the exact currently loaded local document buffer, up to the Plugin bridge's
   400,000-byte limit; locked Package source is never exposed by this permission;
-- `draft.propose`: submit one complete candidate replacement for that same current local document;
-  the host validates and queues it for human review but does not apply or save it;
+- `template.read`: receive the bounded built-in, workspace and immutable Package creation-template
+  catalog, including explicitly declared structured binding names but no Package filesystem paths;
+- `proposal.submit`: submit one bounded, all-or-nothing transaction containing
+  `create-from-template`, `create-document`, and/or `replace-document` changes under local
+  `entries/`; the host validates and queues it for human review but does not apply or save it;
+- `result.present`: ask the host to render a result handle previously issued to the same mounted
+  contribution in an adjacent host-owned slot; the Plugin can supply only a short title and order;
+- `storage.preferences`: use a manifest-schema-versioned, bounded JSON preference namespace isolated
+  by local user, workspace, and Plugin ID; this state never enters source evaluation;
 - `source.navigate`: ask the host to open an authoritative document at a supplied source location;
-- `operation.evaluate`: evaluate a canonical public output with optional validated preset and
-  temporary input overrides;
+- `operation.evaluate`: evaluate one canonical public output, or use `evaluate-many` for at most
+  64 outputs under one shared workspace revision, preset and canonical override preparation;
 - `operation.explain`: obtain the core formula, conditions, input contract and provenance for a
   canonical public output;
 - `operation.compare`: compare one to 8 explicitly named preset/override variants of one output;
@@ -206,14 +222,26 @@ Protocol v2 permissions are:
   within the core's 10,000-point bound;
 - `operation.solve`: solve a canonical public output for one of its declared input dependencies;
 - `operation.analyze`: execute a source-declared, canonical Process Analysis with optional trace
-  inclusion and the ordinary Scenario and analysis bounds.
+  inclusion and the ordinary Scenario and analysis bounds as a cancellable job;
+- `operation.job`: query or cancel only jobs created by the same mounted contribution. It does not
+  expose another Plugin's request or result.
 
-The mathematical permissions expose only calculation results. Draft proposal permissions do not
-permit direct mutation: at most 16 validated candidates wait in volatile host memory, each carrying
-the submitting Plugin ID, version, contribution ID and content digest. Acceptance requires the
-current buffer to equal the recorded baseline and repeats complete-workspace validation before the
-candidate becomes an ordinary unsaved draft. Proposals are neither recovery state nor durable
-authority and disappear on reload. No permission permits artifact export, run-record
+The mathematical permissions expose only calculation results. `result.present` does not trust the
+iframe's rendering: the host resolves an opaque contribution-owned operation handle and renders a
+bounded direct summary from the unchanged result envelope, plus revision, warnings, provenance and a
+source action outside the frame. Complex structures are identified as structured results rather than
+being reinterpreted by the host slot. A model revision change
+marks the slot stale. `storage.preferences` accepts only bounded JSON-safe values and requires
+`storage.preferences.schema` in the manifest; a schema change resets only that Plugin/workspace
+namespace.
+
+Proposal permissions do not permit direct mutation: at most 16 validated transactions wait in
+volatile host memory, each carrying the submitting Plugin ID, version, contribution ID and content
+digest. A transaction may affect at most 16 local documents and is accepted or rejected as one unit.
+Acceptance requires unchanged revision/baselines and repeats complete-workspace validation before
+all changes become ordinary unsaved drafts. Only then do normal recovery and Save All rules apply.
+Queued Proposals are not themselves recovery state or durable authority and disappear on reload.
+No permission permits artifact export, run-record
 creation, arbitrary operation names, arbitrary expressions as targets, direct source mutation, Package
 mutation, or caller-selected timeouts. Presets, outputs, analyses, scan variables and override names
 must already exist in the current validated model catalog. Solve right-hand sides and scan ranges are
@@ -228,14 +256,21 @@ The backend-published v2 conformance matrix is:
 | Frame action | Required permission | Handler | Exact backend operation |
 | --- | --- | --- | --- |
 | `navigate-source` | `source.navigate` | Host | — |
-| `propose-draft` | `draft.propose` | Host | — |
+| `proposal.submit` | `proposal.submit` | Proposal service | — |
+| `result.present` | `result.present` | Host result registry | — |
+| `storage.get` | `storage.preferences` | Preference service | — |
+| `storage.set` | `storage.preferences` | Preference service | — |
+| `storage.delete` | `storage.preferences` | Preference service | — |
 | `evaluate` | `operation.evaluate` | Operation service | `eval` |
+| `evaluate-many` | `operation.evaluate` | Operation service | `evaluate_many` |
 | `explain` | `operation.explain` | Operation service | `explain` |
 | `compare` | `operation.compare` | Operation service | `compare` |
 | `scan` | `operation.scan` | Operation service | `scan` |
 | `grid` | `operation.scan` | Operation service | `grid` |
 | `solve` | `operation.solve` | Operation service | `solve` |
-| `analyze` | `operation.analyze` | Operation service | `process_analysis` |
+| `analyze` | `operation.analyze` | Operation job service | `process_analysis` |
+| `job.status` | `operation.job` | Owner-scoped job service | — |
+| `job.cancel` | `operation.job` | Owner-scoped job service | — |
 | `model.query` | `model.read` | Catalog | — |
 | `model.get` | `model.read` | Catalog | — |
 | `model.dependencies` | `model.read` | Catalog | — |
@@ -243,8 +278,9 @@ The backend-published v2 conformance matrix is:
 | `model.capabilities` | `model.read` | Catalog | — |
 
 This table documents the runtime registry rather than granting additional authority. Automated
-conformance checks require the adapter branches to match this exact set, and the reference Plugin
-executes every row in both supported browser engines.
+conformance checks require each action to declare the complete capability fields and require the
+browser adapter to cover the seven generic handler classes without per-operation constants. The
+reference Plugin executes every row in both supported browser engines.
 
 ## Requirements, lock, approval, and activation
 
@@ -270,6 +306,22 @@ kt plugin verify
 kt plugin list
 kt web --safe-mode
 ```
+
+Plugin authors additionally have offline, non-executing commands:
+
+```text
+kt plugin new DIRECTORY --id ID
+kt plugin check [DIRECTORY] [--workspace WORKSPACE]
+kt plugin test [DIRECTORY] --workspace WORKSPACE
+kt plugin bundle [DIRECTORY] [--out ARCHIVE] [--force]
+```
+
+`new` vendors the generated dependency-free SDK. `check` validates the strict manifest, static
+files, permissions, digest, and optional interface compatibility. `test` copies the selected
+workspace into an isolated temporary directory, removes installed Plugin state, and runs
+offline protocol/interface fixtures without executing Plugin JavaScript. `bundle` writes a
+deterministic static archive outside the source root, refuses to overwrite unless `--force` is
+explicit, and never invokes npm, a build script, hook, or executable shipped by the Plugin.
 
 Plugin manifest schema 2 requires an exact Kirin feature line and zero or more exact model
 interface ID/revision pairs. Before activation the host reports every requirement as `satisfied`,
@@ -305,7 +357,7 @@ default profile.
 ## Frame protocol
 
 Frames and the host exchange JSON messages with `protocol: "kirin-workbench-plugin"` and
-`api: 2`. The minimum lifecycle is:
+`api: "2"`. The minimum lifecycle is:
 
 1. the frame sends `ready`;
 2. the host validates the frame source and sends `activate` with contribution identity, the
@@ -313,19 +365,32 @@ Frames and the host exchange JSON messages with `protocol: "kirin-workbench-plug
    only the remaining context authorized by its permissions;
 3. the host sends a new `context` message when the selected document, validated projection or
    validated Catalog revision changes;
-4. the frame may send an `action` request for `navigate-source`, `propose-draft`, `evaluate`,
-   `explain`, `compare`, `scan`, `grid`, `solve`, `analyze`, `model.query`, `model.get`,
-   `model.dependencies`, `model.document`, or `model.capabilities` when its contribution declared
-   the corresponding permission;
+4. the frame may send an `action` request for `navigate-source`, `proposal.submit`,
+   `result.present`, `storage.get`, `storage.set`, `storage.delete`, `evaluate`, `evaluate-many`,
+   `explain`, `compare`, `scan`, `grid`, `solve`, `analyze`, `job.status`,
+   `job.cancel`, `model.query`, `model.get`, `model.dependencies`, `model.document`, or
+   `model.capabilities` when its contribution declared the corresponding permission;
 5. the host returns a correlated `action-result` or `action-error`;
-6. unmounting the frame ends the capability session.
+6. `analyze` returns an opaque job handle; the host emits `job-update` events with truthful
+   queued/running/completed/failed/cancelled stages, while the SDK also exposes status, wait and
+   cancel helpers;
+7. unmounting or reloading the frame ends the capability session and cancels its still-live jobs,
+   as declared by the capability's `unload_policy`.
 
 The host accepts messages only from the mounted frame's `contentWindow`, validates message shape,
-IDs, sizes, action names, canonical targets, declared inputs, presets, point counts and permissions,
-and never forwards arbitrary plugin payloads to a backend operation. Standard plugin calculations
-use host-selected precision, display precision and timeout; Process Analysis retains the longer
-host-selected ceiling while remaining cancellable from the Workbench. A result that would exceed
-the plugin message-size limit is replaced with a correlated `result_too_large` error.
+IDs, sizes, action names, workspace revision, canonical targets, declared inputs, presets, point
+counts and permissions, and never forwards arbitrary plugin payloads to a backend operation.
+Operation Service rejects unknown request fields. Standard calculations use host-selected precision,
+display precision and timeout; no public payload accepts a run-record ID or artifact path. Process
+Analysis uses the longer host-selected ceiling in a process tree that can be cancelled both by its
+own contribution and by the global Workbench control. A result that would exceed the message limit
+is replaced with a correlated `result_too_large` error.
+
+Synchronous Operation Service results use one envelope containing an opaque operation ID, current
+revision, canonical targets, applied preset/overrides, target and dependency origins, warnings, and
+the unchanged mathematical result. `evaluate-many` uses one validated Workspace and one Engine;
+its individual result rows are mathematically identical to separate `evaluate` calls with the same
+relevant inputs while reusing one Workspace and Engine instance.
 
 `/api/bootstrap` publishes the same descriptor at `plugins.protocol`, and every `activate` or
 `context` message carries it as `capabilities`. It identifies the Plugin API version, all supported
@@ -343,10 +408,41 @@ returns structured descriptors without raw source. Every descriptor separates Pa
 `origin`, ordinary `source_location`, game-neutral `contract`, direct dependencies, interface
 membership, and kind-specific `payload`.
 
-A `propose-draft` action names only the current local document and supplies a title, optional short
-description, and complete candidate source. The host rejects empty, oversized, unchanged, stale,
-read-only, invalid, or queue-overflow candidates. A successful response means only that the proposal
-is awaiting review; it is not evidence of acceptance or persistence.
+## Generated schemas and SDK
+
+`src/kirin_tor/plugin_protocol.py` is the generation source for action names, permissions, request
+and result schemas, hard limits, timeout/execution class, overlay/run/artifact policy, unload policy,
+events, and stable error codes. `scripts/generate_plugin_protocol.py` deterministically produces:
+
+- JSON Schemas and operation/limit/error catalogs under `schemas/plugin-v2/`;
+- the checked frontend contract in `frontend/src/generated/pluginProtocol.ts`;
+- the dependency-free ESM SDK and TypeScript declaration under `sdk/plugin/`;
+- an installed-package copy under `kirin_tor/protocol_assets/`;
+- the vendored SDK used by the reference Plugin.
+
+`python scripts/generate_plugin_protocol.py --check` fails on drift and is part of CI. The SDK owns
+the API handshake, correlated requests, runtime request validation, revision injection and updates,
+capability/permission checks, bounded pagination, stable errors, job updates/wait/cancel, message
+size preflight and disposal. It contains no mathematical formulas, Package resolver or source-write
+implementation. The reference Plugin imports `createKirinPlugin` and contains no handwritten
+`postMessage` protocol, request-ID map, revision plumbing, or copied calculation formula.
+
+`operations.*` returns a revision-bound opaque operation ID. `results.present` accepts only such a
+handle produced by the same live contribution; the host owns the neighboring result DOM, bounded summary,
+provenance link, trust label, and stale state. It does not validate arbitrary numbers rendered inside
+the iframe.
+
+`storage.get/set/delete` address only the calling Plugin's manifest-declared preference namespace.
+The host enforces key, value, nesting, item-count and total-byte limits and resets the namespace when
+its positive integer storage schema changes. The Plugin manager exposes an explicit clear action.
+
+`proposals.submit` supplies a title, optional short description and one bounded change array. Template
+creation uses data-only templates whose binding points are explicitly declared in the template;
+bindings are parsed and canonically rendered rather than interpolated as raw source. Direct creation
+must provide a complete matching Entry, while replacement requires the current local document key and
+base SHA-256. The host rejects oversized, duplicate-target, stale, Package-owned, invalid, or
+queue-overflow transactions. A successful response means only that one whole transaction is awaiting
+review; it is not evidence of acceptance or persistence.
 
 ## Evidence and limitations
 

@@ -134,7 +134,7 @@ document_prefixes = []
 def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
     tmp_path: Path,
 ) -> None:
-    assert supported_package_feature_lines() == ("0.3", "0.4")
+    assert supported_package_feature_lines() == ("0.3", "0.4", "0.5")
 
     supported = _package(tmp_path / "supported")
     supported_manifest = supported / "kirin.package.toml"
@@ -156,7 +156,7 @@ def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
         ),
         encoding="utf-8",
     )
-    with pytest.raises(PackageError, match="supports Package lines 0.3, 0.4"):
+    with pytest.raises(PackageError, match="supports Package lines 0.3, 0.4, 0.5"):
         load_package_manifest(unsupported)
 
 
@@ -191,6 +191,8 @@ output result: dimensionless = community_example_value.result + 1
     add_path_package(workspace, "example", package)
     selected = next(item for item in list_templates(workspace) if item.origin == "package")
     assert selected.package_name == "community.example"
+    assert selected.value.startswith("package:")
+    assert str(package.resolve()) not in selected.value
     draft = build_from_template(workspace, selected.value, "local_consumer")
     assert "@entry local_consumer" in draft.source_text
     assert "@entry package_template" not in draft.source_text

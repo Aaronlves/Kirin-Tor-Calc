@@ -15,8 +15,9 @@ interface ChangeReviewProps {
 export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   const dirtyKeys = useMemo(() => Object.keys(controller.dirtyOverlays), [controller.dirtyOverlays]);
   const [selectedKey, setSelectedKey] = useState<string | null>(dirtyKeys[0] ?? null);
-  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(controller.pluginDraftProposals[0]?.id ?? null);
-  const [tab, setTab] = useState<string>(dirtyKeys.length ? "drafts" : controller.pluginDraftProposals.length ? "proposals" : "drafts");
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(controller.pluginProposals[0]?.id ?? null);
+  const [selectedProposalChangeKey, setSelectedProposalChangeKey] = useState<string | null>(null);
+  const [tab, setTab] = useState<string>(dirtyKeys.length ? "drafts" : controller.pluginProposals.length ? "proposals" : "drafts");
   const [git, setGit] = useState<GitSummary | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
   const [discardTarget, setDiscardTarget] = useState<string | "all" | null>(null);
@@ -28,10 +29,10 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   }, [dirtyKeys, selectedKey]);
 
   useEffect(() => {
-    if (!selectedProposalId || !controller.pluginDraftProposals.some((item) => item.id === selectedProposalId)) {
-      setSelectedProposalId(controller.pluginDraftProposals[0]?.id ?? null);
+    if (!selectedProposalId || !controller.pluginProposals.some((item) => item.id === selectedProposalId)) {
+      setSelectedProposalId(controller.pluginProposals[0]?.id ?? null);
     }
-  }, [controller.pluginDraftProposals, selectedProposalId]);
+  }, [controller.pluginProposals, selectedProposalId]);
 
   useEffect(() => {
     let active = true;
@@ -42,11 +43,29 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
   }, [controller.gitHistory]);
 
   const selectedDocument = controller.documents.find((item) => item.key === selectedKey);
-  const selectedProposal = controller.pluginDraftProposals.find((item) => item.id === selectedProposalId);
+  const selectedProposal = controller.pluginProposals.find((item) => item.id === selectedProposalId);
+  const selectedProposalChange = selectedProposal?.changes.find(
+    (item) => item.key === selectedProposalChangeKey,
+  ) ?? selectedProposal?.changes[0];
   const proposalIsStale = Boolean(
     selectedProposal
-    && controller.buffers[selectedProposal.documentKey] !== selectedProposal.baseText,
+    && (
+      controller.validation?.catalog?.revision !== selectedProposal.revision
+      || selectedProposal.changes.some((change) => (
+        change.kind === "replace-document"
+          ? Object.prototype.hasOwnProperty.call(controller.buffers, change.key)
+            ? controller.buffers[change.key] !== change.base_text
+            : controller.documents.find((item) => item.key === change.key)?.source_sha256 !== change.base_sha256
+          : controller.documents.some((item) => item.key === change.key)
+      ))
+    ),
   );
+
+  useEffect(() => {
+    if (!selectedProposal?.changes.some((item) => item.key === selectedProposalChangeKey)) {
+      setSelectedProposalChangeKey(selectedProposal?.changes[0]?.key ?? null);
+    }
+  }, [selectedProposal, selectedProposalChangeKey]);
   const targetDocument = discardTarget && discardTarget !== "all"
     ? controller.documents.find((item) => item.key === discardTarget)
     : null;
@@ -68,7 +87,7 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
     if (!selectedProposal || proposalAction) return;
     setProposalAction(selectedProposal.id);
     try {
-      if (await controller.acceptPluginDraftProposal(selectedProposal.id)) setTab("drafts");
+      if (await controller.acceptPluginProposal(selectedProposal.id)) setTab("drafts");
     } finally {
       setProposalAction(null);
     }
@@ -120,7 +139,7 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
       <Tabs value={tab} onChange={(value) => setTab(value ?? "drafts")} keepMounted={false} mt="md">
         <Tabs.List>
           <Tabs.Tab value="drafts">草稿 {dirtyKeys.length}</Tabs.Tab>
-          <Tabs.Tab value="proposals">插件提案 {controller.pluginDraftProposals.length}</Tabs.Tab>
+          <Tabs.Tab value="proposals">插件提案 {controller.pluginProposals.length}</Tabs.Tab>
           <Tabs.Tab value="git">Git 历史</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="drafts" pt="md">
@@ -156,21 +175,21 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
           </Stack> : <Text c="dimmed" ta="center" py="xl">当前没有未保存草稿。</Text>}
         </Tabs.Panel>
         <Tabs.Panel value="proposals" pt="md">
-          {controller.pluginDraftProposals.length ? <Stack gap="sm">
+          {controller.pluginProposals.length ? <Stack gap="sm">
             <Group align="flex-end">
               <Select
                 label="选择插件提案"
                 value={selectedProposalId}
                 onChange={setSelectedProposalId}
-                data={controller.pluginDraftProposals.map((item) => ({
+                data={controller.pluginProposals.map((item) => ({
                   value: item.id,
-                  label: `${item.title} · ${item.documentPath}`,
+                  label: `${item.title} · ${item.changes.length} 个文档`,
                 }))}
                 style={{ flex: 1 }}
               />
-              {selectedProposal && <Button
+              {selectedProposalChange?.kind === "replace-document" && <Button
                 variant="default"
-                onClick={() => onNavigate(selectedProposal.documentKey, 1, 1)}
+                onClick={() => onNavigate(selectedProposalChange.key, 1, 1)}
               >查看当前源码</Button>}
             </Group>
             {selectedProposal && <>
@@ -179,7 +198,7 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
                   <Box>
                     <Text fw={650}>{selectedProposal.title}</Text>
                     <Text c="dimmed" fz="xs">
-                      {selectedProposal.pluginName} {selectedProposal.pluginVersion} · {selectedProposal.documentPath}
+                      {selectedProposal.pluginName} {selectedProposal.pluginVersion} · {selectedProposal.changes.length} 个文档变化
                     </Text>
                   </Box>
                   <Badge color={proposalIsStale ? "orange" : "blue"} variant="light">
@@ -188,25 +207,40 @@ export function ChangeReview({ controller, onNavigate }: ChangeReviewProps) {
                 </Group>
                 {selectedProposal.description && <Text fz="sm" mt="sm">{selectedProposal.description}</Text>}
                 <Text c="dimmed" fz="xs" mt="xs">
-                  提交于 {new Date(selectedProposal.createdAt).toLocaleString()} · 内容摘要 {selectedProposal.pluginContentSha256.slice(0, 12)}
+                  提交于 {new Date(selectedProposal.createdAt).toLocaleString()} · Plugin 摘要 {selectedProposal.pluginContentSha256.slice(0, 12)} · 模型 revision {selectedProposal.revision.slice(0, 12)}
                 </Text>
               </Box>
-              <div className="change-comparison" aria-label="插件提案比较">
+              <Select
+                label="审查文档变化"
+                value={selectedProposalChange?.key ?? null}
+                onChange={setSelectedProposalChangeKey}
+                data={selectedProposal.changes.map((change) => ({
+                  value: change.key,
+                  label: `${change.kind === "replace-document" ? "修改" : "新建"} · ${change.path}`,
+                }))}
+              />
+              {selectedProposalChange?.template && <Text c="dimmed" fz="xs">
+                来源模板 {selectedProposalChange.template}
+                {selectedProposalChange.bindings && Object.keys(selectedProposalChange.bindings).length
+                  ? ` · 结构化绑定 ${Object.entries(selectedProposalChange.bindings).map(([key, value]) => `${key}=${value}`).join("，")}`
+                  : ""}
+              </Text>}
+              {selectedProposalChange && <div className="change-comparison" aria-label="插件提案比较">
                 <section>
-                  <Text fw={650} fz="sm">插件读取时的草稿</Text>
-                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposal.baseText}</pre></ScrollArea>
+                  <Text fw={650} fz="sm">{selectedProposalChange.kind === "replace-document" ? "提交时基线" : "尚未创建"}</Text>
+                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposalChange.base_text}</pre></ScrollArea>
                 </section>
                 <section>
-                  <Text fw={650} fz="sm">插件候选内容</Text>
-                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposal.proposedText}</pre></ScrollArea>
+                  <Text fw={650} fz="sm">候选内容</Text>
+                  <ScrollArea h="calc(100vh - var(--kt-sz-420))" type="auto"><pre tabIndex={0}>{selectedProposalChange.text}</pre></ScrollArea>
                 </section>
-              </div>
+              </div>}
               <Group justify="flex-end">
                 <Button
                   className="danger-outline-button"
                   variant="default"
                   disabled={Boolean(proposalAction)}
-                  onClick={() => controller.rejectPluginDraftProposal(selectedProposal.id)}
+                  onClick={() => controller.rejectPluginProposal(selectedProposal.id)}
                 >拒绝提案</Button>
                 <Button
                   loading={proposalAction === selectedProposal.id}

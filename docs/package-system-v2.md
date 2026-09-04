@@ -1,7 +1,8 @@
 # Kirin Tor community package protocol v2
 
-> 本文描述当前已实现的 v2 合同。后续 Operation Service、SDK、可信结果呈现与发布能力
-> 仍以[可规模化游戏插件平台提案](scalable-game-plugin-platform-proposal.md)为设计依据。
+> 本文描述当前已实现的 v2 Package 合同。Plugin 的 Operation Service、SDK、可信结果呈现
+> 与 Proposal 合同见[Workbench Extension Plugin protocol v2](workbench-plugin-system-v2.md)；
+> 远程发布与外部作者验收仍以[可规模化游戏插件平台提案](scalable-game-plugin-platform-proposal.md)为路线。
 
 ## Purpose and authority
 
@@ -102,7 +103,7 @@ Required fields are `schema`, `name`, `version`, `namespace`, `description`, `li
 - `description` and `license` are non-empty text. `license` should normally be an SPDX identifier.
 - `requires_kirin` names the exact `MAJOR.MINOR` feature line against which the Package was
   authored. A Kirin Tor release explicitly declares the Package feature lines it still supports;
-  Kirin Tor 0.4 supports both `0.3` and `0.4`. This is a tested backward-compatibility promise,
+  Kirin Tor 0.5 supports `0.3`, `0.4`, and `0.5`. This is a tested backward-compatibility promise,
   not an implicit acceptance of every older or future line. The current strict parser, dependency
   graph checks, and engine validation still apply before compatible Package content becomes active.
 - `game` and `game_version` are optional descriptive compatibility values. Entry-level

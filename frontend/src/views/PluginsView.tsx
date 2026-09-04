@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Badge, Box, Button, Code, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { CircleAlert, Compass, Plug, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
+import { CircleAlert, Compass, Eraser, Plug, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from "lucide-react";
 
 import { errorMessage } from "../api";
 import { CommunityDiscoveryPanel } from "../components/CommunityDiscoveryPanel";
@@ -137,6 +137,13 @@ export function PluginsView({ controller }: { controller: WorkbenchController })
                 <Code block mt="sm">{plugin.content_sha256 || "没有锁定内容摘要"}</Code>
               </Box>
               <Group gap={6} justify="flex-end">
+                {plugin.storage?.preferences && <Button
+                  variant="default"
+                  size="xs"
+                  leftSection={<Eraser size={13} />}
+                  loading={running === `clear_preferences:${plugin.alias}`}
+                  onClick={() => { void act("clear_preferences", { alias: plugin.alias }, `已清除 ${plugin.alias} 的本地界面偏好`); }}
+                >清除偏好</Button>}
                 <Button
                   variant="default"
                   size="xs"

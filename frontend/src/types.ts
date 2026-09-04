@@ -1,20 +1,15 @@
+import type {
+  GeneratedPluginActionCapability,
+  GeneratedPluginPermission,
+  GeneratedPluginProtocolDescriptor,
+  GeneratedPluginProtocolLimits,
+} from "./generated/pluginProtocol";
+
 export type ViewId = string;
 export type WorkspaceTool = string;
 export type DocumentFocusMode = "editor" | "split" | "preview";
 
-export type PluginPermission =
-  | "workspace.summary"
-  | "model.read"
-  | "document.read"
-  | "draft.read"
-  | "draft.propose"
-  | "source.navigate"
-  | "operation.evaluate"
-  | "operation.explain"
-  | "operation.compare"
-  | "operation.scan"
-  | "operation.solve"
-  | "operation.analyze";
+export type PluginPermission = GeneratedPluginPermission;
 
 export interface PluginRendererMatch {
   document_ids: string[];
@@ -43,6 +38,7 @@ export interface PluginSurfaceContribution {
   content_sha256: string;
   api: "2";
   required_interfaces: PluginInterfaceRequirement[];
+  storage_schema: number | null;
 }
 
 export interface PluginCommandContribution {
@@ -90,6 +86,9 @@ export interface InstalledPlugin {
     kirin_feature: string;
     interfaces: PluginInterfaceRequirement[];
   } | null;
+  storage?: {
+    preferences?: { schema: number } | null;
+  } | null;
   compatibility?: {
     status: "satisfied" | "incompatible";
     compatible: boolean;
@@ -113,44 +112,9 @@ export interface InstalledPlugin {
   error?: string | null;
 }
 
-export interface PluginProtocolLimits {
-  max_message_chars: number;
-  max_model_items_per_group: number;
-  max_model_chars_per_group: number;
-  max_target_inputs: number;
-  max_operation_targets: number;
-  max_comparison_variants: number;
-  max_scan_points: number;
-  max_expression_chars: number;
-  max_draft_source_bytes: number;
-  max_draft_proposals: number;
-  max_action_id_chars: number;
-  max_identity_chars: number;
-  max_path_chars: number;
-  max_title_chars: number;
-  max_description_chars: number;
-  max_variant_name_chars: number;
-  standard_operation_timeout_seconds: number;
-  analysis_timeout_seconds: number;
-  default_model_query_limit: number;
-  max_model_query_limit: number;
-  max_model_cursor_chars: number;
-  max_model_dependency_depth: number;
-  max_catalog_summary_interfaces: number;
-}
-
-export interface PluginActionCapability {
-  permission: PluginPermission;
-  handler: "host" | "operation" | "catalog";
-  operation?: string;
-}
-
-export interface PluginProtocolDescriptor {
-  api: "2";
-  permissions: PluginPermission[];
-  actions: Record<string, PluginActionCapability>;
-  limits: PluginProtocolLimits;
-}
+export type PluginProtocolLimits = GeneratedPluginProtocolLimits;
+export type PluginActionCapability = GeneratedPluginActionCapability;
+export type PluginProtocolDescriptor = GeneratedPluginProtocolDescriptor;
 
 export interface PluginSummary {
   safe_mode: boolean;
@@ -239,6 +203,7 @@ export interface PackageReference {
 export interface DocumentItem {
   key: string;
   path: string;
+  id?: string;
   title: string;
   kind: "entry" | string;
   read_only: boolean;
@@ -383,23 +348,45 @@ export interface AuthoringChange {
   text: string;
 }
 
-export interface PluginDraftProposal {
+export interface PluginProposalRequestChange {
+  kind: "create-from-template" | "create-document" | "replace-document";
+  template?: string;
+  document_id?: string;
+  bindings?: Record<string, string>;
+  key?: string;
+  base_sha256?: string;
+  text?: string;
+}
+
+export interface PluginProposalChange {
+  kind: PluginProposalRequestChange["kind"];
+  key: string;
+  path: string;
+  document_id: string;
+  title: string;
+  base_sha256: string | null;
+  base_text: string;
+  text: string;
+  template?: string;
+  bindings?: Record<string, string>;
+}
+
+export interface PluginProposal {
   id: string;
   pluginId: string;
   pluginName: string;
   pluginVersion: string;
   pluginContentSha256: string;
   contributionId: string;
-  documentKey: string;
-  documentPath: string;
+  revision: string;
   title: string;
   description?: string;
-  baseText: string;
-  proposedText: string;
+  requestChanges: PluginProposalRequestChange[];
+  changes: PluginProposalChange[];
   createdAt: string;
 }
 
-export interface PluginDraftProposalResult {
+export interface PluginProposalResult {
   status: "queued" | "rejected";
   proposalId?: string;
   reason?: "unchanged" | "invalid" | "stale" | "queue_full" | "unavailable";
@@ -488,6 +475,7 @@ export interface ValidationResult {
   author_message?: string;
   authoring?: AuthoringIndex;
   catalog?: ModelCatalogSummary;
+  source_sha256?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -500,6 +488,7 @@ export interface TemplateItem {
   error?: string;
   package_name?: string;
   package_version?: string;
+  bindings?: string[];
   [key: string]: unknown;
 }
 
@@ -615,7 +604,7 @@ export interface OperationResult {
 }
 
 export interface OperationJobStatus {
-  status: "ok";
+  status: "ok" | "accepted";
   job_id: string;
   operation: string;
   state: "queued" | "running" | "completed" | "failed" | "cancelled";

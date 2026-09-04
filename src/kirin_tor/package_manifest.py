@@ -36,7 +36,7 @@ LOCK_VERSION = 1
 # Package feature-line support is an explicit compatibility promise. A release may
 # retain an older line only while its manifests and source documents continue to pass
 # the current strict parser, graph validation, and engine checks.
-SUPPORTED_PACKAGE_FEATURE_LINES = ("0.3", "0.4")
+SUPPORTED_PACKAGE_FEATURE_LINES = ("0.3", "0.4", "0.5")
 
 PACKAGE_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
 PACKAGE_INTERFACE_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$")

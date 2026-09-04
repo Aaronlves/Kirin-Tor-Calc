@@ -44,6 +44,12 @@ from .package_store import PackageResolver, PackageStoreManager
 from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .process_chart import render_process_chart_svg, write_process_chart_csv
 from .plugin_store import PluginManager
+from .plugin_authoring import (
+    bundle_plugin,
+    check_plugin,
+    create_plugin_template,
+    test_plugin,
+)
 from .records import replay as replay_run
 from .timeout import run_with_timeout
 from .workbench_preferences import load_default_workspace, save_default_workspace
@@ -243,6 +249,79 @@ def web_command(
         )
 
     _execute(action)
+
+
+@plugin_app.command("new")
+def plugin_new_command(
+    directory: Path,
+    plugin_id: str = typer.Option(..., "--id", help="Stable dotted lower-case Plugin ID."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Create a minimal SDK-backed Plugin without running external tools."""
+
+    def action():
+        result = create_plugin_template(directory, plugin_id)
+        _emit(result, json_output, f"Created Plugin {result['id']} at {result['root']}")
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("check")
+def plugin_check_command(
+    directory: Path = typer.Argument(Path(".")),
+    workspace: Optional[Path] = typer.Option(None, "--workspace"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Validate one Plugin, its static content, permissions, and optional interfaces."""
+
+    def action():
+        result = check_plugin(directory, workspace)
+        _emit(
+            result,
+            json_output,
+            f"OK: {result['id']}@{result['version']}; {result['files']} static files; {result['content_sha256']}",
+        )
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("test")
+def plugin_test_command(
+    directory: Path = typer.Argument(Path(".")),
+    workspace: Path = typer.Option(..., "--workspace"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run offline protocol fixtures in a disposable copy of a workspace."""
+
+    def action():
+        result = test_plugin(directory, workspace)
+        _emit(
+            result,
+            json_output,
+            f"PASS: {len(result['tests'])} offline Plugin protocol fixtures",
+        )
+
+    _execute(action, json_output)
+
+
+@plugin_app.command("bundle")
+def plugin_bundle_command(
+    directory: Path = typer.Argument(Path(".")),
+    output: Optional[Path] = typer.Option(None, "--out"),
+    force: bool = typer.Option(False, "--force"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Build a deterministic static Plugin archive without executing scripts."""
+
+    def action():
+        result = bundle_plugin(directory, output, force=force)
+        _emit(
+            result,
+            json_output,
+            f"Bundled {result['id']} to {result['bundle']} ({result['bundle_sha256']})",
+        )
+
+    _execute(action, json_output)
 
 
 @plugin_app.command("add-path")

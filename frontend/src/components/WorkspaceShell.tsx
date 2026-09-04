@@ -138,7 +138,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
     }, []), [activeProfile.tools]);
   const hasErrors = controller.validationItems.length > 0;
   const isBusy = controller.asyncState !== "idle";
-  const pendingProposalCount = controller.pluginDraftProposals.length;
+  const pendingProposalCount = controller.pluginProposals.length;
   const workspacePath = controller.bootstrapData?.workspace;
   const currentWorkspaceName = workspaceName(workspacePath);
   const saveBlockedReason = !controller.dirtyCount

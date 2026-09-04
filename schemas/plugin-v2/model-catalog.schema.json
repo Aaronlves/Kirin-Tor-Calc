@@ -1,0 +1,376 @@
+{
+  "$defs": {
+    "capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "type": "object"
+    },
+    "dependencies": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "analysis",
+            "analysis_chart",
+            "dimension",
+            "distribution",
+            "domain",
+            "entry",
+            "field",
+            "function",
+            "group",
+            "input",
+            "object",
+            "object_field",
+            "output",
+            "preset",
+            "process",
+            "process_action",
+            "process_event",
+            "process_input",
+            "process_observe",
+            "process_state",
+            "scenario",
+            "scenario_decision",
+            "scenario_instance",
+            "scenario_measure",
+            "scenario_objective",
+            "scenario_policy",
+            "scenario_variant",
+            "source",
+            "static_chart",
+            "table",
+            "type",
+            "type_field",
+            "unit"
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "id"
+      ],
+      "type": "object"
+    },
+    "descriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "object"
+        },
+        "dependencies": {
+          "items": {
+            "maxLength": 240,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "interfaces": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "analysis",
+            "analysis_chart",
+            "dimension",
+            "distribution",
+            "domain",
+            "entry",
+            "field",
+            "function",
+            "group",
+            "input",
+            "object",
+            "object_field",
+            "output",
+            "preset",
+            "process",
+            "process_action",
+            "process_event",
+            "process_input",
+            "process_observe",
+            "process_state",
+            "scenario",
+            "scenario_decision",
+            "scenario_instance",
+            "scenario_measure",
+            "scenario_objective",
+            "scenario_policy",
+            "scenario_variant",
+            "source",
+            "static_chart",
+            "table",
+            "type",
+            "type_field",
+            "unit"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "object"
+        },
+        "owner_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        },
+        "source_location": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "owner_id",
+        "label",
+        "contract",
+        "dependencies",
+        "interfaces",
+        "origin",
+        "source_location",
+        "payload"
+      ],
+      "type": "object"
+    },
+    "document": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "id"
+      ],
+      "type": "object"
+    },
+    "get": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "analysis",
+            "analysis_chart",
+            "dimension",
+            "distribution",
+            "domain",
+            "entry",
+            "field",
+            "function",
+            "group",
+            "input",
+            "object",
+            "object_field",
+            "output",
+            "preset",
+            "process",
+            "process_action",
+            "process_event",
+            "process_input",
+            "process_observe",
+            "process_state",
+            "scenario",
+            "scenario_decision",
+            "scenario_instance",
+            "scenario_measure",
+            "scenario_objective",
+            "scenario_policy",
+            "scenario_variant",
+            "source",
+            "static_chart",
+            "table",
+            "type",
+            "type_field",
+            "unit"
+          ]
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "id"
+      ],
+      "type": "object"
+    },
+    "query": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 4096,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interface": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "interface_revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "oneOf": [
+            {
+              "enum": [
+                "analysis",
+                "analysis_chart",
+                "dimension",
+                "distribution",
+                "domain",
+                "entry",
+                "field",
+                "function",
+                "group",
+                "input",
+                "object",
+                "object_field",
+                "output",
+                "preset",
+                "process",
+                "process_action",
+                "process_event",
+                "process_input",
+                "process_observe",
+                "process_state",
+                "scenario",
+                "scenario_decision",
+                "scenario_instance",
+                "scenario_measure",
+                "scenario_objective",
+                "scenario_policy",
+                "scenario_variant",
+                "source",
+                "static_chart",
+                "table",
+                "type",
+                "type_field",
+                "unit"
+              ]
+            },
+            {
+              "items": {
+                "enum": [
+                  "analysis",
+                  "analysis_chart",
+                  "dimension",
+                  "distribution",
+                  "domain",
+                  "entry",
+                  "field",
+                  "function",
+                  "group",
+                  "input",
+                  "object",
+                  "object_field",
+                  "output",
+                  "preset",
+                  "process",
+                  "process_action",
+                  "process_event",
+                  "process_input",
+                  "process_observe",
+                  "process_state",
+                  "scenario",
+                  "scenario_decision",
+                  "scenario_instance",
+                  "scenario_measure",
+                  "scenario_objective",
+                  "scenario_policy",
+                  "scenario_variant",
+                  "source",
+                  "static_chart",
+                  "table",
+                  "type",
+                  "type_field",
+                  "unit"
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          ]
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "owner": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 240,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://kirin-tor.invalid/schemas/plugin-v2/model-catalog.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

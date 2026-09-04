@@ -36,9 +36,24 @@ from .authoring_contract import public_authoring_contract
 from .community_discovery import discover_community
 from .diagnostics import author_error_payload, extract_author_title
 from .engine import Engine
-from .errors import KTError, PackageError, ParameterError, ReferenceError, SourceLocation, ValidationErrors, WorkspaceError
+from .errors import (
+    InvalidRequestError,
+    KTError,
+    LimitExceededError,
+    OperationFailedError,
+    PackageError,
+    ParameterError,
+    ReferenceError,
+    SourceLocation,
+    StaleRevisionError,
+    UnknownIdentityError,
+    ValidationErrors,
+    WorkspaceError,
+    WorkspaceInvalidError,
+)
 from .limits import DEFAULT_TIMEOUT_SECONDS
 from .model_catalog import ModelCatalog, model_revision
+from .operation_service import PluginOperationService
 from .operations import (
     analyze_process,
     process_analysis_request,
@@ -65,6 +80,8 @@ from .package_manifest import load_workspace_requirements, package_source_paths
 from .package_store import PackageResolution, PackageResolver, PackageStoreManager, locked_workspace_resolution
 from .plotting import render_plot, write_grid_csv, write_scan_csv
 from .process_chart import render_process_chart_svg, write_process_chart_csv
+from .plugin_preferences import PluginPreferences
+from .plugin_proposals import validate_plugin_proposal
 from .plugin_store import PluginManager
 from .records import load_run, replay as replay_run
 from .relationship_graph import build_relationship_graph
@@ -80,6 +97,15 @@ from .workspace import Workspace, initialize
 
 def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _source_document_id(text: str, fallback: str) -> str:
+    match = re.search(
+        r'^@entry\s+([A-Za-z_][A-Za-z0-9_]*)',
+        text,
+        re.MULTILINE,
+    )
+    return match.group(1) if match else fallback
 
 
 def _validate_workspace(workspace: Workspace) -> dict:
@@ -246,6 +272,10 @@ class Workbench:
             safe_mode=safe_mode,
             approval_home=plugin_approval_home,
         )
+        self.plugin_preferences = PluginPreferences(
+            self.root,
+            self.plugins.approvals.home,
+        )
         self._model_catalog_cache: dict[str, ModelCatalog] = {}
 
     def _model_catalog(self, workspace: Workspace) -> ModelCatalog:
@@ -292,6 +322,7 @@ class Workbench:
                     {
                         "key": path.relative_to(self.root).as_posix(),
                         "path": path.relative_to(self.root).as_posix(),
+                        "id": _source_document_id(source, path.stem),
                         "title": extract_author_title(source, path.stem),
                         "kind": "entry",
                         "read_only": False,
@@ -323,6 +354,7 @@ class Workbench:
                     {
                         "key": f"package:{package.content_sha256}:{relative}",
                         "path": relative,
+                        "id": _source_document_id(source, path.stem),
                         "title": extract_author_title(source, path.stem),
                         "kind": path.parts[-2][:-1] if len(path.parts) > 1 else "entry",
                         "read_only": True,
@@ -712,6 +744,10 @@ class Workbench:
                 if path.is_file()
             }
             sources.update(parsed)
+            source_sha256 = {
+                path.relative_to(self.root).as_posix(): _hash_text(text)
+                for path, text in sources.items()
+            }
             authoring = build_authoring_index(self._authoring_sources(parsed))
             try:
                 workspace = (
@@ -730,11 +766,20 @@ class Workbench:
                     "index": self._index_dict(workspace),
                     "catalog": self._model_catalog(workspace).summary(),
                     "authoring": authoring,
+                    "source_sha256": source_sha256,
                 }
             except ValidationErrors as exc:
-                return {**author_error_payload(exc, self.root, sources), "authoring": authoring}
+                return {
+                    **author_error_payload(exc, self.root, sources),
+                    "authoring": authoring,
+                    "source_sha256": source_sha256,
+                }
             except KTError as exc:
-                return {**author_error_payload(exc, self.root, sources), "authoring": authoring}
+                return {
+                    **author_error_payload(exc, self.root, sources),
+                    "authoring": authoring,
+                    "source_sha256": source_sha256,
+                }
 
     def save(self, overlays: Mapping[str, object], expected: Optional[Mapping[str, object]] = None) -> dict:
         with self._lock:
@@ -802,6 +847,169 @@ class Workbench:
             workspace = self.workspace(overlays)
             run_with_timeout(_validate_workspace, (workspace,), DEFAULT_TIMEOUT_SECONDS)
             return self._model_catalog(workspace).dispatch(action, payload)
+
+    def plugin_operation(
+        self,
+        action: str,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+        *,
+        for_job: bool = False,
+    ) -> dict:
+        """Execute one strict public Plugin operation against a single revision."""
+
+        with self._lock:
+            try:
+                workspace = self.workspace(overlays)
+                run_with_timeout(
+                    _validate_workspace,
+                    (workspace,),
+                    DEFAULT_TIMEOUT_SECONDS,
+                )
+            except KTError as exc:
+                raise WorkspaceInvalidError(str(exc), exc.location) from exc
+            try:
+                return PluginOperationService(workspace).execute(
+                    action, payload, for_job=for_job
+                )
+            except (
+                InvalidRequestError,
+                LimitExceededError,
+                StaleRevisionError,
+                UnknownIdentityError,
+            ):
+                raise
+            except KTError as exc:
+                raise OperationFailedError(str(exc), exc.location) from exc
+
+    def _authorize_plugin_capability(
+        self,
+        identity: Optional[Mapping[str, object]],
+        permission: str,
+    ):
+        data = dict(identity or {})
+        if set(data) != {"plugin_id", "content_sha256", "contribution_id"}:
+            raise InvalidRequestError("Plugin capability identity is incomplete")
+        return self.plugins.authorize_contribution(
+            str(data["plugin_id"]),
+            str(data["content_sha256"]),
+            str(data["contribution_id"]),
+            permission,
+        )
+
+    def plugin_storage_action(
+        self,
+        action: str,
+        identity: Optional[Mapping[str, object]],
+        payload: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        """Access one bounded user-local preference namespace."""
+
+        with self._lock:
+            manifest = self._authorize_plugin_capability(
+                identity, "storage.preferences"
+            )
+            preferences = manifest.storage.preferences if manifest.storage else None
+            if preferences is None:
+                raise InvalidRequestError(
+                    "Plugin does not declare a preference schema"
+                )
+            request = dict(payload or {})
+            allowed = {"key", "value"} if action == "set" else {"key"}
+            unknown = sorted(set(request) - allowed)
+            if unknown:
+                raise InvalidRequestError(
+                    "unknown preference request field(s): " + ", ".join(unknown)
+                )
+            if action == "get":
+                return self.plugin_preferences.get(
+                    manifest.id, preferences.schema, request.get("key")
+                )
+            if action == "set":
+                if "value" not in request:
+                    raise InvalidRequestError("storage.set requires value")
+                return self.plugin_preferences.set(
+                    manifest.id,
+                    preferences.schema,
+                    request.get("key"),
+                    request.get("value"),
+                )
+            if action == "delete":
+                return self.plugin_preferences.delete(
+                    manifest.id, preferences.schema, request.get("key")
+                )
+            raise InvalidRequestError(f"unsupported preference action: {action}")
+
+    def plugin_proposal(
+        self,
+        identity: Optional[Mapping[str, object]],
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        """Validate one volatile multi-document Plugin proposal transaction."""
+
+        with self._lock:
+            self._authorize_plugin_capability(identity, "proposal.submit")
+            return self._validate_plugin_proposal(payload, overlays)
+
+    def revalidate_plugin_proposal(
+        self,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+    ) -> dict:
+        """Revalidate an already queued host-owned proposal before acceptance."""
+
+        with self._lock:
+            return self._validate_plugin_proposal(payload, overlays)
+
+    def _validate_plugin_proposal(
+        self,
+        payload: Optional[Mapping[str, object]],
+        overlays: Optional[Mapping[str, object]],
+    ) -> dict:
+        parsed_overlays = self._overlays(overlays)
+        try:
+            workspace = (
+                Workspace.load_with_overlays(self.root, parsed_overlays)
+                if parsed_overlays
+                else Workspace.load(self.root)
+            )
+            run_with_timeout(
+                _validate_workspace,
+                (workspace,),
+                DEFAULT_TIMEOUT_SECONDS,
+            )
+        except KTError as exc:
+            raise WorkspaceInvalidError(str(exc), exc.location) from exc
+        return validate_plugin_proposal(
+            workspace,
+            payload,
+            parsed_overlays,
+        )
+
+    def validate_plugin_operation(
+        self,
+        action: str,
+        payload: Optional[Mapping[str, object]] = None,
+        overlays: Optional[Mapping[str, object]] = None,
+        *,
+        for_job: bool = False,
+    ) -> dict:
+        """Validate a Plugin operation before a long-running worker is accepted."""
+
+        with self._lock:
+            try:
+                workspace = self.workspace(overlays)
+                run_with_timeout(
+                    _validate_workspace,
+                    (workspace,),
+                    DEFAULT_TIMEOUT_SECONDS,
+                )
+            except KTError as exc:
+                raise WorkspaceInvalidError(str(exc), exc.location) from exc
+            service = PluginOperationService(workspace)
+            service.validate(action, payload, for_job=for_job)
+            return {"status": "ok", "revision": service.revision}
 
     def create_document(self, template: str, document_id: str) -> dict:
         with self._lock:
@@ -1643,6 +1851,34 @@ class Workbench:
                 return self.plugins.remove(str(payload.get("alias", "")))
             if action == "verify":
                 return self.plugins.verify()
+            if action == "clear_preferences":
+                alias = str(payload.get("alias", ""))
+                selected = next(
+                    (
+                        item
+                        for item in self.plugins.resolved()
+                        if item.requirement.alias == alias
+                    ),
+                    None,
+                )
+                if selected is None:
+                    raise UnknownIdentityError(f"unknown Plugin alias: {alias}")
+                plugin_id = (
+                    selected.manifest.id
+                    if selected.manifest is not None
+                    else selected.locked.id
+                    if selected.locked is not None
+                    else None
+                )
+                if plugin_id is None:
+                    raise UnknownIdentityError(
+                        f"Plugin identity is unavailable: {alias}"
+                    )
+                cleared = self.plugin_preferences.clear(plugin_id)
+                return {
+                    **self.plugins.summary(),
+                    "preferences_cleared": cleared,
+                }
             raise ParameterError(f"unknown plugin action: {action}")
 
     def plugin_asset(self, digest: str, relative: str) -> Path:

@@ -211,9 +211,17 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .plugin-surface.is-compact { border: 0; }
 .plugin-surface-header { min-width: 0; padding: 0 var(--kt-sp-3); border-bottom: var(--kt-shp-border) solid var(--kt-c-b-default); background: color-mix(in srgb, var(--kt-c-s-panel) 92%, var(--kt-c-s-workspace)); }
 .plugin-surface-title { margin: 0; font-size: var(--kt-t-s-meta); line-height: var(--kt-t-lh-body); }
-.plugin-surface-state { grid-row: 2; min-height: 0; overflow: auto; }
-.plugin-frame { display: none; grid-row: 2; width: 100%; height: 100%; min-height: 0; border: 0; background: var(--kt-c-s-editor); }
+.plugin-surface-body { display: grid; min-height: 0; overflow: hidden; }
+.plugin-surface-body.has-verified-results { grid-template-columns: minmax(0,1fr) minmax(var(--kt-sz-280),34%); }
+.plugin-surface-state { min-height: 0; overflow: auto; }
+.plugin-frame { display: none; width: 100%; height: 100%; min-height: 0; border: 0; background: var(--kt-c-s-editor); }
 .plugin-frame.is-ready { display: block; }
+.plugin-verified-results { min-height: 0; overflow: auto; border-left: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-raised); }
+.plugin-verified-result { padding: var(--kt-sp-3); border-bottom: var(--kt-shp-border) solid var(--kt-c-b-default); }
+.plugin-verified-result.is-stale { background: var(--kt-c-st-warning-surface); }
+.plugin-verified-value { padding: var(--kt-sp-2); border: var(--kt-shp-border) solid var(--kt-c-b-soft); background: var(--kt-c-s-panel); }
+.plugin-surface.is-compact .plugin-surface-body.has-verified-results { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(var(--kt-sz-240),1fr) auto; }
+.plugin-surface.is-compact .plugin-verified-results { max-height: var(--kt-sz-240); border-top: var(--kt-shp-border) solid var(--kt-c-b-default); border-left: 0; }
 .plugin-document-projection { min-height: 0; overflow: hidden; }
 .plugin-document-switch { border-bottom: var(--kt-shp-border) solid var(--kt-c-b-default); background: var(--kt-c-s-panel); }
 .plugin-document-projection > .plugin-surface { min-height: 0; }

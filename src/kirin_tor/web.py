@@ -21,7 +21,15 @@ from pathlib import Path
 from typing import Optional
 
 from .diagnostics import author_error_payload
-from .errors import KTError, ParameterError, WorkspaceError
+from .errors import (
+    InvalidRequestError,
+    KTError,
+    LimitExceededError,
+    ParameterError,
+    UnknownIdentityError,
+    WorkspaceError,
+)
+from .limits import MAX_PLUGIN_JOBS_PER_CONTRIBUTION, MAX_WORKBENCH_OPERATION_JOBS
 from .workbench import Workbench
 from .workbench_preferences import save_default_workspace
 from .workspace import Workspace
@@ -45,6 +53,41 @@ def _operation_job_entry(result_queue, root: str, operation: str, payload: dict,
         })
 
 
+def _plugin_operation_job_entry(
+    result_queue,
+    root: str,
+    action: str,
+    payload: dict,
+    overlays: dict,
+) -> None:
+    if os.name == "posix":
+        os.setsid()
+    try:
+        result_queue.put(
+            {
+                "kind": "result",
+                "result": Workbench(Path(root)).plugin_operation(
+                    action, payload, overlays, for_job=True
+                ),
+            }
+        )
+    except KTError as exc:
+        result_queue.put(
+            {"kind": "error", "error": author_error_payload(exc, Path(root))}
+        )
+    except BaseException as exc:  # process boundary serializes unexpected failures
+        result_queue.put(
+            {
+                "kind": "error",
+                "error": {
+                    "status": "error",
+                    "code": "operation_failed",
+                    "message": str(exc),
+                },
+            }
+        )
+
+
 class OperationJobManager:
     """Own cancellable workbench operation processes for the local web session."""
 
@@ -61,16 +104,69 @@ class OperationJobManager:
             job["queue"].close()
 
     def start(self, operation: str, payload: object, overlays: object) -> dict:
+        return self._start(
+            operation,
+            payload,
+            overlays,
+            worker=_operation_job_entry,
+            owner=None,
+        )
+
+    def start_plugin(
+        self,
+        owner: str,
+        action: str,
+        payload: object,
+        overlays: object,
+    ) -> dict:
+        if not owner or len(owner) > 600:
+            raise InvalidRequestError("plugin job owner is invalid")
+        Workbench(self.root).validate_plugin_operation(
+            action,
+            dict(payload) if isinstance(payload, dict) else {},
+            dict(overlays) if isinstance(overlays, dict) else {},
+            for_job=True,
+        )
+        response = self._start(
+            action,
+            payload,
+            overlays,
+            worker=_plugin_operation_job_entry,
+            owner=owner,
+        )
+        response["status"] = "accepted"
+        return response
+
+    def _start(
+        self,
+        operation: str,
+        payload: object,
+        overlays: object,
+        *,
+        worker,
+        owner: Optional[str],
+    ) -> dict:
         with self._lock:
             self._prune()
             running = sum(job["state"] in {"queued", "running"} for job in self._jobs.values())
-            if running >= 8:
-                raise ParameterError("too many workbench operations are already running")
+            if running >= MAX_WORKBENCH_OPERATION_JOBS:
+                raise LimitExceededError(
+                    "too many workbench operations are already running"
+                )
+            if owner is not None:
+                owned = sum(
+                    job["state"] in {"queued", "running"} and job.get("owner") == owner
+                    for job in self._jobs.values()
+                )
+                if owned >= MAX_PLUGIN_JOBS_PER_CONTRIBUTION:
+                    raise LimitExceededError(
+                        "too many Plugin jobs are already running for this contribution"
+                    )
             job_id = uuid.uuid4().hex
             context = mp.get_context("spawn" if os.name == "nt" else "fork")
             result_queue = context.Queue(maxsize=1)
             process = context.Process(
-                target=_operation_job_entry,
+                target=worker,
                 args=(
                     result_queue,
                     str(self.root),
@@ -87,6 +183,7 @@ class OperationJobManager:
                 "state": "running",
                 "stage": "executing",
                 "started_at": time.time(),
+                "owner": owner,
                 "process": process,
                 "queue": result_queue,
             }
@@ -101,11 +198,11 @@ class OperationJobManager:
         job["error"] = message.get("error")
         job["finished_at"] = time.monotonic()
 
-    def status(self, job_id: str) -> dict:
+    def status(self, job_id: str, *, owner: Optional[str] = None) -> dict:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None:
-                raise ParameterError(f"unknown operation job: {job_id}")
+            if job is None or (owner is not None and job.get("owner") != owner):
+                raise UnknownIdentityError(f"unknown operation job: {job_id}")
             if job["state"] == "running":
                 message = None
                 try:
@@ -166,11 +263,11 @@ class OperationJobManager:
                 process.kill()
             process.join(timeout=1)
 
-    def cancel(self, job_id: str) -> dict:
+    def cancel(self, job_id: str, *, owner: Optional[str] = None) -> dict:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None:
-                raise ParameterError(f"unknown operation job: {job_id}")
+            if job is None or (owner is not None and job.get("owner") != owner):
+                raise UnknownIdentityError(f"unknown operation job: {job_id}")
             if job["state"] == "running":
                 self._terminate(job["process"])
                 job["state"] = "cancelled"
@@ -178,11 +275,11 @@ class OperationJobManager:
                 job["finished_at"] = time.monotonic()
                 job["error"] = {
                     "status": "error",
-                    "code": "operation_cancelled",
+                    "code": "job_cancelled" if job.get("owner") else "operation_cancelled",
                     "message": "operation was cancelled by the author",
                     "author_message": "操作已取消。",
                 }
-            return self.status(job_id)
+            return self.status(job_id, owner=owner)
 
     def has_running_jobs(self) -> bool:
         """Return whether a live operation still belongs to this workspace."""
@@ -529,6 +626,51 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 elif parsed.path == "/api/model":
                     result = self.server.workbench.model_action(
                         str(payload.get("action", "")), payload.get("payload"), overlays
+                    )
+                elif parsed.path == "/api/plugin/operation":
+                    result = self.server.workbench.plugin_operation(
+                        str(payload.get("action", "")),
+                        payload.get("payload"),
+                        overlays,
+                    )
+                elif parsed.path == "/api/plugin/job":
+                    job_action = str(payload.get("job_action", ""))
+                    owner = str(payload.get("owner", ""))
+                    if job_action == "start":
+                        result = self.server.operation_jobs.start_plugin(
+                            owner,
+                            str(payload.get("action", "")),
+                            payload.get("payload"),
+                            overlays,
+                        )
+                    elif job_action == "status":
+                        result = self.server.operation_jobs.status(
+                            str(payload.get("job_id", "")), owner=owner
+                        )
+                    elif job_action == "cancel":
+                        result = self.server.operation_jobs.cancel(
+                            str(payload.get("job_id", "")), owner=owner
+                        )
+                    else:
+                        raise ParameterError(
+                            f"unknown Plugin job action: {job_action}"
+                        )
+                elif parsed.path == "/api/plugin/storage":
+                    result = self.server.workbench.plugin_storage_action(
+                        str(payload.get("action", "")),
+                        payload.get("identity"),
+                        payload.get("payload"),
+                    )
+                elif parsed.path == "/api/plugin/proposal":
+                    result = self.server.workbench.plugin_proposal(
+                        payload.get("identity"),
+                        payload.get("payload"),
+                        overlays,
+                    )
+                elif parsed.path == "/api/plugin/proposal/revalidate":
+                    result = self.server.workbench.revalidate_plugin_proposal(
+                        payload.get("payload"),
+                        overlays,
                     )
                 elif parsed.path == "/api/operation/job":
                     action = str(payload.get("action", ""))

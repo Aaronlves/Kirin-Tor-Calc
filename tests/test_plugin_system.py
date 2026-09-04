@@ -44,7 +44,7 @@ def _plugin(
         encoding="utf-8",
     )
     (web / "plugin.js").write_text(
-        'parent.postMessage({protocol:"kirin-workbench-plugin",api:2,type:"ready"}, "*");\n',
+        'parent.postMessage({protocol:"kirin-workbench-plugin",api:"2",type:"ready"}, "*");\n',
         encoding="utf-8",
     )
     manifest = {
@@ -170,20 +170,10 @@ def test_plugin_manifest_accepts_granular_workbench_bridge_permissions(
 ) -> None:
     root = _plugin(tmp_path / "plugin")
     raw = json.loads((root / "kirin.plugin.json").read_text(encoding="utf-8"))
-    raw["contributes"]["renderers"][0]["permissions"] = [
-        "workspace.summary",
-        "model.read",
-        "document.read",
-        "draft.read",
-        "draft.propose",
-        "source.navigate",
-        "operation.evaluate",
-        "operation.explain",
-        "operation.compare",
-        "operation.scan",
-        "operation.solve",
-        "operation.analyze",
-    ]
+    raw["contributes"]["renderers"][0]["permissions"] = sorted(
+        PLUGIN_PERMISSIONS
+    )
+    raw["storage"] = {"preferences": {"schema": 1}}
     (root / "kirin.plugin.json").write_text(
         json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -193,6 +183,22 @@ def test_plugin_manifest_accepts_granular_workbench_bridge_permissions(
     assert manifest.contributes.renderers[0].permissions == tuple(
         raw["contributes"]["renderers"][0]["permissions"]
     )
+
+
+def test_plugin_preference_permission_requires_a_manifest_storage_schema(
+    tmp_path: Path,
+) -> None:
+    root = _plugin(tmp_path / "plugin")
+    raw = json.loads((root / "kirin.plugin.json").read_text(encoding="utf-8"))
+    raw["contributes"]["renderers"][0]["permissions"].append(
+        "storage.preferences"
+    )
+    (root / "kirin.plugin.json").write_text(
+        json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(PluginError, match="requires storage.preferences.schema"):
+        load_plugin_manifest(root)
 
 
 def test_plugin_protocol_descriptor_is_the_self_consistent_public_contract() -> None:
@@ -208,10 +214,35 @@ def test_plugin_protocol_descriptor_is_the_self_consistent_public_contract() -> 
         for capability in descriptor["actions"].values()
     )
     assert all(
-        (capability["handler"] in {"host", "catalog"} and "operation" not in capability)
+        (
+            capability["handler"]
+            in {"host", "catalog", "job", "proposal", "result", "storage"}
+            and "operation" not in capability
+        )
         or (capability["handler"] == "operation" and capability.get("operation"))
         for capability in descriptor["actions"].values()
     )
+    assert all(
+        {
+            "execution",
+            "timeout_class",
+            "request_schema",
+            "result_schema",
+            "hard_limits",
+            "allow_unsaved_overlays",
+            "allow_durable_run",
+            "allow_artifacts",
+            "unload_policy",
+        }
+        <= set(capability)
+        for capability in descriptor["actions"].values()
+    )
+    assert descriptor["actions"]["analyze"]["execution"] == "job"
+    assert descriptor["actions"]["analyze"]["result_schema"]["$ref"].endswith("#/$defs/job")
+    assert descriptor["actions"]["evaluate"]["result_schema"]["$ref"].endswith(
+        "#/$defs/operationEnvelope"
+    )
+    assert descriptor["actions"]["evaluate-many"]["hard_limits"]["targets"] == 64
     assert descriptor["limits"]["max_comparison_variants"] == MAX_COMPARISON_VARIANTS == 8
     assert descriptor["limits"]["max_scan_points"] == MAX_SCAN_POINTS
     assert (
@@ -238,14 +269,14 @@ def test_workbench_plugin_adapter_covers_every_declared_action_once() -> None:
     handled = re.findall(r'if \(action === "([a-z-]+)"\)', source)
 
     assert set(handled) == {
-        name
-        for name, capability in PLUGIN_ACTIONS.items()
-        if capability["handler"] in {"host", "operation"}
+        name for name, capability in PLUGIN_ACTIONS.items() if capability["handler"] == "host"
     }
     assert len(handled) == len(set(handled))
-    assert source.count("controller.operation(operationName(),") == sum(
-        capability["handler"] == "operation" for capability in PLUGIN_ACTIONS.values()
-    )
+    assert 'capability.handler === "operation"' in source
+    assert "controller.pluginOperation(action, payload)" in source
+    assert 'capability.execution === "job"' in source
+    assert 'capability.handler === "job"' in source
+    assert "controller.pluginJob(" in source
     assert "controller.modelCatalog(action, payload)" in source
     assert any(
         capability["handler"] == "catalog"
