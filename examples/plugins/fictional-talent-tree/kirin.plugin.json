@@ -12,7 +12,7 @@
     }
   },
   "requires": {
-    "kirin_feature": "0.5",
+    "kirin_feature": "0.6",
     "interfaces": [
       {
         "id": "fictional.theorycraft-model",

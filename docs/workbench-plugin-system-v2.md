@@ -118,7 +118,7 @@ server sends `nosniff` and an explicit media type.
     "preferences": {"schema": 1}
   },
   "requires": {
-    "kirin_feature": "0.5",
+    "kirin_feature": "0.6",
     "interfaces": [
       {"id": "fictional.theorycraft-model", "revision": 2}
     ]

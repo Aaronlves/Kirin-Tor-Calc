@@ -4,6 +4,10 @@
 
 ## 0.6.0 — 2026-09-05
 
+- Declared Package compatibility with feature lines 0.3 through 0.6. Plugin feature requirements
+  remain exact; the reference Plugin now targets 0.6, and existing 0.5 Plugins require author
+  compatibility validation and an updated manifest before activation on 0.6.
+
 - Added source-declared bounded Process sweeps with named policy families, exact inclusive input
   grids, explicit candidate budgets, lexicographic Measure ranking, and retained per-case failures.
   Results distinguish exact ties from display rounding and only claim coverage of the declared grid.
