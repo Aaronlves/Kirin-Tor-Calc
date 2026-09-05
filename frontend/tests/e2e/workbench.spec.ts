@@ -80,6 +80,13 @@ test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
       await page.getByText("调整策略与扫描范围 · 当前 4 个候选", { exact: true }).click();
       await page.getByLabel("amounts actor.amount end").fill("4");
       await page.getByRole("checkbox", { name: "wait", exact: true }).uncheck();
+      const validation = page.waitForResponse((response) => response.url().endsWith("/api/validate"));
+      await page.getByRole("button", { name: /命令/ }).click();
+      await page.getByPlaceholder("搜索页面或命令…").fill("检查工作区");
+      await page.getByText("检查工作区", { exact: true }).click();
+      await validation;
+      await expect(page.getByLabel("amounts actor.amount end")).toHaveValue("4");
+      await expect(page.getByRole("checkbox", { name: "wait", exact: true })).not.toBeChecked();
       await page.getByRole("button", { name: "应用到源码草稿" }).click();
       await expect(page.getByRole("button", { name: "比较草稿" })).toBeEnabled();
       expect(starts).toBe(0);

@@ -15,7 +15,10 @@ export function SweepControls({ definition, source, readOnly, onChange }: {
   definition: SweepDefinition; source: string; readOnly: boolean; onChange(source: string): void;
 }) {
   const [draft, setDraft] = useState(definition);
-  useEffect(() => setDraft(definition), [definition]);
+  const definitionSignature = JSON.stringify(definition);
+  // Background index refreshes recreate the projection without changing source.
+  // Preserve pending edits unless the declaration itself actually changes.
+  useEffect(() => setDraft(definition), [definitionSignature]);
   const update = (index: number, values: Partial<Family>) => setDraft((old) => ({ ...old, families: old.families.map((f, i) => i === index ? { ...f, ...values } : f) }));
   const apply = () => {
     const lines = source.split("\n");
