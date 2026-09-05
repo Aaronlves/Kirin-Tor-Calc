@@ -13,8 +13,29 @@ from typing import Any, Callable, Tuple
 from .errors import KTError, MathTimeoutError, ParameterError
 from .limits import MAX_TIMEOUT_SECONDS
 
+_progress_sink = None
+
+
+def set_progress_sink(sink) -> None:
+    """Install a host-owned progress sink in the current worker process."""
+    global _progress_sink
+    _progress_sink = sink
+
+
+def report_progress(payload: dict) -> None:
+    if _progress_sink is not None:
+        _progress_sink(payload)
+
+
+def _queue_progress(result_queue, payload) -> None:
+    try:
+        result_queue.put_nowait(("progress", payload))
+    except queue.Full:
+        pass  # Progress is advisory; final results are never dropped.
+
 
 def _process_entry(result_queue, function: Callable, args: Tuple[Any, ...]) -> None:
+    set_progress_sink(lambda payload: _queue_progress(result_queue, payload))
     try:
         result_queue.put(("ok", function(*args)))
     except KTError as exc:
@@ -52,6 +73,10 @@ def run_with_timeout(
         while time.monotonic() < deadline:
             try:
                 message = result_queue.get(timeout=min(0.1, max(0.001, deadline - time.monotonic())))
+                if message[0] == "progress":
+                    report_progress(message[1])
+                    message = None
+                    continue
                 break
             except queue.Empty:
                 if not process.is_alive():

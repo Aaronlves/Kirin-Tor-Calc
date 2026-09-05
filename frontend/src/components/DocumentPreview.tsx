@@ -9,6 +9,7 @@ import type { WorkbenchController } from "../hooks/useWorkbench";
 import type { DocumentItem, DocumentProjection, OperationResult, PluginSurfaceContribution } from "../types";
 import { ChartCanvas } from "./ChartCanvas";
 import { ProcessChartCanvas } from "./ProcessChartCanvas";
+import { SweepControls, SweepResults, type SweepDefinition } from "./ProcessSweep";
 import { PluginSurface } from "./PluginSurface";
 import { EmptyState, LoadingState, TechnicalResult } from "./ui";
 
@@ -111,6 +112,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const [result, setResult] = useState<OperationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const sweepRequest = useRef(0);
   const [exportOpened, setExportOpened] = useState(false);
   const [exportOut, setExportOut] = useState("");
   const [exportDataOut, setExportDataOut] = useState("");
@@ -203,14 +205,33 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   }, [activeSymbolId, entryAnalysisSignature, entryAnalyses]);
 
   useEffect(() => {
+    sweepRequest.current += 1;
     setResult(null);
     setError(null);
     setExportResult(null);
     setProjection(null);
-  }, [source]);
+  }, [source, analysisTarget]);
 
   const selectedTarget = entryTargets.find((item) => item.value === target);
   const selectedAnalysis = entryAnalyses.find((item) => item.value === analysisTarget);
+  const isSweep = selectedAnalysis?.analysis_operation === "sweep";
+  const sweepDefinition = selectedAnalysis?.sweep as SweepDefinition | null | undefined;
+  const runSweep = async () => {
+    if (!analysisTarget || running || controller.validation?.status !== "ok") return;
+    const sequence = ++sweepRequest.current;
+    setRunning(true); setError(null); setResult(null);
+    try {
+      const next = await controller.operation("process_analysis", {
+        target: analysisTarget, include_trace: false, timeout: PROCESS_ANALYSIS_TIMEOUT_SECONDS,
+        ...(controller.dirtyCount === 0 ? { save_run: `sweep_${Date.now()}` } : {}),
+      });
+      if (sweepRequest.current === sequence) setResult(next);
+    } catch (caught) {
+      if (sweepRequest.current === sequence) setError(errorMessage(caught));
+    } finally {
+      if (sweepRequest.current === sequence) setRunning(false);
+    }
+  };
   const navigateToTargetSource = (targetId: string) => {
     const symbol = controller.authoringIndex.symbols.find((item) => item.id === targetId);
     if (!symbol) return;
@@ -241,6 +262,10 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const trialRunIdValid = /^[A-Za-z0-9_-]+$/.test(trialRunId.trim());
 
   useEffect(() => {
+    if (mode === "process" && isSweep) {
+      setRunning(false);
+      return;
+    }
     const canPreview = Boolean(
       entryId
       && controller.validation?.status === "ok"
@@ -291,7 +316,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
       active = false;
       window.clearTimeout(timer);
     };
-  }, [analysisTarget, controller.operation, controller.validation?.status, entryChartSignature, entryId, hasChart, hasTrial, mode, source, target, trialSignature]);
+  }, [analysisTarget, controller.operation, controller.validation?.status, entryChartSignature, entryId, hasChart, hasTrial, isSweep, mode, source, target, trialSignature]);
 
   const createPresetDraft = () => {
     const normalizedId = presetId.trim();
@@ -399,6 +424,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
   const processOperation = String(result?.analysis_operation ?? "—");
   const processCountLabel = (() => {
     if (!result) return "0 个结果";
+    if (processOperation === "sweep") return `${String(result.completed_cases)} 个候选`;
     if (processOperation === "optimize") return `${processVariants.length} 个方案`;
     if (processOperation === "compare" && Array.isArray(result.policies)) return `${result.policies.length} 个策略`;
     if ((processOperation === "run" || processOperation === "reach") && Array.isArray(result.outcomes)) {
@@ -460,6 +486,11 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
           {[entryTargets.length > 0, hasChart, entryAnalyses.length > 0].filter(Boolean).length > 1 && <SegmentedControl fullWidth size="xs" value={mode} onChange={(value) => { modeWasChosen.current = true; setMode(value as "result" | "chart" | "process"); setResult(null); }} data={[...(entryTargets.length ? [{ value: "result", label: "结果" }] : []), ...(hasChart ? [{ value: "chart", label: "图表" }] : []), ...(entryAnalyses.length ? [{ value: "process", label: "过程" }] : [])]} />}
           {mode === "result" && entryTargets.length > 1 && <Select label="查看结果" searchable value={target} onChange={(value) => { setTarget(value); setResult(null); }} data={entryTargets.map((item) => ({ value: item.value, label: `${item.group_label ? `${item.group_label} / ` : ""}${item.label}` }))} />}
           {mode === "process" && entryAnalyses.length > 1 && <Select label="过程分析" searchable value={analysisTarget} onChange={(value) => { setAnalysisTarget(value); setResult(null); }} data={entryAnalyses.map((item) => ({ value: item.value, label: item.label }))} />}
+          {mode === "process" && isSweep && sweepDefinition && <Stack gap="sm">
+            <SweepControls definition={sweepDefinition} source={source} readOnly={Boolean(document.read_only)} onChange={(text) => controller.updateBuffer(document.key, text)} />
+            <Group><Button loading={running} disabled={controller.validation?.status !== "ok"} onClick={() => { void runSweep(); }}>{controller.dirtyCount ? "比较草稿" : "比较并保存运行记录"}</Button><Text c="dimmed" fz="xs">{sweepDefinition.case_count} 个候选 · 可在顶部任务状态中取消</Text></Group>
+            <Text c="dimmed" fz="xs">修改参数不会自动启动批量计算。{controller.dirtyCount ? "当前有未保存草稿，本次比较不创建持久运行记录。" : "运行记录包含已保存源码快照。"}</Text>
+          </Stack>}
           {mode === "result" && relevantInputs.length > 0 && <Box className="preview-inputs trial-panel">
             <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">临时试算</Text><Text c="dimmed" fz="xs" mt={3}>只存在于当前会话；不会写入源码。</Text></Box><Badge variant="outline" color="gray">非权威</Badge></Group>
             <div className="trial-input-list">
@@ -475,7 +506,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
             <Group justify="space-between" mt="sm"><Button variant="subtle" color="gray" size="xs" disabled={!hasTrial} onClick={() => setTrialValues({})}>重置</Button><Group gap={6}><Button variant="default" size="xs" disabled={!hasTrial || document.read_only} onClick={() => setPresetOpened(true)}>生成 preset 草稿</Button><Button variant="default" size="xs" disabled={controller.dirtyCount > 0} onClick={() => setRunOpened(true)}>保存运行记录</Button></Group></Group>
             {controller.dirtyCount > 0 && <Text c="dimmed" fz="xs" mt={6}>保存全部草稿后，才能创建引用持久源码的运行记录。</Text>}
           </Box>}
-          {running && !result && <LoadingState label={mode === "chart" ? "正在生成图表…" : mode === "process" ? "正在搜索过程策略…" : "正在计算结果…"} />}
+          {running && !result && <LoadingState label={isSweep && mode === "process" ? "正在逐项计算声明的候选…" : mode === "chart" ? "正在生成图表…" : mode === "process" ? "正在搜索过程策略…" : "正在计算结果…"} />}
           {error && <Box className="inline-error compact"><Text fw={650}>投影未完成</Text><Text c="dimmed" fz="xs" mt={5}>{error}</Text></Box>}
           {result && mode === "result" && result.operation !== "compare" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}><Box><Group justify="space-between" wrap="nowrap"><Text className="result-label">{selectedTarget?.label || target}</Text>{selectedTarget?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedTarget.line, selectedTarget.column)}>定位结果源码</Button>}</Group><Text className="document-result-value">{displayedValue(result)}</Text><Group gap={6} mt="xs">{Boolean(result.unit) && <Badge variant="outline" color="gray">{String(result.unit)}</Badge>}<Code>{String(result.exact ?? "—")}</Code></Group></Box><TechnicalResult result={result} /></Stack>}
           {result && mode === "result" && result.operation === "compare" && <Stack gap="md" className={`document-result-preview${activeSymbolId === target ? " is-source-linked" : ""}`}>
@@ -493,8 +524,9 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
             <TechnicalResult result={result} />
           </Stack>}
           {result && mode === "process" && <Stack gap="md" className={`document-result-preview${activeSymbolId === analysisTarget ? " is-source-linked" : ""}`}>
-            <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">PROCESS ANALYSIS</Text><Text fw={650}>{selectedAnalysis?.label || analysisTarget}</Text></Box><Group gap={4}>{selectedAnalysis?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column)}>定位分析源码</Button>}<Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportProcessCharts(); }}>导出全部图表</Button></Group></Group>
+            <Group justify="space-between" wrap="nowrap"><Box><Text className="result-label">PROCESS ANALYSIS</Text><Text fw={650}>{selectedAnalysis?.label || analysisTarget}</Text></Box><Group gap={4}>{selectedAnalysis?.line && <Button variant="subtle" color="gray" size="compact-xs" leftSection={<Crosshair size={13} />} onClick={() => onNavigateToSource(document.key, selectedAnalysis.line, selectedAnalysis.column)}>定位分析源码</Button>}{processOperation !== "sweep" && <Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportProcessCharts(); }}>导出全部图表</Button>}</Group></Group>
             <Group gap={6}><Badge variant="light" color="green">{processCountLabel}</Badge><Badge variant="outline" color="gray">{processOperation}</Badge><Badge variant="outline" color="gray">{String(result.random_semantics ?? "deterministic_scenario")}</Badge>{Number(result.equivalent_states_merged ?? 0) > 0 && <Badge variant="outline" color="teal">精确合并 {String(result.equivalent_states_merged)}</Badge>}{result.explored_branches !== undefined && <Badge variant="outline" color="gray">搜索 {String(result.explored_branches)}</Badge>}</Group>
+            {processOperation === "sweep" && analysisTarget && <SweepResults key={`${analysisTarget}:${source}`} result={result} target={analysisTarget} controller={controller} />}
             {processOperation === "optimize" && <SimpleGrid cols={{ base: 1, lg: Math.min(2, Math.max(1, processVariants.length)) }}>
               {processVariants.map((variant) => {
                 const objectives = Array.isArray(variant.objectives) ? variant.objectives as Array<Record<string, unknown>> : [];
@@ -548,7 +580,7 @@ export function DocumentPreview({ controller, document, source, activeSymbolId =
                 </section>)}
               </div>
             </Box>}
-            <TechnicalResult result={result} />
+            {processOperation !== "sweep" && <TechnicalResult result={result} />}
           </Stack>}
           {result && mode === "chart" && <Stack gap="sm" className="document-chart-preview">
             <Group justify="space-between" wrap="nowrap"><Text className="result-label">静态图表 · {staticCharts.length}</Text>{staticCharts.length > 1 && <Button variant="default" size="xs" leftSection={<FileOutput size={13} />} loading={running} onClick={() => { void exportStaticCharts(); }}>导出全部图表</Button>}</Group>

@@ -433,7 +433,7 @@ _enriched_builtins.extend(
         value,
     )
     for value, detail, contexts, reference in (
-        *((value, "Analysis operation", ("analysis_operation",), "analysis") for value in ("run", "compare", "optimize", "reach", "steady", "cycle")),
+        *((value, "Analysis operation", ("analysis_operation",), "analysis") for value in ("run", "compare", "optimize", "reach", "steady", "cycle", "sweep")),
         *((value, "Analysis chart kind", ("analysis_chart_kind",), "analysis-chart") for value in ("trajectory", "decision_surface", "pareto", "variant_comparison")),
         *((value, "优化方向", ("analysis_chart_direction",), "analysis-chart") for value in ("maximize", "minimize")),
         *((value, "Analysis search method", ("analysis_search_method",), "analysis") for value in ("adaptive_dyadic", "exact_grid")),
@@ -753,7 +753,11 @@ def completion_site(source: str, line: int, column: int) -> CompletionSite:
         else:
             contexts = ("scenario_decl",)
     elif top_kind == "analysis":
-        if nearest == "search:":
+        if nearest.startswith("family "):
+            contexts = ("analysis_family", "reference")
+        elif nearest == "ranking:":
+            contexts = ("analysis_ranking", "reference")
+        elif nearest == "search:":
             if re.match(r"^\s*method\s*=", before):
                 contexts = ("analysis_search_method",)
             else:

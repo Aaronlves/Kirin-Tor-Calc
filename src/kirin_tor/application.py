@@ -63,6 +63,8 @@ class ChartOption:
     owner_id: Optional[str] = None
     line: Optional[int] = None
     column: Optional[int] = None
+    analysis_operation: Optional[str] = None
+    sweep: Optional[dict] = None
 
 
 @dataclass(frozen=True)
@@ -233,6 +235,19 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
         )
     analyses = []
     for analysis in sorted(workspace.analyses.values(), key=lambda item: item.qualified_id):
+        sweep = None
+        if analysis.sweep is not None:
+            ast = next(a for a in workspace.get_entry(analysis.owner_id).analysis_asts if a.id == analysis.id)
+            sweep = {
+                "case_count": analysis.sweep.case_count,
+                "maximum_cases": ast.sweep.maximum_cases.text,
+                "maximum_cases_line": ast.sweep.maximum_cases.location.line,
+                "policies": [p.id for p in workspace.scenarios[analysis.scenario_id].policies],
+                "families": [{"id": f.id, "policy": f.policy_id, "enabled": f.enabled,
+                              "line": f.location.line,
+                              "axes": [{"input": a.input_path, "line": a.start.location.line, "start": a.start.text, "end": a.end.text,
+                                        "step": a.step.text} for a in f.axes]} for f in ast.sweep.families],
+            }
         analyses.append(
             ChartOption(
                 value=analysis.qualified_id,
@@ -240,6 +255,8 @@ def build_workspace_index(workspace: Workspace) -> WorkspaceIndex:
                 owner_id=analysis.owner_id,
                 line=analysis.location.line if analysis.location else None,
                 column=analysis.location.column if analysis.location else None,
+                analysis_operation=analysis.operation,
+                sweep=sweep,
             )
         )
     return WorkspaceIndex(

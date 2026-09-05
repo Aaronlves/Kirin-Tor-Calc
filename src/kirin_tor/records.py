@@ -243,6 +243,7 @@ def _execute_record(record: dict, workspace: Workspace) -> dict:
             workspace,
             request["target"],
             include_trace=request.get("include_trace", True),
+            case_id=request.get("case_id"),
             timeout_seconds=request["timeout_seconds"],
         )
     if operation == "compare":

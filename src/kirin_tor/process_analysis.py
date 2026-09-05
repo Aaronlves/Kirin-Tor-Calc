@@ -2167,6 +2167,9 @@ def execute_process_analysis(
         raise ProcessExecutionError("analysis/scenario identity mismatch", analysis.location)
     if analysis.operation == "optimize":
         return _optimize(analysis, scenario, registry, include_trace)
+    if analysis.operation == "sweep":
+        from .process_sweep import execute_sweep
+        return execute_sweep(analysis, scenario, registry)
     if analysis.operation == "compare":
         comparisons = []
         for policy_id in analysis.policy_ids:
@@ -2492,6 +2495,7 @@ def process_analysis_result_data(
     """Convert exact result objects to the stable JSON/record projection."""
 
     objective_declarations = {item.id: item for item in scenario.objectives}
+    from .process_sweep import SweepAnalysisResult, sweep_result_data
     base = {
         "status": "ok",
         "operation": "process_analysis",
@@ -2524,6 +2528,10 @@ def process_analysis_result_data(
             | {instance.process.owner_id for instance in scenario.instances}
         ),
     }
+    if isinstance(result, SweepAnalysisResult):
+        base.update(sweep_result_data(result, analysis, scenario))
+        base["random_semantics"] = "numeric_expectation_boolean_all_paths"
+        return base
     if analysis.search_method is not None:
         base["search"] = {
             "method": analysis.search_method,

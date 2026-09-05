@@ -1,0 +1,58 @@
+@kirin 2
+@entry sweep_demo "策略参数扫描（虚构）"
+@status "example_only"
+
+----
+完全虚构的计数器。策略和参数范围由本文件声明；浏览器调整控件只生成普通源码草稿。
+排名只覆盖启用的策略族与明确网格，数值指标按精确期望排序。
+----
+
+process counter:
+  input amount: dimensionless = 1 in 0..10
+  state value: dimensionless = 0
+  event input add()
+  on add():
+    next value = value + amount
+  observe current: dimensionless = value
+
+scenario trial:
+  phases:
+    - decision
+  use actor = counter:
+  action add:
+    send actor.add() phase decision
+  policy adding:
+    choose add when actor.current < 20
+    otherwise wait
+  policy waiting:
+    otherwise wait
+  decide every 1 second from 1 second phase decision:
+    - add
+    - wait
+  measure total: dimensionless = final(actor.current)
+  bounds:
+    horizon = 2 second
+    maximum_events = 10
+    maximum_decisions = 10
+    maximum_branches = 10
+    maximum_entities = 1
+
+analysis comparison "固定策略与参数比较":
+  using = trial
+  operation = sweep
+  maximum_cases = 10
+  ranking:
+    - maximize total
+  family amounts:
+    enabled = true
+    policy = adding
+    vary actor.amount from 1 to 3 step 1
+  family wait:
+    enabled = true
+    policy = waiting
+  chart trace "累计数值":
+    kind = trajectory
+    series:
+      - actor.current
+    markers:
+      - decision add

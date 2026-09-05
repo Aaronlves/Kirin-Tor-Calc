@@ -505,18 +505,87 @@
         "id": "analysis",
         "name": "analysis",
         "kind": "分析请求",
-        "signature": "analysis ID [\"LABEL\"]:\n  using = SCENARIO\n  operation = OPERATION\n  [policy = POLICY | policies: ...]\n  [objectives: ...]\n  [variants: ...]\n  [target = EXPRESSION]\n  [search: ...]\n  [chart ...]",
+        "signature": "analysis ID [\"LABEL\"]:\n  using = SCENARIO\n  operation = OPERATION\n  [policy = POLICY | policies: ...]\n  [objectives: ...]\n  [variants: ...]\n  [target = EXPRESSION]\n  [search: ...]\n  [chart ...]\\n[operation = sweep: maximum_cases, ranking, family ...]",
         "summary": "声明可重放的 Process 分析请求及其选择、搜索和图表配置。",
         "context": "Entry 顶层；using 与 operation 必填",
         "fields": [
-          { "name": "using", "requirement": "必填一次", "value": "SCENARIO 或 ENTRY.SCENARIO", "default": "—", "description": "选择要降低和执行的 Scenario。" },
-          { "name": "operation", "requirement": "必填一次", "value": "run | compare | optimize | reach | steady | cycle", "default": "—", "description": "选择分析语义；随机固定/事件/条件决策的 optimize 使用精确可观测状态动态规划。" },
-          { "name": "policy", "requirement": "可选一次", "value": "Policy ID", "default": "未选择", "description": "单个 Policy；与 policies 互斥。" },
-          { "name": "policies", "requirement": "可选一次且非空", "value": "- POLICY 列表", "default": "未选择", "description": "供 compare 等操作选择多个 Policy。" },
-          { "name": "objectives", "requirement": "optimize 必填", "value": "- OBJECTIVE 非空列表", "default": "—", "description": "只允许用于 optimize；其他 operation 禁止声明。" },
-          { "name": "variants", "requirement": "optimize 可选", "value": "- VARIANT 非空列表", "default": "基线 Scenario", "description": "当前只允许用于 optimize，并按变体分别执行分析。" },
-          { "name": "target", "requirement": "reach 条件必填", "value": "布尔表达式", "default": "Scenario stop 条件", "description": "只允许用于 reach；若 Scenario 没有 stop 条件则必须声明。" },
-          { "name": "search", "requirement": "连续时点 optimize 必填", "value": "method、time_tolerance 或 time_grid、maximum_evaluations", "default": "—", "description": "adaptive_dyadic 使用 time_tolerance 并返回 best_found；exact_grid 使用零点锚定的 time_grid，完整枚举成功时返回 exact_global。" }
+          {
+            "name": "using",
+            "requirement": "必填一次",
+            "value": "SCENARIO 或 ENTRY.SCENARIO",
+            "default": "—",
+            "description": "选择要降低和执行的 Scenario。"
+          },
+          {
+            "name": "operation",
+            "requirement": "必填一次",
+            "value": "run | compare | optimize | reach | steady | cycle | sweep",
+            "default": "—",
+            "description": "选择分析语义；随机固定/事件/条件决策的 optimize 使用精确可观测状态动态规划。"
+          },
+          {
+            "name": "policy",
+            "requirement": "可选一次",
+            "value": "Policy ID",
+            "default": "未选择",
+            "description": "单个 Policy；与 policies 互斥。"
+          },
+          {
+            "name": "policies",
+            "requirement": "可选一次且非空",
+            "value": "- POLICY 列表",
+            "default": "未选择",
+            "description": "供 compare 等操作选择多个 Policy。"
+          },
+          {
+            "name": "objectives",
+            "requirement": "optimize 必填",
+            "value": "- OBJECTIVE 非空列表",
+            "default": "—",
+            "description": "只允许用于 optimize；其他 operation 禁止声明。"
+          },
+          {
+            "name": "variants",
+            "requirement": "optimize 可选",
+            "value": "- VARIANT 非空列表",
+            "default": "基线 Scenario",
+            "description": "当前只允许用于 optimize，并按变体分别执行分析。"
+          },
+          {
+            "name": "target",
+            "requirement": "reach 条件必填",
+            "value": "布尔表达式",
+            "default": "Scenario stop 条件",
+            "description": "只允许用于 reach；若 Scenario 没有 stop 条件则必须声明。"
+          },
+          {
+            "name": "search",
+            "requirement": "连续时点 optimize 必填",
+            "value": "method、time_tolerance 或 time_grid、maximum_evaluations",
+            "default": "—",
+            "description": "adaptive_dyadic 使用 time_tolerance 并返回 best_found；exact_grid 使用零点锚定的 time_grid，完整枚举成功时返回 exact_global。"
+          },
+          {
+            "name": "maximum_cases",
+            "requirement": "sweep 必填",
+            "value": "1..10000 的精确整数",
+            "default": "—",
+            "description": "所有启用策略族的笛卡尔积候选总数不得超过预算。"
+          },
+          {
+            "name": "ranking",
+            "requirement": "sweep 必填",
+            "value": "- maximize|minimize MEASURE",
+            "default": "—",
+            "description": "按顺序作精确字典序排名；数值取期望，布尔要求全部路径成立；不证明任意策略全局最优。"
+          },
+          {
+            "name": "family",
+            "requirement": "sweep 至少一个启用族",
+            "value": "family ID: enabled = true|false; policy = POLICY; vary INPUT from START to END step STEP",
+            "default": "enabled = true",
+            "description": "源内策略与精确数值网格；范围含两端且必须整除。没有 vary 的族只运行一个案例。"
+          }
         ]
       },
       {

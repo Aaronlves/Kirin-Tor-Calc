@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.0 — 2026-09-05
+
+- Added source-declared bounded Process sweeps with named policy families, exact inclusive input
+  grids, explicit candidate budgets, lexicographic Measure ranking, and retained per-case failures.
+  Results distinguish exact ties from display rounding and only claim coverage of the declared grid.
+- Added workbench controls that edit the same source draft, explicit comparison runs, completed-case
+  progress and cancellation, paginated rankings, and on-demand candidate trajectories.
+- Unified sweeps and individual candidate replay through `kt analyze`, including `--case FAMILY/INDEX`
+  and immutable run records with embedded source snapshots. Added the native finite batch API and
+  a source-authored example without introducing external simulation rules.
+
 ## 0.5.0 — 2026-09-05
 
 - Completed Plugin platform Phase 3 with contribution-scoped host result handles and adjacent

@@ -1484,6 +1484,7 @@ class Workbench:
                     str(payload.get("target", "")),
                     include_trace=include_trace,
                     timeout_seconds=timeout,
+                    case_id=payload.get("case_id"),
                 )
                 return record_operation(
                     workspace,
@@ -1495,6 +1496,7 @@ class Workbench:
                         request["target"],
                         include_trace=include_trace,
                         timeout_seconds=timeout,
+                        case_id=request.get("case_id"),
                     ),
                 )
 

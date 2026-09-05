@@ -266,6 +266,31 @@ class ScenarioIR:
 
 
 @dataclass(frozen=True)
+class SweepAxisIR:
+    instance_id: str
+    input_id: str
+    start: Fraction
+    step: Fraction
+    count: int
+
+
+@dataclass(frozen=True)
+class SweepFamilyIR:
+    id: str
+    policy_id: str
+    axes: Tuple[SweepAxisIR, ...]
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
+class SweepIR:
+    maximum_cases: int
+    case_count: int
+    families: Tuple[SweepFamilyIR, ...]
+    ranking: Tuple[Tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
 class AnalysisIR:
     owner_id: str
     id: str
@@ -282,6 +307,7 @@ class AnalysisIR:
     charts: Tuple["AnalysisChartIR", ...] = ()
     target: Optional[TypedExpressionIR] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
+    sweep: Optional[SweepIR] = None
 
     @property
     def qualified_id(self) -> str:

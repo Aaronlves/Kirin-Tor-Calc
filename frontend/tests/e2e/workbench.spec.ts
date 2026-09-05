@@ -62,6 +62,45 @@ async function selectWorkspaceProfile(page: Page, name: string) {
 }
 
 test.describe.serial("Kirin Tor 浏览器工作台交互", () => {
+  test("声明式策略扫描可编辑范围、显式运行并联动候选轨迹", async ({ page }) => {
+    const sourcePath = resolve(".e2e-workspace", "entries", "策略扫描.kirin");
+    const original = await readFile(sourcePath, "utf8");
+    let starts = 0;
+    page.on("request", (request) => {
+      if (!request.url().endsWith("/api/operation/job") || request.method() !== "POST") return;
+      const body = request.postDataJSON();
+      if (body?.action === "start" && body?.payload?.target === "sweep_demo.comparison") starts += 1;
+    });
+    try {
+      await openWorkbench(page);
+      await page.getByRole("button", { name: /^策略参数扫描（虚构） entries\/策略扫描\.kirin/ }).click();
+      await page.getByRole("tab", { name: "预览", exact: true }).click();
+      await expect(page.getByRole("button", { name: "比较并保存运行记录" })).toBeVisible();
+      expect(starts).toBe(0);
+      await page.getByText("调整策略与扫描范围 · 当前 4 个候选", { exact: true }).click();
+      await page.getByLabel("amounts actor.amount end").fill("4");
+      await page.getByRole("checkbox", { name: "wait", exact: true }).uncheck();
+      await page.getByRole("button", { name: "应用到源码草稿" }).click();
+      await expect(page.getByRole("button", { name: "比较草稿" })).toBeEnabled();
+      expect(starts).toBe(0);
+      const editor = page.getByRole("textbox", { name: "Kirin Tor 源码：策略参数扫描（虚构）" });
+      await expect(editor).toContainText("to 4 step 1");
+      await page.getByRole("button", { name: "比较草稿" }).click();
+      await expect(page.getByText("指定策略与网格范围内的比较", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "查看 amounts/4", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "查看 amounts/4", exact: true }).click();
+      await expect(page.getByText("候选 amounts/4", { exact: true })).toBeVisible();
+      await expect(page.locator(".chart-canvas")).toBeVisible();
+      await page.getByRole("button", { name: "保存全部", exact: true }).click();
+      await expect(page.getByRole("button", { name: "比较并保存运行记录" })).toBeEnabled();
+      await page.getByRole("button", { name: "比较并保存运行记录" }).click();
+      await expect(page.getByText("指定策略与网格范围内的比较", { exact: true })).toBeVisible();
+      await expect.poll(async () => (await readFile(sourcePath, "utf8"))).toContain("to 4 step 1");
+    } finally {
+      await writeFile(sourcePath, original, "utf8");
+    }
+  });
+
   test.afterEach(async ({ request }) => {
     await request.post("/api/recovery", {
       headers: { "X-Kirin-Token": "kirin-e2e-token" },

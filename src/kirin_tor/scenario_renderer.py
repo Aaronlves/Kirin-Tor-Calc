@@ -196,6 +196,14 @@ def render_analysis_ast(analysis: AnalysisAst) -> List[str]:
     if analysis.variant_ids:
         lines.append("  variants:")
         lines.extend(f"    - {variant_id}" for variant_id in analysis.variant_ids)
+    if analysis.sweep is not None:
+        lines.append(f"  maximum_cases = {_expression(analysis.sweep.maximum_cases)}")
+        lines.append("  ranking:")
+        lines.extend(f"    - {direction} {measure}" for measure, direction in analysis.sweep.ranking)
+        for family in analysis.sweep.families:
+            lines.extend([f"  family {family.id}:", f"    enabled = {'true' if family.enabled else 'false'}", f"    policy = {family.policy_id}"])
+            for axis in family.axes:
+                lines.append(f"    vary {axis.input_path} from {_expression(axis.start)} to {_expression(axis.end)} step {_expression(axis.step)}")
     if analysis.search_method is not None:
         lines.append("  search:")
         lines.append(f"    method = {analysis.search_method}")

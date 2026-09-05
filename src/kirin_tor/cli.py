@@ -787,6 +787,7 @@ def eval_command(
 @app.command("analyze")
 def process_analysis_command(
     target: str,
+    case_id: Optional[str] = typer.Option(None, "--case", help="Replay one declared sweep case with its trajectory."),
     no_trace: bool = typer.Option(False, "--no-trace", help="Omit event trace details."),
     timeout: float = typer.Option(DEFAULT_TIMEOUT_SECONDS, "--timeout"),
     save_run_id: Optional[str] = typer.Option(None, "--save-run"),
@@ -806,6 +807,7 @@ def process_analysis_command(
             target,
             include_trace=not no_trace,
             timeout_seconds=timeout,
+            case_id=case_id,
         )
         result = _recorded_compute(
             workspace,
@@ -817,6 +819,7 @@ def process_analysis_command(
                 target,
                 include_trace=not no_trace,
                 timeout_seconds=timeout,
+                case_id=case_id,
             ),
         )
         if export_charts:
@@ -881,6 +884,9 @@ def process_analysis_command(
             )
         elif operation == "compare":
             summary = f"已比较 {len(result['policies'])} 个策略"
+        elif operation == "sweep":
+            summary = (f"已计算 {result['completed_cases']}/{result['planned_cases']} 个声明候选；"
+                       f"失败 {result['failed_cases']}；排名仅覆盖声明的策略与网格")
         else:
             outcome_states = len(result["outcomes"])
             source_paths = result.get("source_path_count", outcome_states)

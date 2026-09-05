@@ -27,6 +27,7 @@ Scenario 中组合状态、精确时间、事件、动作、flow、约束、Meas
 | 有限随机路径 | Process branch | 按批次检查点展开并计算逐路径 Measure 与严格输出期望；Measure 感知的等价状态可精确合并 |
 | 可达、稳态、周期 | Process `reach` / `steady` / `cycle` Analysis | 只接受满足相应证明前提的有界模型 |
 | 多方案与多目标 | Scenario variant、Measure、Objective | 每个 variant × objective 独立优化并返回全部并列最优 |
+| 固定策略的有限参数批次 | `analysis operation = sweep`；底层 `process_batch.run_process_batch` API | 源内声明策略族、精确网格和排序；CLI/工作台复用，保留逐项失败，不自动证明全局最优 |
 | 静态公式接入过程 | Scenario 常量引用 `ENTRY.FIELD/OUTPUT` | 只读源码默认值；须为精确有理数/布尔值并遵守 Package 依赖 |
 | 轨迹与策略权衡图 | Analysis 多 chart | run/compare/optimize/reach/cycle 轨迹和搜索图都是只读投影 |
 | 多层静态属性 | 封闭 `type` 对象 | 未知或缺失属性失败 |

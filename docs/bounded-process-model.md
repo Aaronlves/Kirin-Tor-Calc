@@ -267,6 +267,7 @@ Scenario 的常量位置（包括实例 input、variant、时点、周期和 fue
 
 - `run`：执行一个确定策略，返回最终状态和可选 trace；
 - `compare`：对有限个明确策略运行同一场景；
+- `sweep`：枚举源中声明的策略族与精确参数网格，保留失败项并按 Measure 排序；
 - `optimize`：在有限 action 分支中按声明目标搜索，并记录剪枝与并列规则；
 - `reach`：计算终止状态或目标条件的有限可达性；
 - `steady`：只接受可证明为有限离散马尔可夫模型的 process；
@@ -286,6 +287,41 @@ output event 和引擎时间，不读 Process 私有 state。内核提供 `final
 两套参数或天赋由具名 Scenario input variant 表达。Variant 只能覆盖实例公开 input；它不复制或修改
 Process 私有状态、Measure 或 Objective。Analysis 为每个 variant 分别优化，返回 variant × objective
 结构，而不是先求一套策略再强制复用。
+
+程序调用方可使用 `kirin_tor.process_batch.run_process_batch`，在同一已加载 Scenario 上执行
+有限个“源内具名 Policy + 实例 input 覆盖 + 可选较短 horizon”的案例。机制与 Measure 始终来自
+`.kirin`，调用方只枚举参数，不另写状态转移：
+
+```python
+from fractions import Fraction
+from kirin_tor.process_batch import ProcessBatchCase, run_process_batch
+
+cases = [
+    ProcessBatchCase("default", "adding"),
+    ProcessBatchCase("half", "adding", (("actor", "amount", Fraction(1, 2)),)),
+]
+for result in run_process_batch(scenario, workspace.units, cases, maximum_cases=100):
+    if result.error:
+        print(result.case.id, result.error)
+    else:
+        print(result.case.id, result.outcomes, result.measure_expectations)
+```
+
+例中的 `adding` 与 `actor.amount` 必须已由源声明。批次必须非空、case id 唯一，显式
+`maximum_cases` 在 1..10000 内；输入类型、域与 requirement 仍由执行器检查，浮点数不会被
+自动转换为精确值。horizon 使用基本时间单位的 Fraction，只能缩短源中上限，各项事件、决策、
+分支预算保持不变。批次枚举本身不授予 Community Package 宿主执行能力。
+
+API 按输入顺序逐项返回精确概率与逐路径 Measure、数值 Measure 的精确期望，以及各项失败的
+错误码和原因；布尔 Measure 保留在逐路径结果中，不自动当成数值期望。失败项不会阻止后续
+案例，也不能从报告中静默删除。基础设施或程序异常不伪装成模型失败。
+返回值为紧凑结果，不保留完整轨迹；需要轨迹与标准 source snapshot 运行记录时，使用具名
+Analysis 的 `kt analyze --save-run`。批量 API 本身不写文件、不并行调度、不进行排名或证明全局
+最优；直接使用此底层 API 的调用方负责总预算、进度、快照及已声明的排序规则。
+通常应优先使用源内 `operation = sweep`，以 `maximum_cases`、`ranking` 和一个或多个 `family`
+声明完整实验；CLI、运行记录和工作台均复用此声明，详见语法文档。工作台范围控件只修改普通
+源码草稿，点击比较才执行；任务状态报告真实完成项数，并可取消。候选轨迹按需单独重放。
+全部案例成功执行，只证明这些明确案例的结果，不能扩大为任意参数或任意策略的最优性。
 
 一个 Analysis 可以声明多张派生图。轨迹图可投影 `run`、`compare`、`optimize`、`reach` 或 `cycle`
 运行的公开 observation，并可标记公开事件和 action；搜索图读取有界候选的动作时点与 Measure，形成

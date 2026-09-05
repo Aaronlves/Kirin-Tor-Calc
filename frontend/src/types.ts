@@ -604,6 +604,7 @@ export interface OperationResult {
 }
 
 export interface OperationJobStatus {
+  progress?: { stage: string; completed: number; total: number };
   status: "ok" | "accepted";
   job_id: string;
   operation: string;

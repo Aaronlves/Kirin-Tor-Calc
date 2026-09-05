@@ -301,7 +301,7 @@ analysis survival_search:
 connection, send, composite action, decision point, observation, stop condition, and mandatory
 fuel bound. It rejects statically enumerable batch conflicts, invalid phase mappings, overlapping
 decision points, and schedules that already exceed their declared event/decision fuel. `analysis`
-resolves `run`, `compare`, `optimize`, `reach`, `steady`, or `cycle` requests, typed trajectory
+resolves `run`, `compare`, `sweep`, `optimize`, `reach`, `steady`, or `cycle` requests, typed trajectory
 Measures, and named constrained lexicographic Objectives.
 
 Constant Scenario positions may reference a fully-qualified static scalar field or output. The
@@ -313,7 +313,7 @@ The deterministic runtime API executes a lowered scenario with exact time, simul
 snapshots, reducers, flow, guards, stable event IDs, keyed scheduling, state/domain checks, stop
 conditions, runtime fuel enforcement, and a replay-stable trace. A scenario with ambiguous decision
 choices requires an explicit selector; random branches are rejected by this deterministic path.
-`run`, source-Policy `compare`, bounded `optimize`, exact random `reach`, finite-state `steady`, and
+`run`, source-Policy `compare` and `sweep`, bounded `optimize`, exact random `reach`, finite-state `steady`, and
 exact repeated-state `cycle` are dispatched through `kt analyze ENTRY.ANALYSIS` and
 can be saved/replayed with embedded source snapshots. The finite optimizer returns every Measure for
 every tied optimal strategy of each selected Objective and labels exhaustive finite policy enumeration
@@ -323,6 +323,45 @@ variant/objective table, proof labels, traces, and multi-chart projections in th
 full contract and complete examples are documented in
 [有界 Process 模型](bounded-process-model.md) and
 [有界 Process 纸面模型](bounded-process-paper-models.md).
+
+A named `sweep` enumerates explicit source policies and exact input grids. It needs no external
+simulation or parameter-list script:
+
+```text
+analysis parameter_comparison:
+  using = trial
+  operation = sweep
+  maximum_cases = 1500
+  ranking:
+    - maximize survived
+    - maximize minimum_health
+  family threshold:
+    enabled = true
+    policy = threshold_policy
+    vary actor.threshold from 1/100 to 1 step 1/100
+  family baseline:
+    policy = baseline_policy
+```
+
+The referenced Scenario, Policies, instance inputs and Measures must exist. `maximum_cases` is an
+exact integer in 1..10000. Each inclusive axis must have a positive step that divides its range
+exactly, with the input's units and numeric type. Axes within a family form a Cartesian product;
+enabled families are concatenated. A family without axes contributes one case. `enabled` defaults
+to true; disabled families remain in source but contribute no cases. At least one family must be
+enabled. The total is checked before any enumeration or execution.
+
+Ranking is exact lexicographic comparison: numeric Measures use exact expectations; a boolean
+Measure is true only if all nonzero-probability outcomes are true. Input-domain and execution-fuel
+failures remain visible per case; rankings with failed cases are explicitly incomplete. A result
+only compares declared policies and grid points and is not labeled as an unrestricted global optimum.
+Display rounding never determines ties. `sweep` cannot combine with top-level policy/objective/variant
+selection or continuous-search controls. Its optional trajectory charts are generated on individual
+case replay, not for every case in the comparison response.
+
+Run it through `kt analyze ENTRY.ANALYSIS --timeout 3600 --save-run RUN_ID --json`. Replay an individual
+stable case identity with `--case FAMILY/INDEX` (one-based index, source axis order). The selected case
+is retained in run records. The workbench projects the same declaration into source-draft controls,
+an explicit comparison action, a paginated exact-ranking table and on-demand case trajectories.
 
 Besides `decide every`, a Scenario may use `decide after INSTANCE.PUBLIC_EVENT`, `decide when
 CONDITION`, or `decide continuously up to COUNT times from START until END`. Exact affine flow

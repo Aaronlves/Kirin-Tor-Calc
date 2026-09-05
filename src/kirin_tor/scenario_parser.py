@@ -45,6 +45,9 @@ from .scenario_ast import (
     ScenarioSendAst,
     ScenarioVariantAst,
     VariantInputAst,
+    SweepAst,
+    SweepAxisAst,
+    SweepFamilyAst,
 )
 
 
@@ -812,6 +815,44 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
                     base,
                 )
             continue
+        family = re.fullmatch(rf"family\s+({IDENTIFIER}):", text)
+        if family:
+            policy_id = None
+            enabled = None
+            axes = []
+            for setting in child.children:
+                policy = re.fullmatch(rf"policy\s*=\s*({IDENTIFIER})", setting.line.text)
+                axis = re.fullmatch(rf"vary\s+({IDENTIFIER}\.{IDENTIFIER})\s+from\s+(.+?)\s+to\s+(.+?)\s+step\s+(.+)", setting.line.text)
+                enable = re.fullmatch(r"enabled\s*=\s*(true|false)", setting.line.text)
+                if enable and enabled is None and not setting.children:
+                    enabled = enable.group(1) == "true"
+                elif policy and policy_id is None and not setting.children:
+                    policy_id = policy.group(1)
+                elif axis and not setting.children:
+                    axes.append(SweepAxisAst(axis.group(1), *(ExpressionAst(axis.group(i), _location(path, owner_id, setting, base)) for i in (2, 3, 4))))
+                else:
+                    _fail(path, owner_id, setting, "family requires one policy and vary INPUT from START to END step STEP", base)
+            if policy_id is None:
+                _fail(path, owner_id, child, "family requires policy", base)
+            values.setdefault("families", []).append(SweepFamilyAst(family.group(1), policy_id, tuple(axes), enabled is not False, _location(path, owner_id, child, base)))
+            continue
+        if text == "ranking:":
+            if "ranking" in values:
+                _fail(path, owner_id, child, "duplicate ranking", base)
+            ranking = []
+            for setting in child.children:
+                term = re.fullmatch(rf"-\s+(maximize|minimize)\s+({IDENTIFIER})", setting.line.text)
+                if not term or setting.children:
+                    _fail(path, owner_id, setting, "ranking requires - maximize|minimize MEASURE", base)
+                ranking.append((term.group(2), term.group(1)))
+            values["ranking"] = tuple(ranking)
+            continue
+        maximum = re.fullmatch(r"maximum_cases\s*=\s*(.+)", text)
+        if maximum and not child.children:
+            if "maximum_cases" in values:
+                _fail(path, owner_id, child, "duplicate maximum_cases", base)
+            values["maximum_cases"] = ExpressionAst(maximum.group(1), _location(path, owner_id, child, base))
+            continue
         if text == "policies:":
             if "policies" in values or "policy" in values:
                 _fail(path, owner_id, child, "analysis policies may be declared only once", base)
@@ -898,8 +939,15 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
     if "policy" in values and "policies" in values:
         _fail(path, owner_id, node, "use policy or policies, not both", base)
     operation = str(values["operation"])
-    if operation not in {"run", "compare", "optimize", "reach", "steady", "cycle"}:
+    if operation not in {"run", "compare", "optimize", "reach", "steady", "cycle", "sweep"}:
         _fail(path, owner_id, node, f"unknown analysis operation {operation!r}", base)
+    sweep = None
+    if any(key in values for key in ("families", "ranking", "maximum_cases")):
+        if operation != "sweep" or not all(values.get(key) for key in ("families", "ranking", "maximum_cases")):
+            _fail(path, owner_id, node, "sweep requires families, ranking and maximum_cases; these fields are exclusive to sweep", base)
+        sweep = SweepAst(values["maximum_cases"], tuple(values["families"]), values["ranking"])
+    elif operation == "sweep":
+        _fail(path, owner_id, node, "sweep requires families, ranking and maximum_cases", base)
     search = values.get("search", {})
     assert isinstance(search, dict)
     return AnalysisAst(
@@ -928,6 +976,7 @@ def _parse_analysis(node: _Node, path: Path, owner_id: str) -> AnalysisAst:
         tuple(charts),
         values.get("target") if isinstance(values.get("target"), ExpressionAst) else None,
         _location(path, owner_id, node, base),
+        sweep=sweep,
     )
 
 

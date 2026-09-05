@@ -38,8 +38,18 @@ from .workspace import Workspace
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 ASSET_ROOT = Path(__file__).resolve().parent / "web_assets"
 
+def _install_job_progress(result_queue) -> None:
+    from .timeout import set_progress_sink
+    def publish(payload):
+        try:
+            result_queue.put_nowait({"kind": "progress", "progress": payload})
+        except queue.Full:
+            pass
+    set_progress_sink(publish)
+
 
 def _operation_job_entry(result_queue, root: str, operation: str, payload: dict, overlays: dict) -> None:
+    _install_job_progress(result_queue)
     if os.name == "posix":
         os.setsid()
     try:
@@ -60,6 +70,7 @@ def _plugin_operation_job_entry(
     payload: dict,
     overlays: dict,
 ) -> None:
+    _install_job_progress(result_queue)
     if os.name == "posix":
         os.setsid()
     try:
@@ -221,7 +232,11 @@ class OperationJobManager:
                                 },
                             }
                 if message is not None:
-                    self._finish_from_message(job, message)
+                    if message.get("kind") == "progress":
+                        job["progress"] = message["progress"]
+                        job["stage"] = message["progress"]["stage"]
+                    else:
+                        self._finish_from_message(job, message)
             response = {
                 "status": "ok",
                 "job_id": job["id"],
@@ -233,6 +248,8 @@ class OperationJobManager:
             }
             if job.get("result") is not None:
                 response["result"] = job["result"]
+            if job.get("progress") is not None:
+                response["progress"] = job["progress"]
             if job.get("error") is not None:
                 response["error"] = job["error"]
             return response

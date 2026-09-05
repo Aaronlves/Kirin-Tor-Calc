@@ -51,7 +51,7 @@ def test_catalog_covers_declared_kinds_and_revision_bound_queries(
     revision = summary["revision"]
 
     assert set(summary["descriptor_kinds"]) == set(MODEL_DESCRIPTOR_KINDS)
-    assert summary["counts"]["entry"] == 7
+    assert summary["counts"]["entry"] == 8
     queried = workbench.model_action(
         "model.query",
         {"revision": revision, "kind": ["output"], "limit": 1},

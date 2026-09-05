@@ -294,10 +294,15 @@ def process_analysis_request(
     *,
     include_trace: bool = True,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    case_id: Optional[str] = None,
 ) -> dict:
     """Build the replayable request, including every effective search control."""
 
     analysis, scenario = _resolve_process_analysis(workspace, target)
+    if case_id is not None:
+        from .process_sweep import sweep_cases
+        if not isinstance(case_id, str) or analysis.sweep is None or case_id not in {c.id for c in sweep_cases(analysis)}:
+            raise ParameterError("case_id must identify a declared sweep case")
     request = {
         "target": target,
         "include_trace": include_trace,
@@ -338,11 +343,16 @@ def process_analysis_request(
             ),
             "pruning_approximation": None,
         }
+    if analysis.sweep is not None:
+        request["sweep"] = {"maximum_cases": analysis.sweep.maximum_cases, "case_count": analysis.sweep.case_count,
+                            "ranking": list(analysis.sweep.ranking), "scope": "declared_policy_grid"}
+    if case_id is not None:
+        request["case_id"] = case_id
     return request
 
 
 def _process_analysis_core(
-    workspace: Workspace, target: str, include_trace: bool
+    workspace: Workspace, target: str, include_trace: bool, case_id: Optional[str] = None
 ) -> dict:
     from .process_analysis import (
         execute_process_analysis,
@@ -350,10 +360,15 @@ def _process_analysis_core(
     )
 
     analysis, scenario = _resolve_process_analysis(workspace, target)
-    result = execute_process_analysis(
-        analysis, scenario, workspace.units, include_trace=include_trace
-    )
-    return process_analysis_result_data(result, analysis, scenario)
+    if case_id is None:
+        result = execute_process_analysis(analysis, scenario, workspace.units, include_trace=include_trace)
+    else:
+        from .process_sweep import execute_sweep_case
+        result = execute_sweep_case(analysis, scenario, workspace.units, case_id, include_trace)
+    data = process_analysis_result_data(result, analysis, scenario)
+    if case_id is not None:
+        data.update(analysis_operation="sweep_case", case_id=case_id)
+    return data
 
 
 def analyze_process(
@@ -362,12 +377,13 @@ def analyze_process(
     *,
     include_trace: bool = True,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    case_id: Optional[str] = None,
 ) -> dict:
     """Execute one source-declared bounded Process analysis."""
 
     return run_with_timeout(
         _process_analysis_core,
-        (workspace, target, include_trace),
+        (workspace, target, include_trace, case_id),
         timeout_seconds,
         maximum_timeout_seconds=MAX_PROCESS_ANALYSIS_TIMEOUT_SECONDS,
     )

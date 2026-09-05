@@ -410,7 +410,7 @@ export function WorkspaceShell({ activeView, activeTool, controller, compactNavi
                   {workspaceStatus === "工作区有效" ? "有效" : workspaceStatus}
                 </Badge>
               </Tooltip>
-              {controller.operationJobs.length > 0 && <Tooltip label={`${controller.operationJobs.map((job) => `${job.operation} · ${job.stage === "executing" ? "执行中" : job.stage}`).join("；")}。取消会终止对应计算进程。`}>
+              {controller.operationJobs.length > 0 && <Tooltip label={`${controller.operationJobs.map((job) => `${job.operation} · ${job.progress ? `${job.progress.completed}/${job.progress.total} 个候选` : job.stage === "executing" ? "执行中" : job.stage}`).join("；")}。取消会终止对应计算进程。`}>
                 <Button
                   variant="default"
                   color="orange"

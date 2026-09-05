@@ -46,6 +46,8 @@ uv tool upgrade kirin-tor-cli
 uv tool uninstall kirin-tor-cli
 ```
 
+策略参数比较可直接在 `.kirin` 中声明 `operation = sweep`，通过工作台调整范围、运行比较并查看候选轨迹；CLI 使用 `kt analyze ENTRY.ANALYSIS`，单候选使用 `--case FAMILY/INDEX`。参见[扫描语法](docs/kirin-syntax.md)和[工作台操作](docs/web-workbench.md)。
+
 也可以从 [GitHub Releases](https://github.com/Aaronlves/Kirin-Tor-Calc/releases) 下载 wheel，安装到自行管理的 Python 环境。
 
 ## 五分钟开始

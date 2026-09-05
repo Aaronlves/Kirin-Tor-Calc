@@ -1333,6 +1333,8 @@ def lower_analysis_asts(
             raise SchemaError(f"duplicate analysis {source.qualified_id!r}", source.location)
         seen.add(source.qualified_id)
         scenario = _resolve_path(source.owner_id, source.scenario_path, scenarios, "scenario")
+        from .process_sweep import lower_sweep
+        sweep = lower_sweep(source, scenario, registry, scenario_static_symbols(registry))
         symbols = {symbol.id: symbol for symbol in scenario.observation_symbols}
         target = (
             compile_process_expression(
@@ -1666,6 +1668,7 @@ def lower_analysis_asts(
                 tuple(charts),
                 target,
                 source.location,
+                sweep=sweep,
             )
         )
     return tuple(result)

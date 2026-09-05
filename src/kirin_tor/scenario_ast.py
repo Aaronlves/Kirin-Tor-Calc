@@ -229,6 +229,30 @@ class ScenarioAst:
 
 
 @dataclass(frozen=True)
+class SweepAxisAst:
+    input_path: str
+    start: ExpressionAst
+    end: ExpressionAst
+    step: ExpressionAst
+
+
+@dataclass(frozen=True)
+class SweepFamilyAst:
+    id: str
+    policy_id: str
+    axes: Tuple[SweepAxisAst, ...] = ()
+    enabled: bool = True
+    location: Optional[SourceLocation] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class SweepAst:
+    maximum_cases: ExpressionAst
+    families: Tuple[SweepFamilyAst, ...]
+    ranking: Tuple[Tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
 class AnalysisAst:
     owner_id: str
     id: str
@@ -245,6 +269,7 @@ class AnalysisAst:
     charts: Tuple["AnalysisChartAst", ...] = ()
     target: Optional[ExpressionAst] = None
     location: Optional[SourceLocation] = field(default=None, compare=False)
+    sweep: Optional[SweepAst] = None
 
     @property
     def qualified_id(self) -> str:
