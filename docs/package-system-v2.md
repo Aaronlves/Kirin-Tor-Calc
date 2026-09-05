@@ -103,7 +103,7 @@ Required fields are `schema`, `name`, `version`, `namespace`, `description`, `li
 - `description` and `license` are non-empty text. `license` should normally be an SPDX identifier.
 - `requires_kirin` names the exact `MAJOR.MINOR` feature line against which the Package was
   authored. A Kirin Tor release explicitly declares the Package feature lines it still supports;
-  Kirin Tor 0.5 supports `0.3`, `0.4`, and `0.5`. This is a tested backward-compatibility promise,
+  Kirin Tor 0.6 supports `0.3`, `0.4`, `0.5`, and `0.6`. This is a tested backward-compatibility promise,
   not an implicit acceptance of every older or future line. The current strict parser, dependency
   graph checks, and engine validation still apply before compatible Package content becomes active.
 - `game` and `game_version` are optional descriptive compatibility values. Entry-level

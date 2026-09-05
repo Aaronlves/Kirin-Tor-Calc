@@ -134,7 +134,7 @@ document_prefixes = []
 def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
     tmp_path: Path,
 ) -> None:
-    assert supported_package_feature_lines() == ("0.3", "0.4", "0.5")
+    assert supported_package_feature_lines() == ("0.3", "0.4", "0.5", "0.6")
 
     supported = _package(tmp_path / "supported")
     supported_manifest = supported / "kirin.package.toml"
@@ -156,7 +156,7 @@ def test_package_feature_line_compatibility_is_explicit_and_backward_compatible(
         ),
         encoding="utf-8",
     )
-    with pytest.raises(PackageError, match="supports Package lines 0.3, 0.4, 0.5"):
+    with pytest.raises(PackageError, match="supports Package lines 0.3, 0.4, 0.5, 0.6"):
         load_package_manifest(unsupported)
 
 
